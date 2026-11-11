@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kmanisk/bridge-dev/internal/config"
+	"github.com/kmanisk/bridge-dev/internal/connect"
 	"github.com/kmanisk/bridge-dev/internal/fsjail"
 	"github.com/kmanisk/bridge-dev/internal/identity"
 	"github.com/kmanisk/bridge-dev/internal/mcpserver"
 	"github.com/kmanisk/bridge-dev/internal/policy"
+	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"github.com/kmanisk/bridge-dev/internal/tasks"
 	"github.com/kmanisk/bridge-dev/internal/transport"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -72,6 +74,13 @@ func run(args []string) error {
 				args = args[1:]
 			}
 		}
+	}
+	if cmd == "connect" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		tty := prompt.Open()
+		defer tty.Close()
+		return connect.Run(ctx, args, os.Getenv, prompt.New(tty), os.Stderr, transport.Options{})
 	}
 	c, e := config.Load(args, os.Getenv)
 	if e != nil {

@@ -1,10 +1,11 @@
 # Phase 2 handoff
 
-M8 verified: module rename, reversible configuration preferences, pinned upstream
+M8/M9 verified: module rename, reversible configuration preferences, pinned upstream
 source comparison and local Git initialization. See REQUIREMENTS.md and NOTES.md.
 Current Phase 2 specification overrides old bans on local milestone commits and
 requests future authorized remote privilege; these changes are tracked explicitly
-in docs/SUPERSEDED_RESTRICTIONS.md. M9-M15 are not yet complete.
+in docs/SUPERSEDED_RESTRICTIONS.md. M10-M15 are not yet complete. Connect startup and wizard are implemented;
+terminal OAuth consent, approvals, privilege and tunnel recovery are next.
 
 The Phase 1 filesystem jail, official SDK, durable workers and local OAuth still
 pass full regression. Runtime requests remain on-demand. Do not create a remote,

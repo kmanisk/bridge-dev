@@ -108,3 +108,22 @@ docs/DESKTOP_COMMANDER_COMPARISON.md. No upstream code was copied or executed.
 Intentional replacements are listed in docs/SUPERSEDED_RESTRICTIONS.md.
 M8 make check, fuzz and all four CGO-free builds passed. Evidence under
 test-output/m8-*. No real tunnel or sudo was launched.
+
+## M9 - verified one-command startup foundation
+
+connect now runs doctor checks, asks a serialized terminal wizard on first use or
+reconfigure, saves preferences privately, reapplies flag/env precedence, starts
+loopback HTTP then the owned tunnel, establishes a canonical origin, verifies
+health/discovery/challenge before readiness, attempts clipboard copy and prints
+web-client instructions. Custom argv templates and explicit HTTPS origins are
+supported. No shell parsing of tunnel commands. Basic foreground events identify
+authenticated clients separately from self-reported names, first calls, denials,
+task completions and approaching idle exit. Background monitors join on shutdown.
+
+The shared Prompter coordinator was implemented here as an M10 dependency. OAuth
+terminal consent, ongoing tunnel restart and privileged connect authorization
+remain assigned to M10/M12/M14; no premature claim is made for those paths.
+Tests use scripted answers, fake clipboard/cloudflared and a loopback-only proxy
+that verifies public advertised metadata never contains 127.0.0.1/localhost.
+make check, fuzz (1,090,142 cases) and all four release builds passed. No public
+tunnel or real clipboard/client change was made during tests.

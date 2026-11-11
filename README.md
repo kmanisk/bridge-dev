@@ -273,3 +273,18 @@ change the Makefile binary/command path and `identity.EnvPrefix`,
 examples, protocol test helper paths, and docs. Persistent default state/config
 locations derive from `identity.Binary`. Preserve/migrate old state deliberately;
 OAuth issuer changes invalidate credentials. No repository name is assumed.
+
+## Phase 2 connect startup
+
+`./bin/bridge-dev connect` starts an interactive first-run wizard, then reuses
+preferences on later runs. `--reconfigure` asks again; flags override saved
+settings. Missing cloudflared produces installation instructions and stops;
+Bridge never installs it automatically. No permanent service is installed.
+
+Startup waits for health, public OAuth metadata and authentication-challenge
+verification before showing readiness. Clipboard support is optional. Web apps
+cannot be registered automatically; use the printed connector instructions.
+Cloudflare is an optional third-party hosted relay; Bridge operates no relay,
+account infrastructure or telemetry. Provider/account compatibility remains
+unverified until separately tested. Subsequent Phase 2 features are tracked in
+REQUIREMENTS.md rather than implied complete by this startup command.

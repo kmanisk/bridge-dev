@@ -9,6 +9,7 @@ import (
 	"github.com/kmanisk/bridge-dev/internal/audit"
 	"github.com/kmanisk/bridge-dev/internal/auth"
 	"github.com/kmanisk/bridge-dev/internal/config"
+	"github.com/kmanisk/bridge-dev/internal/events"
 	"github.com/kmanisk/bridge-dev/internal/execrun"
 	"github.com/kmanisk/bridge-dev/internal/filesystem"
 	"github.com/kmanisk/bridge-dev/internal/fsjail"
@@ -40,6 +41,7 @@ type Input struct {
 	Ack      string   `json:"ack,omitempty" jsonschema:"Acknowledge a previously returned task completion cursor"`
 }
 type App struct {
+	Events *events.Hub
 	Config config.Config
 	Jail   *fsjail.Jail
 	Tasks  *tasks.Manager
@@ -85,10 +87,17 @@ func New(c config.Config, remote bool) (*App, error) {
 		return nil, e
 	}
 	s := mcp.NewServer(&mcp.Implementation{Name: identity.Name, Version: identity.Version}, nil)
-	a := &App{c, j, tm, al, s}
+	a := &App{Config: c, Jail: j, Tasks: tm, Audit: al, Server: s, Events: events.New(string(c.Mode), nil)}
 	s.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			result, e := next(ctx, method, req)
+			name := ""
+			if info, ok := req.(interface{ ClientInfo() *mcp.Implementation }); ok {
+				if ci := info.ClientInfo(); ci != nil {
+					name = ci.Name
+				}
+			}
+			a.Events.Seen(auth.Client(ctx), name, auth.Client(ctx) != "stdio-local")
 			if method == "tools/call" && e != nil {
 				if ae := a.Audit.Write(audit.Record{Client: auth.Client(ctx), Operation: "invalid_or_unavailable_tool", Mode: string(c.Mode), Allowed: false, Phase: "result"}); ae != nil {
 					return nil, errors.New("audit failure")
@@ -123,6 +132,10 @@ func (a *App) add(name, desc string, read bool) {
 	f := name == "exec" || name == "sudo_exec" || name == "task_start" || name == "task_restart"
 	mcp.AddTool(a.Server, &mcp.Tool{Name: name, Description: desc, InputSchema: inputSchema(name, a.Config.Mode.Privileged()), Annotations: &mcp.ToolAnnotations{ReadOnlyHint: read, OpenWorldHint: &f}}, func(ctx context.Context, req *mcp.CallToolRequest, in Input) (*mcp.CallToolResult, any, error) {
 		start := time.Now()
+		if info := req.ClientInfo(); info != nil {
+			a.Events.Seen(auth.Client(ctx), info.Name, auth.Client(ctx) != "stdio-local")
+		}
+		a.Events.Tool(auth.Client(ctx), name)
 		record := audit.Record{Phase: "intent", Client: auth.Client(ctx), Operation: name, Mode: string(a.Config.Mode), Sudo: name == "sudo_exec" || in.Sudo}
 		// Audit intent before side effects. A failed audit append fails the operation.
 		if e := a.Audit.Write(record); e != nil {
@@ -143,6 +156,7 @@ func (a *App) add(name, desc string, read bool) {
 			return nil, nil, errors.New("audit completion could not be recorded")
 		}
 		if e != nil {
+			a.Events.Emit("Denied operation: " + name)
 			return nil, nil, e
 		}
 		result := map[string]any{"data": data}

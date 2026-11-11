@@ -17,7 +17,7 @@ var hostname = regexp.MustCompile(`https://[a-z0-9]+(?:-[a-z0-9]+)*\.trycloudfla
 type Tunnel struct {
 	URL    string
 	cancel context.CancelFunc
-	done   <-chan error
+	done   <-chan struct{}
 	once   sync.Once
 }
 
@@ -49,8 +49,8 @@ func Start(ctx context.Context, binary, local string) (*Tunnel, error) {
 			}
 		}
 	}()
-	done := make(chan error, 1)
-	go func() { <-scanDone; done <- cmd.Wait() }()
+	done := make(chan struct{})
+	go func() { <-scanDone; _ = cmd.Wait(); close(done) }()
 	t := &Tunnel{cancel: cancel, done: done}
 	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()
@@ -84,3 +84,5 @@ func ParseURL(line string) string {
 	}
 	return line[loc[0]:loc[1]]
 }
+
+func (t *Tunnel) Done() <-chan struct{} { return t.done }

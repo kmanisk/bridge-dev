@@ -1,5 +1,12 @@
 # Phase 2 verification progress
 
+M9: full make check, fuzz and four release builds PASS (test-output/m9-*).
+New tests cover scripted wizard reuse/reconfigure/override, missing-provider
+doctor guidance, clipboard fallback/stdin, prompt serialization/timeout and
+actual loopback HTTP verification of a fake public tunnel origin. The fake
+transport also checks response bodies and challenges for loopback leakage.
+
+
 M8: baseline and post-migration make check (uncached normal/race, vet and
 staticcheck), path fuzzing and four CGO_ENABLED=0 builds PASS. Logs:
 test-output/phase2-baseline-*, test-output/m8-*. Current cloudflared is installed

@@ -78,7 +78,15 @@ func DefaultPath() string {
 	return filepath.Join(base, identity.Binary, "config.toml")
 }
 func Load(args []string, getenv func(string) string) (Config, error) {
+	return load(args, getenv, Defaults(), false)
+}
+func LoadConnect(args []string, getenv func(string) string) (Config, error) {
 	c := Defaults()
+	c.OAuth = true
+	c.Tunnel = "cloudflared"
+	return load(args, getenv, c, true)
+}
+func load(args []string, getenv func(string) string, c Config, allowMissing bool) (Config, error) {
 	path := DefaultPath()
 	explicit := false
 	if v := getenv(identity.EnvPrefix + "CONFIG"); v != "" {
@@ -102,8 +110,11 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 		if e := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(&c); e != nil {
 			return c, e
 		}
-	} else if explicit || !errors.Is(err, os.ErrNotExist) {
+	} else if explicit && !allowMissing || !errors.Is(err, os.ErrNotExist) {
 		return c, err
+	}
+	if allowMissing {
+		c.OAuth = true
 	}
 	fs := flag.NewFlagSet(identity.Binary, flag.ContinueOnError)
 	fs.StringVar(&c.ConfigFile, "config", path, "configuration file")
