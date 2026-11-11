@@ -48,9 +48,25 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 		t.Fatal(err)
 	}
 	o.ConfigureTerminal(ctx, prompt.New(&terminalAnswers{answer: "y"}), []string{"127.0.0.1"})
+	approved := make(chan struct{})
+	o.OnConsent = func(_ string, status string) error {
+		if status == "approved" {
+			close(approved)
+		}
+		return nil
+	}
 	defer o.Close()
 	var gets, posts, postBad atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Chrome's virtual-time budget can dispatch the first POST before the
+		// local asynchronous prompt worker runs. Wait only in this test fixture,
+		// so the browser checks the approved redirect rather than timer pacing.
+		if r.URL.Path == "/authorize" && r.Method == http.MethodPost {
+			select {
+			case <-approved:
+			case <-time.After(3 * time.Second):
+			}
+		}
 		recorder := &browserResponseCode{ResponseWriter: w}
 		o.ServeHTTP(recorder, r)
 		if r.URL.Path == "/authorize" {
