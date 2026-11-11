@@ -124,8 +124,161 @@ func ClassifyError(err error, resp *http.Response) (string, int, string) {
 	return "TCP failure", 0, san
 }
 
+var DefaultFallbackResolvers = []string{"1.1.1.1:53", "8.8.8.8:53", "1.0.0.1:53"}
+
+type Resolver interface {
+	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
+}
+
+func IsValidPublicIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+	if !ip.IsGlobalUnicast() {
+		return false
+	}
+	if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	return true
+}
+
+func FilterValidPublicIPs(ips []net.IPAddr) []net.IPAddr {
+	var valid []net.IPAddr
+	for _, ipa := range ips {
+		if IsValidPublicIP(ipa.IP) {
+			valid = append(valid, ipa)
+		}
+	}
+	return valid
+}
+
+func CheckDNS(ctx context.Context, host string, primary Resolver, fallbackServers []string) ([]net.IPAddr, error) {
+	if len(fallbackServers) == 0 {
+		fallbackServers = DefaultFallbackResolvers
+	}
+	fallbacks := make([]Resolver, len(fallbackServers))
+	for i, server := range fallbackServers {
+		s := server
+		fallbacks[i] = &net.Resolver{
+			PreferGo: true,
+			Dial: func(dialCtx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 2 * time.Second}
+				return d.DialContext(dialCtx, "udp", s)
+			},
+		}
+	}
+	return CheckDNSWithResolvers(ctx, host, primary, fallbacks)
+}
+
+func CheckDNSWithResolvers(ctx context.Context, host string, primary Resolver, fallbacks []Resolver) ([]net.IPAddr, error) {
+	if primary == nil {
+		primary = net.DefaultResolver
+	}
+	ips, primaryErr := primary.LookupIPAddr(ctx, host)
+	if primaryErr == nil && len(ips) > 0 {
+		if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+			return ips, nil
+		}
+		valid := FilterValidPublicIPs(ips)
+		if len(valid) > 0 {
+			return valid, nil
+		}
+	}
+
+	var lastErr error
+	for _, r := range fallbacks {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		fips, ferr := r.LookupIPAddr(timeoutCtx, host)
+		cancel()
+		if ferr == nil && len(fips) > 0 {
+			valid := FilterValidPublicIPs(fips)
+			if len(valid) > 0 {
+				return valid, nil
+			}
+		}
+		if ferr != nil {
+			lastErr = ferr
+		}
+	}
+
+	if primaryErr != nil {
+		return nil, primaryErr
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, &net.DNSError{Err: "no valid public IP addresses found", Name: host}
+}
+
 func VerificationClient() *http.Client {
-	return &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return VerificationClientWithResolver(net.DefaultResolver, DefaultFallbackResolvers)
+}
+
+func VerificationClientWithResolver(primary Resolver, fallbackServers []string) *http.Client {
+	if len(fallbackServers) == 0 {
+		fallbackServers = DefaultFallbackResolvers
+	}
+	fallbacks := make([]Resolver, len(fallbackServers))
+	for i, server := range fallbackServers {
+		s := server
+		fallbacks[i] = &net.Resolver{
+			PreferGo: true,
+			Dial: func(dialCtx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 2 * time.Second}
+				return d.DialContext(dialCtx, "udp", s)
+			},
+		}
+	}
+	return VerificationClientWithResolvers(primary, fallbacks)
+}
+
+func VerificationClientWithResolvers(primary Resolver, fallbacks []Resolver) *http.Client {
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          10,
+		IdleConnTimeout:       30 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				d := net.Dialer{Timeout: 5 * time.Second}
+				return d.DialContext(ctx, network, addr)
+			}
+			if ip := net.ParseIP(host); ip != nil {
+				d := net.Dialer{Timeout: 5 * time.Second}
+				return d.DialContext(ctx, network, addr)
+			}
+			ips, err := CheckDNSWithResolvers(ctx, host, primary, fallbacks)
+			if err != nil {
+				return nil, err
+			}
+			dialer := &net.Dialer{
+				Timeout:   5 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}
+			var dialErr error
+			for _, ip := range ips {
+				target := net.JoinHostPort(ip.IP.String(), port)
+				conn, dErr := dialer.DialContext(ctx, network, target)
+				if dErr == nil {
+					return conn, nil
+				}
+				dialErr = dErr
+			}
+			return nil, dialErr
+		},
+	}
+	return &http.Client{
+		Timeout:       10 * time.Second,
+		Transport:     transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 }
 
 func VerifyEndpoint(ctx context.Context, client *http.Client, origin string) error {

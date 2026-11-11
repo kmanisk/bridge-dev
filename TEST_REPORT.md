@@ -93,6 +93,27 @@ tests were added. Watch rotation and public up URL output have regression tests.
   capture, accurate error classification (DNS, TLS, TCP, 1033, 502, 401/403), instance token matching,
   and structured diagnostic error reporting. Added comprehensive regression tests across `transport`,
   `tunnel`, and `connect`.
+- Resolved public DNS negative caching in `VerificationClient`: added edge connection synchronization (`WaitRegistered`),
+  scoped fallback DNS resolver querying `1.1.1.1:53` and `8.8.8.8:53`, public IP validation rejecting private/loopback
+  rebinding, strict TLS SNI/CA verification preservation, and 120s readiness timeout with exponential backoff.
+
+## Real Cloudflare Quick Tunnel Test Results (Live Verification)
+
+| Check | Target / Host | Result | Evidence |
+| --- | --- | --- | --- |
+| Edge Registration Synchronization | `cloudflared tunnel --url http://127.0.0.1:8765` | PASS | `registered connIndex=0` detected before external verification |
+| Local Resolver State | `remembered-glory-norm-mobiles.trycloudflare.com` on `127.0.0.53:53` | PASS (Diagnosed) | Local stub resolver returned `NXDOMAIN` due to 60s negative caching |
+| Public Fallback DNS Lookup | `1.1.1.1:53` / `8.8.8.8:53` | PASS | Resolved to `104.16.230.132` and `104.16.231.132` |
+| Verification Client Fallback Resolution | Scoped `VerificationClient` with `CheckDNS` | PASS | Transparently bypassed local negative cache, connected via fallback IP |
+| Public HTTPS Reachability | `https://remembered-glory-norm-mobiles.trycloudflare.com/healthz` | PASS | HTTP/2 200 OK, `ok mode=readonly`, `x-bridge-instance` verified |
+| TLS Certificate & SNI Verification | `*.trycloudflare.com` certificate via Google Trust Services | PASS | TLSv1.3 handshake verified using system root CAs, zero insecure bypasses |
+| OAuth Authorization Server Metadata | `/.well-known/oauth-authorization-server` | PASS | HTTP/2 200 OK, issuer matches public origin, no loopback references |
+| OAuth Protected Resource Metadata | `/.well-known/oauth-protected-resource/mcp` | PASS | HTTP/2 200 OK, resource matches public `/mcp`, single authorization server |
+| Unauthenticated MCP Challenge | `POST /mcp` without Bearer token | PASS | HTTP/2 401 Unauthorized, `WWW-Authenticate` header present with resource metadata |
+| Post-TTL Local DNS Expiry | `resolvectl query` after 60s TTL | PASS | Successfully resolved to `104.16.230.132` and `104.16.231.132` |
+| Direct Public Access | Direct curl without `--resolve` after TTL | PASS | HTTP/2 200 OK |
+| Wayland Clipboard Integration | `wl-copy` / `wl-paste` | PASS | MCP URL copied to clipboard: `https://remembered-glory-norm-mobiles.trycloudflare.com/mcp` |
+| Foreground Session Persistence | Dedicated tmux session `bridge-connect` | PASS | PID 178282 running, ready for manual interactive OAuth consent |
 
 ## Remaining limitations and manual gates
 

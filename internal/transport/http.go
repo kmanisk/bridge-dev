@@ -218,14 +218,16 @@ func (h *Handler) Idle(ctx context.Context, d time.Duration) {
 }
 
 type Options struct {
-	Prompts        *prompt.Coordinator
-	Out            io.Writer
-	Connect        bool
-	ClientFactory  func(local string) *http.Client
-	ConfigureOAuth func(*auth.OAuth)
-	HealthInterval time.Duration
-	RetryBase      time.Duration
-	Ready          func(Runtime)
+	Prompts               *prompt.Coordinator
+	Out                   io.Writer
+	Connect               bool
+	ClientFactory         func(local string) *http.Client
+	ConfigureOAuth        func(*auth.OAuth)
+	HealthInterval        time.Duration
+	RetryBase             time.Duration
+	VerifyTimeout         time.Duration
+	WaitRegisteredTimeout time.Duration
+	Ready                 func(Runtime)
 }
 
 func Run(ctx context.Context, c config.Config) error { return RunWithOptions(ctx, c, Options{}) }
@@ -394,6 +396,15 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 	h.Bind(origin, o, false)
 	verify := func(origin string, activeTunnel *tunnel.Tunnel) error {
 		if opt.Connect || origin != local {
+			if activeTunnel != nil {
+				waitTimeout := 15 * time.Second
+				if opt.WaitRegisteredTimeout > 0 {
+					waitTimeout = opt.WaitRegisteredTimeout
+				} else if opt.ClientFactory != nil {
+					waitTimeout = 50 * time.Millisecond
+				}
+				_ = activeTunnel.WaitRegistered(ctx, waitTimeout)
+			}
 			client := VerificationClient()
 			if opt.ClientFactory != nil {
 				client = opt.ClientFactory(local)
@@ -403,11 +414,15 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 			if u != nil {
 				pubHost = u.Hostname()
 			}
-			deadline := time.NewTimer(35 * time.Second)
+			verifyTimeout := opt.VerifyTimeout
+			if verifyTimeout <= 0 {
+				verifyTimeout = 120 * time.Second
+			}
+			deadline := time.NewTimer(verifyTimeout)
 			defer deadline.Stop()
 			delay := opt.RetryBase
 			if delay <= 0 {
-				delay = 200 * time.Millisecond
+				delay = 500 * time.Millisecond
 			}
 			var lastResult *CheckResult
 			startVerify := time.Now()
@@ -457,7 +472,7 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 						Err:                  lastResult.Err,
 					}
 				case <-time.After(delay):
-					delay = min(delay*2, 2*time.Second)
+					delay = min(delay*2, 5*time.Second)
 				}
 			}
 		}

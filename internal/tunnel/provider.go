@@ -75,7 +75,10 @@ func StartProvider(ctx context.Context, c config.Config, local string) (*Tunnel,
 		cancel()
 		return nil, e
 	}
-	t := &Tunnel{URL: c.PublicOrigin, cancel: cancel, done: make(chan struct{}), state: "running"}
+	t := &Tunnel{URL: c.PublicOrigin, cancel: cancel, done: make(chan struct{}), registered: make(chan struct{}), state: "running"}
+	if c.Tunnel != "cloudflared" {
+		t.registeredOnce.Do(func() { close(t.registered) })
+	}
 	go func() {
 		s := bufio.NewScanner(io.MultiReader(stderr, stdout))
 		for s.Scan() {

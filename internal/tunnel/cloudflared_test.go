@@ -114,3 +114,46 @@ func TestTimeoutCleanupClosesOnlyOwnedProcess(t *testing.T) {
 		t.Fatalf("unrelated process was unexpectedly terminated: %v", err)
 	}
 }
+
+func TestTunnelWaitRegistered(t *testing.T) {
+	dir := t.TempDir()
+
+	// 1. Success case: Registered tunnel connection emitted
+	p1 := filepath.Join(dir, "cf-registered")
+	os.WriteFile(p1, []byte("#!/bin/sh\necho 'https://wait-reg.trycloudflare.com' >&2\necho 'INF Registered tunnel connection connIndex=0' >&2\nexec sleep 30\n"), 0700)
+	tt1, err := Start(context.Background(), p1, "http://127.0.0.1:1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tt1.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if !tt1.WaitRegistered(ctx, time.Second) {
+		t.Fatal("expected WaitRegistered to return true on registered connection")
+	}
+
+	// 2. Process exits without registering
+	p2 := filepath.Join(dir, "cf-exit")
+	os.WriteFile(p2, []byte("#!/bin/sh\necho 'https://exit-reg.trycloudflare.com' >&2\nexit 1\n"), 0700)
+	tt2, err := Start(context.Background(), p2, "http://127.0.0.1:1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tt2.Close()
+	if tt2.WaitRegistered(context.Background(), 2*time.Second) {
+		t.Fatal("expected WaitRegistered to return false when tunnel process exits")
+	}
+
+	// 3. Timeout without registering
+	p3 := filepath.Join(dir, "cf-timeout")
+	os.WriteFile(p3, []byte("#!/bin/sh\necho 'https://slow-reg.trycloudflare.com' >&2\nexec sleep 30\n"), 0700)
+	tt3, err := Start(context.Background(), p3, "http://127.0.0.1:1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tt3.Close()
+	if tt3.WaitRegistered(context.Background(), 25*time.Millisecond) {
+		t.Fatal("expected WaitRegistered to return false on timeout")
+	}
+}

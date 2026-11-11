@@ -365,3 +365,34 @@ after approximately 49 seconds. The failure occurred because:
   and 502 errors; `TestRetryAfterFailureWorksWithoutStaleState` tests clean subsequent runs after failure;
   `TestDurableTasksSurviveTunnelFailure` tests task persistence; `TestNoDuplicateTunnelProcess` tests process ownership.
 - `make check`, `make fuzz`, and staticcheck all pass.
+
+## Public Quick Tunnel Resolution and Fallback DNS Fix
+
+### Root Cause
+1. Premature Verification: `cloudflared` Quick Tunnel prints the URL before edge connection registration
+   (`INF Registered tunnel connection connIndex=0`).
+2. Negative DNS Caching: Initiating DNS queries immediately causes the local stub resolver (`systemd-resolved`
+   on `127.0.0.53:53`) to query upstream before Cloudflare DNS authoritative nameservers publish the ephemeral record.
+   The upstream returns `NXDOMAIN`, which `systemd-resolved` caches for the SOA TTL (60s).
+3. Insufficient Deadline: The previous 35-second verification deadline expired before the 60s negative cache entry
+   TTL elapsed, causing every retry to fail with `no such host on 127.0.0.53:53`.
+
+### Architecture and Fix
+1. Edge Registration Synchronization:
+   - `internal/tunnel/cloudflared.go`: Added `Registered() <-chan struct{}` and `WaitRegistered(ctx, timeout)` on `Tunnel`.
+     `appendLog` detects `Registered tunnel connection` and `registered connIndex=` to close `t.registered`.
+   - In `internal/transport/http.go`, `verify` calls `activeTunnel.WaitRegistered` before starting external HTTP requests.
+2. Controlled Fallback DNS Resolver in Verification Client:
+   - `internal/transport/verify.go`: Implemented `CheckDNS`, `CheckDNSWithResolvers`, and `VerificationClientWithResolver`.
+   - Primary resolver (`net.DefaultResolver`) is queried first. If it returns a DNS error / `no such host`, `CheckDNS`
+     falls back to querying trusted public resolvers (`1.1.1.1:53`, `8.8.8.8:53`, `1.0.0.1:53`).
+   - Rebind Prevention & Validation: `IsValidPublicIP` and `FilterValidPublicIPs` reject loopback, RFC1918 private,
+     multicast, unspecified, and link-local IP addresses for public hostnames.
+   - TLS SNI & Host Preservation: `DialContext` connects via the validated IP, while Go's `http.Transport` strictly
+     preserves TLS SNI (`ServerName: host`), certificate validation against system CAs, and HTTP `Host` headers.
+3. Extended Readiness Timeout & Exponential Backoff:
+   - Configurable `VerifyTimeout` with 120s default (up from 35s).
+   - Exponential backoff starting at 500ms, doubling up to 5s (`delay = min(delay*2, 5*time.Second)`).
+4. Live Verification and Clipboard Integration:
+   - Verified live with real Cloudflare Quick Tunnel in foreground tmux session `bridge-connect`.
+   - Public MCP URL automatically copied to Wayland clipboard using `wl-copy`.

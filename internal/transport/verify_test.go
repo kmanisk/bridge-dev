@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -224,5 +225,192 @@ func TestLocalReadySuccessAndFailure(t *testing.T) {
 	defer cancel()
 	if err := checkLocalReady(ctx, "http://127.0.0.1:59999", "inst-1"); err == nil {
 		t.Fatal("expected failure on closed port, got nil")
+	}
+}
+
+func TestFilterValidPublicIPs(t *testing.T) {
+	testCases := []struct {
+		ip    string
+		valid bool
+	}{
+		{"104.16.230.132", true},
+		{"1.1.1.1", true},
+		{"8.8.8.8", true},
+		{"2606:4700::6810:84e5", true},
+		{"127.0.0.1", false},
+		{"::1", false},
+		{"10.0.0.1", false},
+		{"192.168.1.1", false},
+		{"172.16.0.1", false},
+		{"169.254.1.1", false},
+		{"fe80::1", false},
+		{"0.0.0.0", false},
+		{"::", false},
+		{"224.0.0.1", false},
+		{"::ffff:127.0.0.1", false},
+		{"::ffff:192.168.1.1", false},
+		{"::ffff:104.16.230.132", true},
+	}
+	for _, tc := range testCases {
+		ip := net.ParseIP(tc.ip)
+		if ip == nil {
+			t.Fatalf("failed to parse IP: %s", tc.ip)
+		}
+		res := IsValidPublicIP(ip)
+		if res != tc.valid {
+			t.Errorf("IsValidPublicIP(%s) = %v, expected %v", tc.ip, res, tc.valid)
+		}
+	}
+}
+
+type mockResolver struct {
+	mu       sync.Mutex
+	calls    int
+	lookupFn func(ctx context.Context, host string, callCount int) ([]net.IPAddr, error)
+}
+
+func (m *mockResolver) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	m.mu.Lock()
+	m.calls++
+	c := m.calls
+	m.mu.Unlock()
+	if m.lookupFn != nil {
+		return m.lookupFn(ctx, host, c)
+	}
+	return nil, &net.DNSError{Err: "no such host", Name: host}
+}
+
+func TestCheckDNS_PrimaryNXDOMAIN_FallbackSuccess(t *testing.T) {
+	primary := &mockResolver{
+		lookupFn: func(ctx context.Context, host string, callCount int) ([]net.IPAddr, error) {
+			return nil, &net.DNSError{Err: "no such host", Name: host}
+		},
+	}
+	fallback := &mockResolver{
+		lookupFn: func(ctx context.Context, host string, callCount int) ([]net.IPAddr, error) {
+			return []net.IPAddr{{IP: net.ParseIP("104.16.230.132")}}, nil
+		},
+	}
+	ips, err := CheckDNSWithResolvers(context.Background(), "test.trycloudflare.com", primary, []Resolver{fallback})
+	if err != nil {
+		t.Fatalf("expected fallback success, got err: %v", err)
+	}
+	if len(ips) != 1 || ips[0].IP.String() != "104.16.230.132" {
+		t.Fatalf("unexpected IPs returned: %v", ips)
+	}
+}
+
+func TestCheckDNS_PersistentNXDOMAIN(t *testing.T) {
+	primary := &mockResolver{
+		lookupFn: func(ctx context.Context, host string, callCount int) ([]net.IPAddr, error) {
+			return nil, &net.DNSError{Err: "no such host", Name: host}
+		},
+	}
+	fallback := &mockResolver{
+		lookupFn: func(ctx context.Context, host string, callCount int) ([]net.IPAddr, error) {
+			return nil, &net.DNSError{Err: "no such host", Name: host}
+		},
+	}
+	_, err := CheckDNSWithResolvers(context.Background(), "persistent-fail.trycloudflare.com", primary, []Resolver{fallback})
+	if err == nil {
+		t.Fatal("expected DNS failure, got nil")
+	}
+	cat, status, _ := ClassifyError(err, nil)
+	if cat != "DNS failure" || status != 0 {
+		t.Fatalf("expected DNS failure classification, got cat=%s status=%d", cat, status)
+	}
+}
+
+func TestCheckDNS_PrimaryRebind_FallbackSuccess(t *testing.T) {
+	// Primary returns loopback 127.0.0.1 for a public hostname (DNS rebinding attempt)
+	primary := &mockResolver{
+		lookupFn: func(ctx context.Context, host string, callCount int) ([]net.IPAddr, error) {
+			return []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}, nil
+		},
+	}
+	fallback := &mockResolver{
+		lookupFn: func(ctx context.Context, host string, callCount int) ([]net.IPAddr, error) {
+			return []net.IPAddr{{IP: net.ParseIP("104.16.230.132")}}, nil
+		},
+	}
+	ips, err := CheckDNSWithResolvers(context.Background(), "rebind-test.trycloudflare.com", primary, []Resolver{fallback})
+	if err != nil {
+		t.Fatalf("expected fallback to succeed after rejecting private IP, got err: %v", err)
+	}
+	if len(ips) != 1 || ips[0].IP.String() != "104.16.230.132" {
+		t.Fatalf("unexpected IPs: %v", ips)
+	}
+}
+
+func TestCheckDNS_CacheExpiry(t *testing.T) {
+	// Primary fails twice (negative cache), then succeeds on 3rd attempt
+	primary := &mockResolver{
+		lookupFn: func(ctx context.Context, host string, callCount int) ([]net.IPAddr, error) {
+			if callCount < 3 {
+				return nil, &net.DNSError{Err: "no such host", Name: host}
+			}
+			return []net.IPAddr{{IP: net.ParseIP("104.16.230.132")}}, nil
+		},
+	}
+	// Call 1: fails
+	_, err := CheckDNSWithResolvers(context.Background(), "cache-expiry.trycloudflare.com", primary, nil)
+	if err == nil {
+		t.Fatal("expected fail on attempt 1")
+	}
+	// Call 2: fails
+	_, err = CheckDNSWithResolvers(context.Background(), "cache-expiry.trycloudflare.com", primary, nil)
+	if err == nil {
+		t.Fatal("expected fail on attempt 2")
+	}
+	// Call 3: succeeds after cache expiry
+	ips, err := CheckDNSWithResolvers(context.Background(), "cache-expiry.trycloudflare.com", primary, nil)
+	if err != nil || len(ips) == 0 {
+		t.Fatalf("expected success on attempt 3, got err=%v ips=%v", err, ips)
+	}
+}
+
+func TestVerificationClient_PreservesTLSValidationAndHost(t *testing.T) {
+	var receivedHost string
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHost = r.Host
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok mode=readonly\n"))
+	})
+	srv := httptest.NewTLSServer(handler)
+	defer srv.Close()
+
+	srvHost, srvPort, err := net.SplitHostPort(srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. When connecting to srv.URL using srv.Client(), it succeeds and preserves host
+	client := srv.Client()
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("expected TLS server success, got: %v", err)
+	}
+	resp.Body.Close()
+	if receivedHost != srv.Listener.Addr().String() {
+		t.Fatalf("host mismatch: got %s, expected %s", receivedHost, srv.Listener.Addr().String())
+	}
+
+	// 2. VerificationClientWithResolvers connecting to TLS server presenting a certificate
+	// for 127.0.0.1/example.com when asked for "untrusted.localhost":
+	// TLS validation MUST fail and reject the connection!
+	mockRes := &mockResolver{
+		lookupFn: func(ctx context.Context, host string, callCount int) ([]net.IPAddr, error) {
+			return []net.IPAddr{{IP: net.ParseIP(srvHost)}}, nil
+		},
+	}
+	vClient := VerificationClientWithResolvers(mockRes, nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("https://untrusted.localhost:%s/healthz", srvPort), nil)
+	_, dialErr := vClient.Do(req)
+	if dialErr == nil {
+		t.Fatal("expected TLS certificate verification failure for mismatched hostname, got nil")
+	}
+	cat, _, _ := ClassifyError(dialErr, nil)
+	if cat != "TLS failure" {
+		t.Fatalf("expected TLS failure classification, got %s (err: %v)", cat, dialErr)
 	}
 }

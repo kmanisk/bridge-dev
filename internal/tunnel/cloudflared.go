@@ -20,17 +20,36 @@ import (
 var hostname = regexp.MustCompile(`https://[a-z0-9]+(?:-[a-z0-9]+)*\.trycloudflare\.com`)
 
 type Tunnel struct {
-	URL        string
-	cancel     context.CancelFunc
-	done       chan struct{}
-	once       sync.Once
-	mu         sync.RWMutex
-	state      string
-	exitErr    error
-	recentLogs []string
+	URL            string
+	cancel         context.CancelFunc
+	done           chan struct{}
+	registered     chan struct{}
+	registeredOnce sync.Once
+	once           sync.Once
+	mu             sync.RWMutex
+	state          string
+	exitErr        error
+	recentLogs     []string
 }
 
 func (t *Tunnel) Done() <-chan struct{} { return t.done }
+
+func (t *Tunnel) Registered() <-chan struct{} { return t.registered }
+
+func (t *Tunnel) WaitRegistered(ctx context.Context, timeout time.Duration) bool {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-t.registered:
+		return true
+	case <-t.done:
+		return false
+	case <-timer.C:
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
 
 func (t *Tunnel) IsDone() bool {
 	select {
@@ -87,6 +106,9 @@ func (t *Tunnel) appendLog(line string) {
 	t.recentLogs = append(t.recentLogs, line)
 	if strings.Contains(line, "Registered tunnel connection") || strings.Contains(line, "registered connIndex=") {
 		t.state = "registered"
+		t.registeredOnce.Do(func() {
+			close(t.registered)
+		})
 	}
 }
 
@@ -108,7 +130,7 @@ func Start(ctx context.Context, binary, local string) (*Tunnel, error) {
 		cancel()
 		return nil, e
 	}
-	t := &Tunnel{cancel: cancel, done: make(chan struct{}), state: "starting"}
+	t := &Tunnel{cancel: cancel, done: make(chan struct{}), registered: make(chan struct{}), state: "starting"}
 	lines := make(chan string, 128)
 	var readersWg sync.WaitGroup
 	scan := func(r io.Reader) {

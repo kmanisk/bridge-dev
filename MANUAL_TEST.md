@@ -149,7 +149,9 @@ Expected: missing cloudflared gives an install command and exits; no automatic
 package installation. First run asks choices and saves private TOML. Choose
 readonly, write or all approvals as desired, and cloudflared. Only after verified
 health/discovery/challenge is the HTTPS /mcp URL printed/copied. Bounded retry with
-exponential backoff accommodates transient DNS and edge propagation delays (up to 35s).
+exponential backoff accommodates transient DNS and edge propagation delays (default 120s,
+with backoff capping at 5s), and scoped fallback resolvers (1.1.1.1, 8.8.8.8) prevent
+local stub resolver negative caching stalls.
 If verification fails, a structured diagnostic block is printed reporting stage,
 hostname, local port, elapsed duration, HTTP status, network error category, child
 tunnel state, and sanitized error. Later connect uses saved values; --reconfigure asks again. A real tunnel requires manual evidence.
