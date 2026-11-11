@@ -17,12 +17,14 @@ type entry struct {
 	root         *os.Root
 }
 type Jail struct {
-	roots []entry
-	mu    sync.Mutex
+	ReadLimit  int64
+	WriteLimit int64
+	roots      []entry
+	mu         sync.Mutex
 }
 
 func New(paths []string) (*Jail, error) {
-	j := &Jail{}
+	j := &Jail{ReadLimit: 1 << 20, WriteLimit: 1 << 20}
 	for _, p := range paths {
 		a, e := filepath.Abs(p)
 		if e != nil {
@@ -100,14 +102,18 @@ func (j *Jail) Read(p string, limit int64) ([]byte, error) {
 	if e != nil || !s.Mode().IsRegular() {
 		return nil, errors.New("regular file required")
 	}
-	if s.Size() > limit {
+	if limit > 0 && s.Size() > limit {
 		return nil, fmt.Errorf("file exceeds %d byte limit", limit)
 	}
-	b, e := io.ReadAll(io.LimitReader(f, limit+1))
+	var reader io.Reader = f
+	if limit > 0 {
+		reader = io.LimitReader(f, limit+1)
+	}
+	b, e := io.ReadAll(reader)
 	if e != nil {
 		return nil, e
 	}
-	if int64(len(b)) > limit {
+	if limit > 0 && int64(len(b)) > limit {
 		return nil, errors.New("read limit exceeded")
 	}
 	return b, nil
@@ -121,7 +127,7 @@ func (j *Jail) Write(p string, b []byte) error {
 	return j.write(p, b)
 }
 func (j *Jail) write(p string, b []byte) error {
-	if len(b) > 1<<20 {
+	if j.WriteLimit > 0 && int64(len(b)) > j.WriteLimit {
 		return errors.New("write limit exceeded")
 	}
 	mode := os.FileMode(0600)
@@ -157,7 +163,7 @@ func (j *Jail) write(p string, b []byte) error {
 func (j *Jail) Edit(p, old, new string) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	b, e := j.Read(p, 1<<20)
+	b, e := j.Read(p, j.ReadLimit)
 	if e != nil {
 		return e
 	}
@@ -186,3 +192,15 @@ func (j *Jail) Path(p string) (string, error) {
 
 // Deny constructs an empty authority used when a privileged grant expires without safe roots.
 func Deny() *Jail { return &Jail{} }
+
+// Check verifies that the platform backend can safely open every pinned root.
+func (j *Jail) Check() error {
+	for _, r := range j.roots {
+		f, e := secureOpen(r, ".", false, false)
+		if e != nil {
+			return e
+		}
+		f.Close()
+	}
+	return nil
+}

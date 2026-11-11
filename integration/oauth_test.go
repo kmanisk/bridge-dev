@@ -21,14 +21,21 @@ import (
 	"time"
 )
 
-func TestBuiltOAuthHTTP(t *testing.T) {
+func TestBuiltOAuthHTTP(t *testing.T)           { testBuiltOAuthHTTP(t, "user") }
+func TestBuiltPrivilegedOAuthHTTP(t *testing.T) { testBuiltOAuthHTTP(t, "sudo") }
+func testBuiltOAuthHTTP(t *testing.T, mode string) {
 	root, state := t.TempDir(), privateTemp(t)
 	notice, e := os.CreateTemp(t.TempDir(), "notice-")
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer notice.Close()
-	cmd := exec.Command(binary, "up", "--state-dir", state, "--roots", root, "--port", "0", "--oauth", "--auth", "code", "--redirect-hosts", "127.0.0.1", "--mode", "user", "--allow-commands", "/bin/echo", "--idle-timeout", "1m")
+	cmd := exec.Command(binary, "up", "--state-dir", state, "--roots", root, "--port", "0", "--oauth", "--auth", "code", "--redirect-hosts", "127.0.0.1", "--mode", mode, "--headless", "--allow-commands", "/bin/echo", "--idle-timeout", "1m")
+	if mode == "sudo" {
+		cfg := filepath.Join(t.TempDir(), "privileged.toml")
+		os.WriteFile(cfg, []byte("ack_privileged=true\n"), 0600)
+		cmd.Args = append(cmd.Args, "--config", cfg)
+	}
 	cmd.Stderr = notice
 	cmd.Env = isolatedEnv(t)
 	if e = cmd.Start(); e != nil {
@@ -70,7 +77,7 @@ func TestBuiltOAuthHTTP(t *testing.T) {
 	}
 	id := reg["client_id"].(string)
 	verifier := auth.Random()
-	q := url.Values{"response_type": {"code"}, "client_id": {id}, "redirect_uri": {"http://127.0.0.1:9999/callback"}, "state": {"safe-client-state"}, "code_challenge": {auth.Hash(verifier)}, "code_challenge_method": {"S256"}, "resource": {rt.URL + "/mcp"}, "scope": {"mcp:user"}}
+	q := url.Values{"response_type": {"code"}, "client_id": {id}, "redirect_uri": {"http://127.0.0.1:9999/callback"}, "state": {"safe-client-state"}, "code_challenge": {auth.Hash(verifier)}, "code_challenge_method": {"S256"}, "resource": {rt.URL + "/mcp"}, "scope": {"mcp:" + mode}}
 	r, e := hc.Get(rt.URL + "/authorize?" + q.Encode())
 	if e != nil {
 		t.Fatal(e)
@@ -123,11 +130,26 @@ func TestBuiltOAuthHTTP(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	found := false
 	for _, tool := range list.Tools {
 		if tool.Name == "sudo_exec" {
-			t.Fatal("remote sudo")
+			found = true
 		}
 	}
+	if found != (mode == "sudo") {
+		t.Fatal("privileged registry mismatch", mode, found)
+	}
+	if mode == "sudo" {
+		result := call(t, session, "sudo_exec", map[string]any{"argv": []string{"/usr/bin/id"}, "cwd": root})
+		var status struct {
+			ExitCode int `json:"exit_code"`
+		}
+		json.Unmarshal(result["data"], &status)
+		if status.ExitCode != 1 {
+			t.Fatal("fake sudo must fail cold", status)
+		}
+	}
+
 	audit, e := os.ReadFile(filepath.Join(state, "audit", "audit.jsonl"))
 	if e != nil {
 		t.Fatal(e)

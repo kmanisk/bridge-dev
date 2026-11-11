@@ -106,3 +106,21 @@ func TestSudoOwnContext(t *testing.T) {
 		t.Fatal("cold context accepted")
 	}
 }
+
+func TestConfiguredAndUnlimitedOutput(t *testing.T) {
+	dir := t.TempDir()
+	j, e := fsjail.New([]string{dir})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer j.Close()
+	for _, limit := range []int{3, 0} {
+		r, e := RunWithLimits(context.Background(), j, policy.Commands{}, policy.Dangerous, Request{Argv: []string{"/bin/echo", "abcdef"}, Cwd: dir}, false, nil, limit, 0, 0)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if limit == 3 && (!r.Truncated || r.Output != "abc") || limit == 0 && (r.Truncated || r.Output != "abcdef\n") {
+			t.Fatal(r)
+		}
+	}
+}

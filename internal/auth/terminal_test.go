@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -251,4 +252,38 @@ func TestOriginInvalidationAndModeChange(t *testing.T) {
 	if e != nil || len(listed) != 1 {
 		t.Fatal("registration lost", e)
 	}
+}
+
+func TestPrivilegedTokensExpireWithGrant(t *testing.T) {
+	o, srv, c, _ := newOAuthTest(t)
+	now := time.Now()
+	var clock atomic.Int64
+	clock.Store(now.UnixNano())
+	var mode atomic.Value
+	mode.Store("sudo")
+	o.mu.Lock()
+	o.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	o.scope = "mcp:sudo"
+	o.EffectiveMode = func() string { return mode.Load().(string) }
+	o.SessionDeadline = now.Add(10 * time.Minute)
+	o.mu.Unlock()
+	id := registerTest(t, c, srv.URL)
+	verifier, code := Random(), Random()
+	o.mu.Lock()
+	o.db.Codes[Hash(code)] = grant{Client: id, Redirect: "http://127.0.0.1:9999/callback", Challenge: Hash(verifier), Resource: o.issuer + "/mcp", Scope: "mcp:sudo", Expires: now.Add(time.Minute)}
+	o.mu.Unlock()
+	v := tokenTest(t, c, srv.URL, url.Values{"grant_type": {"authorization_code"}, "client_id": {id}, "redirect_uri": {"http://127.0.0.1:9999/callback"}, "resource": {o.issuer + "/mcp"}, "code": {code}, "code_verifier": {verifier}}, 200)
+	if v["expires_in"].(float64) > 600 {
+		t.Fatal("token outlives grant")
+	}
+	p, e := o.Authenticate(v["access_token"].(string))
+	if e != nil {
+		t.Fatal(e)
+	}
+	clock.Store(now.Add(11 * time.Minute).UnixNano())
+	mode.Store("readonly")
+	if p.Check() == nil {
+		t.Fatal("expired grant credential accepted")
+	}
+	tokenTest(t, c, srv.URL, url.Values{"grant_type": {"refresh_token"}, "client_id": {id}, "refresh_token": {v["refresh_token"].(string)}, "resource": {o.issuer + "/mcp"}}, 400)
 }

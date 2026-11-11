@@ -3,6 +3,7 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/kmanisk/bridge-dev/internal/audit"
@@ -27,13 +28,19 @@ import (
 )
 
 type Runtime struct {
-	PublicURL string `json:"public_mcp_url,omitempty"`
-	Tunnel    string `json:"tunnel,omitempty"`
-	URL       string `json:"url"`
-	PID       int    `json:"pid"`
-	Identity  string `json:"identity"`
-	Mode      string `json:"mode"`
-	Probe     bool   `json:"probe"`
+	State        string            `json:"state"`
+	Clients      []events.Client   `json:"clients,omitempty"`
+	RunningTasks int               `json:"running_tasks"`
+	IdleUntil    time.Time         `json:"idle_deadline,omitempty"`
+	GrantExpiry  time.Time         `json:"privileged_grant_expiry,omitempty"`
+	Audit        []json.RawMessage `json:"last_audit,omitempty"`
+	PublicURL    string            `json:"public_mcp_url,omitempty"`
+	Tunnel       string            `json:"tunnel,omitempty"`
+	URL          string            `json:"url"`
+	PID          int               `json:"pid"`
+	Identity     string            `json:"identity"`
+	Mode         string            `json:"mode"`
+	Probe        bool              `json:"probe"`
 }
 type binding struct {
 	Origin   string
@@ -56,9 +63,9 @@ type Handler struct {
 }
 
 func NewHandler(a *mcpserver.App, token, host, issuer string, stop context.CancelFunc) *Handler {
-	h := &Handler{App: a, Token: token, Host: host, Issuer: issuer, Stop: stop, sem: make(chan struct{}, 16)}
+	h := &Handler{App: a, Token: token, Host: host, Issuer: issuer, Stop: stop, sem: make(chan struct{}, a.Config.HTTPConcurrency)}
 	h.Last.Store(time.Now().UnixNano())
-	h.mcpHandler = mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server { return a.Server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: 2 << 20, PropagateRequestCancellation: true, DisableLocalhostProtection: true})
+	h.mcpHandler = mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server { return a.Server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: bodyLimit(a.Config.HTTPBodyBytes), PropagateRequestCancellation: true, DisableLocalhostProtection: true})
 	return h
 }
 func (h *Handler) MCP() http.Handler { return h.mcpHandler }
@@ -89,7 +96,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "URL tokens forbidden", 400)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	if h.App.Config.HTTPBodyBytes > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, h.App.Config.HTTPBodyBytes)
+	}
 	if r.URL.Path == "/healthz" {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(405)
@@ -112,7 +121,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		oauth.ServeHTTP(w, r)
 		return
 	}
-	if r.URL.Path != "/mcp" && r.URL.Path != "/_shutdown" {
+	if r.URL.Path != "/mcp" && r.URL.Path != "/_shutdown" && r.URL.Path != "/_status" {
 		http.NotFound(w, r)
 		return
 	}
@@ -120,7 +129,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id := ""
 	var principal auth.Principal
 	valid := false
-	if r.URL.Path == "/_shutdown" || oauth == nil {
+	if r.URL.Path == "/_shutdown" || r.URL.Path == "/_status" || oauth == nil {
 		valid = strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") && auth.Equal(bearer, h.Token)
 		id = "local-bearer"
 	} else if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
@@ -130,14 +139,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		valid = e == nil
 	}
 	if !valid {
-		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s/.well-known/oauth-protected-resource"`, h.BaseURL())+fmt.Sprintf(`, scope="mcp:%s"`, h.App.Config.Mode))
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s/.well-known/oauth-protected-resource"`, h.BaseURL())+fmt.Sprintf(`, scope="mcp:%s"`, h.App.Grant.Mode()))
 		_ = h.App.Audit.Write(audit.Record{Client: "unauthenticated", Operation: "http_auth", Mode: string(h.App.Config.Mode), Allowed: false})
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if r.URL.Path == "/_shutdown" {
+	if r.URL.Path == "/_shutdown" || r.URL.Path == "/_status" {
 		if r.Host != h.Host {
 			http.Error(w, "local administration only", http.StatusForbidden)
+			return
+		}
+		if r.URL.Path == "/_status" {
+			if r.Method != "GET" {
+				w.WriteHeader(405)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(h.runtime())
 			return
 		}
 		if r.Method != http.MethodPost {
@@ -187,7 +205,7 @@ func (h *Handler) Idle(ctx context.Context, d time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			if h.Active.Load() == 0 && time.Since(time.Unix(0, h.Last.Load())) >= d {
+			if h.Active.Load() == 0 && h.App.Approvals.Running() == 0 && time.Since(time.Unix(0, h.Last.Load())) >= d {
 				h.Stop()
 				return
 			}
@@ -201,6 +219,8 @@ type Options struct {
 	Connect        bool
 	ClientFactory  func(local string) *http.Client
 	ConfigureOAuth func(*auth.OAuth)
+	HealthInterval time.Duration
+	RetryBase      time.Duration
 	Ready          func(Runtime)
 }
 
@@ -256,11 +276,11 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 	local := "http://" + host
 	h := NewHandler(a, token, host, "", cancel)
 	h.Bind("", nil, false)
-	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 11 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 26 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(l) }()
 	defer func() {
-		shutdown, stop := context.WithTimeout(context.Background(), 11*time.Minute)
+		shutdown, stop := context.WithTimeout(context.Background(), 26*time.Second)
 		defer stop()
 		_ = srv.Shutdown(shutdown)
 	}()
@@ -274,63 +294,89 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 		if e != nil {
 			return e
 		}
-		defer owned.Close()
+		defer func() {
+			if owned != nil {
+				owned.Close()
+			}
+		}()
 		origin = owned.URL
 		if e = tunnel.ValidateOrigin(origin); e != nil {
 			return e
 		}
 	}
-	oauthState := c.StateDir
-	if origin != local {
-		if e = platform.PrivateDir(filepath.Join(c.StateDir, "origins")); e != nil {
-			return e
+	openOAuth := func(origin string) (*auth.OAuth, error) {
+		oauthState := c.StateDir
+		if origin != local {
+			if e = platform.PrivateDir(filepath.Join(c.StateDir, "origins")); e != nil {
+				return nil, e
+			}
+			oauthState = filepath.Join(c.StateDir, "origins", auth.Hash(origin))
+			if e = platform.PrivateDir(oauthState); e != nil {
+				return nil, e
+			}
 		}
-		oauthState = filepath.Join(c.StateDir, "origins", auth.Hash(origin))
-		if e = platform.PrivateDir(oauthState); e != nil {
-			return e
+		var o *auth.OAuth
+		if c.OAuth {
+			o, e = auth.NewOAuth(oauthState, origin, string(a.Grant.Mode()), out)
+			if e != nil {
+				return nil, e
+			}
+			o.EffectiveMode = func() string { return string(a.Grant.Mode()) }
+			o.SessionDeadline = a.Grant.Expiry()
+			o.MaxClients = c.OAuthClients
+			o.MaxTokens = c.OAuthTokens
+			o.MaxPending = c.OAuthPending
+			if c.Auth == "oauth" {
+				o.ConfigureTerminal(ctx, opt.Prompts, c.RedirectHosts)
+			} else {
+				o.ConfigureCode(c.RedirectHosts)
+			}
+			o.OnConsent = func(client, status string) error {
+				a.Events.Emit("OAuth consent " + status + " for " + client)
+				return a.Audit.Write(audit.Record{Client: client, Operation: "oauth_consent", Mode: string(c.Mode), Phase: status, Allowed: status == "approved"})
+			}
+			if opt.ConfigureOAuth != nil {
+				opt.ConfigureOAuth(o)
+			}
 		}
+		return o, nil
 	}
-	var o *auth.OAuth
-	if c.OAuth {
-		o, e = auth.NewOAuth(oauthState, origin, string(c.Mode), out)
-		if e != nil {
-			return e
-		}
-		if c.Auth == "oauth" {
-			o.ConfigureTerminal(ctx, opt.Prompts, c.RedirectHosts)
-		} else {
-			o.ConfigureCode(c.RedirectHosts)
-		}
-		o.OnConsent = func(client, status string) error {
-			a.Events.Emit("OAuth consent " + status + " for " + client)
-			return a.Audit.Write(audit.Record{Client: client, Operation: "oauth_consent", Mode: string(c.Mode), Phase: status, Allowed: status == "approved"})
-		}
-		defer o.Close()
-		if opt.ConfigureOAuth != nil {
-			opt.ConfigureOAuth(o)
-		}
+	o, e := openOAuth(origin)
+	if e != nil {
+		return e
 	}
+	defer func() {
+		if o != nil {
+			o.Close()
+		}
+	}()
 	h.Bind(origin, o, false)
-	if opt.Connect || origin != local {
-		client := VerificationClient()
-		if opt.ClientFactory != nil {
-			client = opt.ClientFactory(local)
-		}
-		deadline := time.NewTimer(30 * time.Second)
-		defer deadline.Stop()
-		for {
-			e = VerifyEndpoint(ctx, client, origin)
-			if e == nil {
-				break
+	verify := func(origin string) error {
+		if opt.Connect || origin != local {
+			client := VerificationClient()
+			if opt.ClientFactory != nil {
+				client = opt.ClientFactory(local)
 			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-deadline.C:
-				return fmt.Errorf("endpoint verification failed: %w", e)
-			case <-time.After(200 * time.Millisecond):
+			deadline := time.NewTimer(30 * time.Second)
+			defer deadline.Stop()
+			for {
+				e = VerifyEndpoint(ctx, client, origin)
+				if e == nil {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-deadline.C:
+					return fmt.Errorf("endpoint verification failed: %w", e)
+				case <-time.After(200 * time.Millisecond):
+				}
 			}
 		}
+		return nil
+	}
+	if e = verify(origin); e != nil {
+		return e
 	}
 	h.Bind(origin, o, true)
 	pid := os.Getpid()
@@ -338,12 +384,17 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 	if e != nil {
 		return e
 	}
-	rt := Runtime{URL: local, PID: pid, Identity: ident, Mode: string(c.Mode), Probe: c.Probe, PublicURL: origin + "/mcp", Tunnel: c.Tunnel}
+	rt := Runtime{State: "running", URL: local, PID: pid, Identity: ident, Mode: string(c.Mode), Probe: c.Probe, PublicURL: origin + "/mcp", Tunnel: c.Tunnel}
 	p := filepath.Join(c.StateDir, "http.json")
 	if e = platform.AtomicJSON(p, rt); e != nil {
 		return e
 	}
 	defer os.Remove(p)
+	fallback := filepath.Join(c.StateDir, "server.json")
+	if e = platform.AtomicJSON(fallback, rt); e != nil {
+		return e
+	}
+	defer os.Remove(fallback)
 	if opt.Connect {
 		emit("Bridge connected\nMode: %s\nMCP URL: %s/mcp\nAuthentication: OAuth\nTunnel: %s\n", c.Mode, origin, c.Tunnel)
 		if c.Tunnel != "none" {
@@ -401,61 +452,146 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 		}()
 	}
 
-	var tunnelDone <-chan struct{}
-	if owned != nil {
-		tunnelDone = owned.Done()
+	healthInterval := opt.HealthInterval
+	if healthInterval <= 0 {
+		healthInterval = 15 * time.Second
 	}
-	select {
-	case <-ctx.Done():
-		emit("Graceful shutdown (mode=%s); durable tasks continue.\n", c.Mode)
-		return nil
-	case <-tunnelDone:
-		return errors.New("owned tunnel disconnected; reconnect required")
-	case e := <-done:
-		if errors.Is(e, http.ErrServerClosed) {
-			return nil
+	tick := time.NewTicker(healthInterval)
+	defer tick.Stop()
+	failures := 0
+	for {
+		var tunnelDone <-chan struct{}
+		if owned != nil {
+			tunnelDone = owned.Done()
 		}
-		return e
+		failed := false
+		select {
+		case <-ctx.Done():
+			emit("Graceful shutdown (mode=%s); durable tasks continue.\n", a.Grant.Mode())
+			return nil
+		case <-tunnelDone:
+			failed = true
+		case <-tick.C:
+			a.RefreshTools()
+			if owned != nil {
+				client := VerificationClient()
+				if opt.ClientFactory != nil {
+					client = opt.ClientFactory(local)
+				}
+				if VerifyEndpoint(ctx, client, origin) != nil {
+					failures++
+				} else {
+					failures = 0
+				}
+				failed = failures >= 3
+			}
+		case e := <-done:
+			if errors.Is(e, http.ErrServerClosed) {
+				return nil
+			}
+			return e
+		}
+		if !failed {
+			continue
+		}
+		a.Events.Emit("Tunnel disconnected; endpoint unavailable")
+		h.Bind(origin, o, false)
+		rt.PublicURL = ""
+		rt.State = "reconnecting"
+		_ = platform.AtomicJSON(p, rt)
+		_ = platform.AtomicJSON(fallback, rt)
+		owned.Close()
+		owned = nil
+		delay := opt.RetryBase
+		if delay <= 0 {
+			delay = time.Second
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(delay):
+			}
+			candidate, err := tunnel.StartProvider(ctx, c, local)
+			if err != nil {
+				a.Events.Emit("Tunnel restart failed; retrying")
+				delay = min(delay*2, 30*time.Second)
+				continue
+			}
+			newOrigin := candidate.URL
+			if err = tunnel.ValidateOrigin(newOrigin); err != nil {
+				candidate.Close()
+				return err
+			}
+			if newOrigin != origin {
+				if o != nil {
+					if err = o.Invalidate(); err != nil {
+						candidate.Close()
+						return err
+					}
+					o.Close()
+				}
+				if a.Grant.Mode().Privileged() {
+					a.Grant.Revoke()
+					a.RefreshTools()
+					a.Events.Emit("Origin changed; privileged grant revoked. Restart connect to authorize privileges again.")
+				}
+				origin = newOrigin
+				o, err = openOAuth(origin)
+				if err != nil {
+					candidate.Close()
+					return err
+				}
+			}
+			h.Bind(origin, o, false)
+			if err = verify(origin); err != nil {
+				candidate.Close()
+				a.Events.Emit("Tunnel not verified; retrying")
+				delay = min(delay*2, 30*time.Second)
+				continue
+			}
+			owned = candidate
+			h.Bind(origin, o, true)
+			failures = 0
+			rt.State = "running"
+			rt.PublicURL = origin + "/mcp"
+			rt.Mode = string(a.Grant.Mode())
+			if err = platform.AtomicJSON(p, rt); err != nil {
+				return err
+			}
+			if err = platform.AtomicJSON(fallback, rt); err != nil {
+				return err
+			}
+			emit("NEW MCP URL: %s\nMode: %s\nUpdate the AI connector URL and reauthorize; old origin credentials are invalid.\n", rt.PublicURL, a.Grant.Mode())
+			if opt.Ready != nil {
+				opt.Ready(rt)
+			}
+			break
+		}
 	}
 }
-func Status(c config.Config) (Runtime, error) {
-	var rt Runtime
-	e := platform.ReadJSON(filepath.Join(c.StateDir, "http.json"), &rt)
-	if e != nil {
-		return rt, e
+func bodyLimit(n int64) int64 {
+	if n == 0 {
+		return int64(^uint64(0) >> 1)
 	}
-	id, e := platform.ProcessIdentity(rt.PID)
-	if e != nil || id != rt.Identity {
-		return rt, errors.New("HTTP instance is not running (stale runtime record)")
-	}
-	return rt, nil
+	return n
 }
-func Down(ctx context.Context, c config.Config) error {
-	rt, e := Status(c)
-	if e != nil {
-		return e
+func (h *Handler) runtime() Runtime {
+	pid := os.Getpid()
+	id, _ := platform.ProcessIdentity(pid)
+	d, _ := time.ParseDuration(h.App.Config.Idle)
+	r := Runtime{State: "running", URL: "http://" + h.Host, PublicURL: h.BaseURL() + "/mcp", PID: pid, Identity: id, Mode: string(h.App.Grant.Mode()), Tunnel: h.App.Config.Tunnel, Clients: h.App.Events.Clients(), IdleUntil: time.Unix(0, h.Last.Load()).Add(d), GrantExpiry: h.App.Grant.Expiry(), Audit: auditTail(h.App.Config.StateDir, 10)}
+	if !h.snapshot().Verified {
+		r.State = "reconnecting"
+		r.PublicURL = ""
 	}
-	u, e := url.Parse(rt.URL)
-	if e != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" {
-		return errors.New("invalid runtime URL")
+	tasks, e := h.App.Tasks.List()
+	if e == nil {
+		for _, t := range tasks {
+			if t.State == "starting" || t.State == "running" {
+				r.RunningTasks++
+			}
+		}
 	}
-	token, e := auth.LocalToken(c.StateDir)
-	if e != nil {
-		return e
-	}
-	req, e := http.NewRequestWithContext(ctx, http.MethodPost, rt.URL+"/_shutdown", nil)
-	if e != nil {
-		return e
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
-	resp, e := client.Do(req)
-	if e != nil {
-		return e
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 202 {
-		return fmt.Errorf("shutdown refused: %d", resp.StatusCode)
-	}
-	return nil
+	return r
 }

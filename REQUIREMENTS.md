@@ -14,8 +14,8 @@ remain explicitly separate from local implementation.
 | M11 approval queues, polling, durable request deduplication | Yes | Scripted approvals/retries/revocation/crash, MCP polling, full regression | No | internal/approval/manager_test.go; internal/mcpserver/server_test.go; test-output/m11-* |
 | M12 effective privileges, sudo, dangerous, grants, detach | Yes | Fake sudo/systemd, phrase/manual ack, expiry, mode registry, worker context and installer snapshot tests | No | internal/privilege; internal/tasks/privileged_test.go; test-output/m12-* |
 | M13 local-client install/print/uninstall | Yes; Desktop snippet/manual merge | Fake client tests plus native isolated Codex add/get/remove; full regression | No | internal/clientinstall/install_test.go; docs/LOCAL_CLIENTS.md; test-output/m13-* |
-| M14 status/watch/down, tunnel recovery and task events | No | No | No | Planned |
-| M14 bounded read/search improvements from reference | No | No | No | Planned |
+| M14 status/watch/down, tunnel recovery and task events | Yes | Fake rotation, real HTTP OAuth, old-token/grant invalidation, partial state, lifecycle regression | No | internal/connect/recovery_test.go; internal/transport/status_test.go; test-output/m14-* |
+| M14 bounded read/search improvements from reference | Yes | Direct slices/pages/content/traversal tests; configurable output tests | No | internal/filesystem; internal/execrun/exec_test.go |
 | M15 direct package tests, subprocess coverage, Fish docs/completions | No | No | No | Planned |
 | M15 final full regression, fuzz, four release builds | No | No | No | Planned |
 | Actual Claude / ChatGPT / public Cloudflare / native macOS / real sudo | No claim | Not run | Manual environment/authorization | MANUAL_TEST.md |

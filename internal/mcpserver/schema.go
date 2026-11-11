@@ -5,14 +5,17 @@ func inputSchema(name string, privileged bool) map[string]any {
 	fields := []string{}
 	required := []string{}
 	switch name {
-	case "fs_read", "fs_list":
-		fields = []string{"path"}
-		required = fields
+	case "fs_list":
+		fields = []string{"path", "offset", "limit"}
+		required = []string{"path"}
+	case "fs_read":
+		fields = []string{"path", "offset", "limit"}
+		required = []string{"path"}
 	case "fetch":
-		fields = []string{"id"}
-		required = fields
+		fields = []string{"id", "offset", "limit"}
+		required = []string{"id"}
 	case "search", "fs_search":
-		fields = []string{"path", "query"}
+		fields = []string{"path", "query", "offset", "limit", "content_search"}
 	case "fs_write":
 		fields = []string{"path", "content", "encoding"}
 		required = []string{"path", "content"}
@@ -52,10 +55,10 @@ func inputSchema(name string, privileged bool) map[string]any {
 		switch f {
 		case "argv":
 			v = map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": 256}
-		case "offset":
+		case "offset", "limit":
 			v = map[string]any{"type": "integer", "minimum": 0}
 		case "timeout_seconds":
-			v = map[string]any{"type": "integer", "minimum": 0, "maximum": 600}
+			v = map[string]any{"type": "integer", "minimum": 0}
 			if name == "task_wait" || name == "approval_status" {
 				v["maximum"] = 25
 			}
@@ -63,7 +66,7 @@ func inputSchema(name string, privileged bool) map[string]any {
 			v["enum"] = []string{"utf8", "base64"}
 		case "query":
 			v["maxLength"] = 256
-		case "sudo":
+		case "sudo", "content_search":
 			v = map[string]any{"type": "boolean"}
 		case "client_id":
 			v["maxLength"] = 128

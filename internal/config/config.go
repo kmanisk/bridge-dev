@@ -17,6 +17,12 @@ import (
 )
 
 type Config struct {
+	OAuthClients         int         `toml:"oauth_clients"`
+	OAuthTokens          int         `toml:"oauth_tokens"`
+	OAuthPending         int         `toml:"oauth_pending"`
+	ApprovalPending      int         `toml:"approval_pending"`
+	SearchDepth          int         `toml:"search_depth"`
+	ExecMaxTimeout       string      `toml:"exec_max_timeout"`
 	PreviousMode         policy.Mode `toml:"-"`
 	GrantUntil           time.Time   `toml:"-"`
 	Headless             bool        `toml:"-"`
@@ -70,7 +76,7 @@ func Defaults() Config {
 	if base == "" {
 		base = filepath.Join(home, ".local", "state")
 	}
-	return Config{Schema: 2, Approve: "none", Auth: "oauth", RedirectHosts: []string{"claude.ai", "chatgpt.com", "openai.com"}, ReadBytes: 1 << 20, WriteBytes: 1 << 20, OutputBytes: 1 << 20, TaskLogBytes: 16 << 20, SearchResults: 200, SearchVisited: 10000, HTTPBodyBytes: 2 << 20, HTTPConcurrency: 16, ExecTimeout: "30s", Mode: policy.Readonly, Roots: []string{cwd}, Port: 8765, Idle: "30m", Tunnel: "none", StateDir: filepath.Join(base, identity.Binary), Env: []string{"LANG", "LC_ALL", "TZ"}, Backend: "auto"}
+	return Config{OAuthClients: 1024, OAuthTokens: 16384, OAuthPending: 64, ApprovalPending: 64, SearchDepth: 32, ExecMaxTimeout: "10m", Schema: 2, Approve: "none", Auth: "oauth", RedirectHosts: []string{"claude.ai", "chatgpt.com", "openai.com"}, ReadBytes: 1 << 20, WriteBytes: 1 << 20, OutputBytes: 1 << 20, TaskLogBytes: 16 << 20, SearchResults: 200, SearchVisited: 10000, HTTPBodyBytes: 2 << 20, HTTPConcurrency: 16, ExecTimeout: "30s", Mode: policy.Readonly, Roots: []string{cwd}, Port: 8765, Idle: "30m", Tunnel: "none", StateDir: filepath.Join(base, identity.Binary), Env: []string{"LANG", "LC_ALL", "TZ"}, Backend: "auto"}
 }
 func DefaultPath() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
@@ -134,11 +140,36 @@ func load(args []string, getenv func(string) string, c Config, allowMissing bool
 	for _, e := range []struct {
 		k string
 		p *string
-	}{{"REDIRECT_HOSTS", &redirectHosts}, {"MODE", &mode}, {"ROOTS", &roots}, {"ALLOW_COMMANDS", &allow}, {"DENY_COMMANDS", &deny}, {"SUDO_COMMANDS", &sudo}, {"IDLE_TIMEOUT", &c.Idle}, {"TUNNEL", &c.Tunnel}, {"STATE_DIR", &c.StateDir}, {"ISSUER", &c.Issuer}, {"TASK_BACKEND", &c.Backend}, {"APPROVE", &c.Approve}, {"AUTH", &c.Auth}, {"SUDO_FOR", &c.SudoFor}, {"PUBLIC_ORIGIN", &c.PublicOrigin}, {"EXEC_TIMEOUT", &c.ExecTimeout}} {
+	}{{"REDIRECT_HOSTS", &redirectHosts}, {"MODE", &mode}, {"ROOTS", &roots}, {"ALLOW_COMMANDS", &allow}, {"DENY_COMMANDS", &deny}, {"SUDO_COMMANDS", &sudo}, {"IDLE_TIMEOUT", &c.Idle}, {"TUNNEL", &c.Tunnel}, {"STATE_DIR", &c.StateDir}, {"ISSUER", &c.Issuer}, {"TASK_BACKEND", &c.Backend}, {"APPROVE", &c.Approve}, {"AUTH", &c.Auth}, {"SUDO_FOR", &c.SudoFor}, {"PUBLIC_ORIGIN", &c.PublicOrigin}, {"EXEC_TIMEOUT", &c.ExecTimeout}, {"EXEC_MAX_TIMEOUT", &c.ExecMaxTimeout}} {
 		if v := getenv(identity.EnvPrefix + e.k); v != "" {
 			*e.p = v
 		}
 	}
+	for _, item := range []struct {
+		name string
+		dst  *int64
+	}{{"READ_BYTES", &c.ReadBytes}, {"WRITE_BYTES", &c.WriteBytes}, {"HTTP_BODY_BYTES", &c.HTTPBodyBytes}} {
+		if v := getenv(identity.EnvPrefix + item.name); v != "" {
+			n, e := strconv.ParseInt(v, 10, 64)
+			if e != nil {
+				return c, e
+			}
+			*item.dst = n
+		}
+	}
+	for _, item := range []struct {
+		name string
+		dst  *int
+	}{{"OUTPUT_BYTES", &c.OutputBytes}, {"TASK_LOG_BYTES", &c.TaskLogBytes}, {"SEARCH_RESULTS", &c.SearchResults}, {"SEARCH_VISITED", &c.SearchVisited}, {"SEARCH_DEPTH", &c.SearchDepth}, {"HTTP_CONCURRENCY", &c.HTTPConcurrency}, {"OAUTH_CLIENTS", &c.OAuthClients}, {"OAUTH_TOKENS", &c.OAuthTokens}, {"OAUTH_PENDING", &c.OAuthPending}, {"APPROVAL_PENDING", &c.ApprovalPending}} {
+		if v := getenv(identity.EnvPrefix + item.name); v != "" {
+			n, e := strconv.Atoi(v)
+			if e != nil {
+				return c, e
+			}
+			*item.dst = n
+		}
+	}
+
 	if v := getenv(identity.EnvPrefix + "PORT"); v != "" {
 		n, e := strconv.Atoi(v)
 		if e != nil {
@@ -149,7 +180,7 @@ func load(args []string, getenv func(string) string, c Config, allowMissing bool
 	for _, e := range []struct {
 		k string
 		p *bool
-	}{{"OAUTH", &c.OAuth}, {"PROBE", &c.Probe}, {"ACK_DANGEROUS", &c.AckDanger}} {
+	}{{"OAUTH", &c.OAuth}, {"PROBE", &c.Probe}, {"ACK_DANGEROUS", &c.AckDanger}, {"SHELL", &c.Shell}} {
 		if v := getenv(identity.EnvPrefix + e.k); v != "" {
 			switch v {
 			case "true":
@@ -176,6 +207,12 @@ func load(args []string, getenv func(string) string, c Config, allowMissing bool
 	fs.IntVar(&c.OutputBytes, "output-bytes", c.OutputBytes, "command output bound")
 	fs.IntVar(&c.TaskLogBytes, "task-log-bytes", c.TaskLogBytes, "per-task log bound")
 	fs.IntVar(&c.SearchResults, "search-results", c.SearchResults, "search result bound")
+	fs.IntVar(&c.OAuthClients, "oauth-clients", c.OAuthClients, "concurrent stored client bound")
+	fs.IntVar(&c.OAuthTokens, "oauth-tokens", c.OAuthTokens, "live token record bound")
+	fs.IntVar(&c.OAuthPending, "oauth-pending", c.OAuthPending, "concurrent consent queue bound")
+	fs.IntVar(&c.ApprovalPending, "approval-pending", c.ApprovalPending, "concurrent operation queue bound")
+	fs.IntVar(&c.SearchDepth, "search-depth", c.SearchDepth, "search directory depth bound")
+	fs.StringVar(&c.ExecMaxTimeout, "exec-max-timeout", c.ExecMaxTimeout, "maximum command timeout; zero dangerous-only")
 	fs.IntVar(&c.SearchVisited, "search-visited", c.SearchVisited, "search traversal bound")
 	fs.Int64Var(&c.HTTPBodyBytes, "http-body-bytes", c.HTTPBodyBytes, "HTTP request bound")
 	fs.IntVar(&c.HTTPConcurrency, "http-concurrency", c.HTTPConcurrency, "HTTP concurrent handlers")
@@ -237,13 +274,16 @@ func (c Config) Validate(remote bool) error {
 			return errors.New("invalid sudo-for duration")
 		}
 	}
-	for _, v := range []int64{c.ReadBytes, c.WriteBytes, int64(c.OutputBytes), int64(c.TaskLogBytes), int64(c.SearchResults), int64(c.SearchVisited), c.HTTPBodyBytes} {
+	for _, v := range []int64{c.ReadBytes, c.WriteBytes, int64(c.OutputBytes), int64(c.TaskLogBytes), int64(c.SearchResults), int64(c.SearchVisited), int64(c.SearchDepth), int64(c.OAuthClients), int64(c.OAuthTokens), int64(c.OAuthPending), int64(c.ApprovalPending), c.HTTPBodyBytes} {
 		if v < 0 || v == 0 && c.Mode != policy.Dangerous {
 			return errors.New("technical bounds must be positive; explicit zero is dangerous-only")
 		}
 	}
 	if c.HTTPConcurrency <= 0 {
 		return errors.New("HTTP concurrency must be positive")
+	}
+	if d, e := time.ParseDuration(c.ExecMaxTimeout); e != nil || d < 0 || d == 0 && c.Mode != policy.Dangerous {
+		return errors.New("invalid maximum execution timeout")
 	}
 	if d, e := time.ParseDuration(c.ExecTimeout); e != nil || d < 0 || d == 0 && c.Mode != policy.Dangerous {
 		return errors.New("invalid execution timeout")

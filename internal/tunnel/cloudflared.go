@@ -5,10 +5,12 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"github.com/kmanisk/bridge-dev/internal/execrun"
 	"io"
 	"os/exec"
 	"regexp"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -23,7 +25,8 @@ type Tunnel struct {
 
 func Start(ctx context.Context, binary, local string) (*Tunnel, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, binary, "tunnel", "--url", local, "--no-autoupdate")
+	cmd := exec.Command(binary, "tunnel", "--url", local, "--no-autoupdate")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stderr, e := cmd.StderrPipe()
 	if e != nil {
 		cancel()
@@ -48,9 +51,10 @@ func Start(ctx context.Context, binary, local string) (*Tunnel, error) {
 				}
 			}
 		}
+		_, _ = io.Copy(io.Discard, stderr)
 	}()
 	done := make(chan struct{})
-	go func() { <-scanDone; _ = cmd.Wait(); close(done) }()
+	go func() { _ = execrun.WaitCommand(ctx, cmd); <-scanDone; close(done) }()
 	t := &Tunnel{cancel: cancel, done: done}
 	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()

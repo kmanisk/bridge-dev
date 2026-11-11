@@ -41,6 +41,10 @@ func (w *Limited) Write(b []byte) (int, error) {
 	w.Mu.Lock()
 	defer w.Mu.Unlock()
 	n := len(b)
+	if w.Limit == 0 {
+		_, _ = w.B.Write(b)
+		return n, nil
+	}
 	left := w.Limit - w.B.Len()
 	if left < len(b) {
 		w.Truncated = true
@@ -93,24 +97,31 @@ func Prepare(j *fsjail.Jail, p policy.Commands, m policy.Mode, r Request, sudo b
 	return a, d, nil
 }
 func Run(ctx context.Context, j *fsjail.Jail, p policy.Commands, m policy.Mode, r Request, sudo bool, env []string) (Result, error) {
-	if r.TimeoutSeconds < 0 || r.TimeoutSeconds > 600 {
-		return Result{}, errors.New("timeout must be between zero and 600 seconds")
+	return RunWithLimits(ctx, j, p, m, r, sudo, env, MaxOutput, 30*time.Second, MaxDuration)
+}
+func RunWithLimits(ctx context.Context, j *fsjail.Jail, p policy.Commands, m policy.Mode, r Request, sudo bool, env []string, output int, defaultTimeout, maxTimeout time.Duration) (Result, error) {
+	if output < 0 || defaultTimeout < 0 || maxTimeout < 0 || r.TimeoutSeconds < 0 || maxTimeout > 0 && time.Duration(r.TimeoutSeconds)*time.Second > maxTimeout {
+		return Result{}, errors.New("timeout exceeds configured execution bound")
 	}
+
 	a, d, e := Prepare(j, p, m, r, sudo)
 	if e != nil {
 		return Result{}, e
 	}
 	defer d.Close()
-	duration := 30 * time.Second
+	duration := defaultTimeout
 	if r.TimeoutSeconds > 0 {
 		duration = time.Duration(r.TimeoutSeconds) * time.Second
 	}
-	if duration > MaxDuration {
-		return Result{}, errors.New("timeout exceeds 10 minutes")
+	if maxTimeout > 0 && duration > maxTimeout {
+		return Result{}, errors.New("timeout exceeds configured bound")
 	}
-	ctx, cancel := context.WithTimeout(ctx, duration)
-	defer cancel()
-	out := &Limited{Limit: MaxOutput}
+	if duration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, duration)
+		defer cancel()
+	}
+	out := &Limited{Limit: output}
 	c := exec.Command(a[0], a[1:]...)
 	c.Dir = DescriptorPath(d)
 	c.Env = Environment(env)
@@ -141,6 +152,11 @@ func RunCommand(ctx context.Context, c *exec.Cmd) error {
 	if e := c.Start(); e != nil {
 		return e
 	}
+	return WaitCommand(ctx, c)
+}
+
+// WaitCommand reaps an already started owned process group after safe cleanup.
+func WaitCommand(ctx context.Context, c *exec.Cmd) error {
 	exited := make(chan error, 1)
 	go func() { exited <- waitUnreaped(c.Process.Pid) }()
 	select {

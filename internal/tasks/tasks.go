@@ -337,7 +337,15 @@ func (m *Manager) Logs(id string, offset int64) (Logs, error) {
 	if _, e = f.Seek(offset, io.SeekStart); e != nil {
 		return Logs{}, e
 	}
-	b, e := io.ReadAll(io.LimitReader(f, 64<<10))
+	limit := m.Config.ReadBytes
+	if limit == 0 && m.Config.Mode != policy.Dangerous {
+		limit = 64 << 10
+	}
+	var reader io.Reader = f
+	if limit > 0 {
+		reader = io.LimitReader(f, limit)
+	}
+	b, e := io.ReadAll(reader)
 	if e != nil {
 		return Logs{}, e
 	}

@@ -221,3 +221,24 @@ func TestAuditFailAndNoKey(t *testing.T) {
 		t.Fatal("missing key accepted")
 	}
 }
+
+func TestMissingResultPersistenceBecomesUnknown(t *testing.T) {
+	m := manager(t, "none", nil)
+	r, e := m.Submit(context.Background(), principal(), operation("missing-result"), func() error { return nil }, func(context.Context) (any, error) { return "done", nil }, -1)
+	if e != nil {
+		t.Fatal(e)
+	}
+	saved, e := m.load(r.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	saved.Response.Status = "dispatched"
+	saved.Response.Outcome = ""
+	if e = m.save(saved); e != nil {
+		t.Fatal(e)
+	}
+	r, e = m.Status(context.Background(), principal(), r.ID, 0)
+	if e != nil || r.Outcome != "unknown" {
+		t.Fatal(r, e)
+	}
+}

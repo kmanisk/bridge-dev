@@ -3,6 +3,7 @@ package approval
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,9 @@ import (
 )
 
 type Operation struct {
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	ExitCode   *int   `json:"exit_code,omitempty"`
+	TaskID     string `json:"task_id,omitempty"`
 	Tool       string `json:"tool"`
 	Class      string `json:"class"`
 	Mode       string `json:"mode"`
@@ -53,6 +57,7 @@ type record struct {
 }
 type AuditFunc func(Operation, string, string, string) error
 type job struct {
+	running   bool
 	done      chan struct{}
 	authorize func() error
 	invoke    func(context.Context) (any, error)
@@ -115,7 +120,8 @@ func (m *Manager) alwaysKey(op Operation) string {
 	return auth.Hash(op.Client + "\x00" + op.Session + "\x00" + op.Scope + "\x00" + op.Origin + "\x00" + op.Mode + "\x00" + op.Class)
 }
 func (m *Manager) file(id string) (string, error) {
-	if len(id) != 43 || strings.ContainsAny(id, "/\\.\x00") {
+	decoded, e := base64.RawURLEncoding.DecodeString(id)
+	if e != nil || len(decoded) != 32 || strings.ContainsAny(id, "/\\.\x00") {
 		return "", errors.New("approval not found")
 	}
 	return filepath.Join(m.dir, id+".json"), nil
@@ -300,10 +306,28 @@ func (m *Manager) run(r record, j *job, gated bool) {
 		deny(reason(e))
 		return
 	}
+	m.mu.Lock()
+	j.running = true
+	m.mu.Unlock()
+	started := time.Now()
 	value, e := j.invoke(m.ctx)
+	r.Operation.DurationMS = time.Since(started).Milliseconds()
 	data, marshalErr := json.Marshal(value)
 	if marshalErr != nil {
 		e = marshalErr
+	}
+	var meta struct {
+		ExitCode *int   `json:"exit_code"`
+		ID       string `json:"id"`
+	}
+	if json.Unmarshal(data, &meta) == nil {
+		if r.Operation.Tool == "exec" || r.Operation.Tool == "sudo_exec" || r.Operation.Tool == "shell" {
+			r.Operation.ExitCode = meta.ExitCode
+		}
+		if strings.HasPrefix(r.Operation.Tool, "task_") {
+			r.Operation.TaskID = meta.ID
+			r.Operation.ExitCode = meta.ExitCode
+		}
 	}
 	r.Response.Data = data
 	r.Response.Outcome = "completed"
@@ -311,7 +335,12 @@ func (m *Manager) run(r record, j *job, gated bool) {
 		r.Response.Outcome = "error"
 		r.Response.Error = e.Error()
 	}
-	if e = m.transition(&r, "completed", ""); e != nil {
+	if e = m.transition(&r, "completed", func() string {
+		if r.Response.Error != "" {
+			return reason(errors.New(r.Response.Error))
+		}
+		return ""
+	}()); e != nil {
 		r.Response.Status = "unknown"
 		r.Response.Outcome = "unknown"
 		r.Response.Data = nil
@@ -372,6 +401,22 @@ func (m *Manager) Status(ctx context.Context, p auth.Principal, id string, wait 
 	if r.Response.Status == "pending" || r.Response.Status == "approved" || r.Response.Status == "dispatched" {
 		identity, e := platform.ProcessIdentity(r.OwnerPID)
 		alive := e == nil && identity == r.OwnerIdentity
+		if r.OwnerPID == m.pid && r.Epoch == m.epoch {
+			m.mu.Lock()
+			j := m.jobs[id]
+			m.mu.Unlock()
+			if j == nil {
+				fresh, err := m.load(id)
+				if err != nil {
+					return Response{}, err
+				}
+				r = fresh
+				if r.Response.Status == "completed" || r.Response.Status == "denied" || r.Response.Status == "unknown" {
+					return r.Response, nil
+				}
+				alive = false
+			}
+		}
 		if r.OwnerPID == m.pid && r.Epoch != m.epoch {
 			alive = false
 		}
@@ -391,4 +436,16 @@ func (m *Manager) Status(ctx context.Context, p auth.Principal, id string, wait 
 		}
 	}
 	return r.Response, nil
+}
+
+func (m *Manager) Running() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, j := range m.jobs {
+		if j.running {
+			n++
+		}
+	}
+	return n
 }

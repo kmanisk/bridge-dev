@@ -22,6 +22,7 @@ type logWriter struct {
 	mu        sync.Mutex
 	file      *os.File
 	size      int
+	limit     int
 	truncated bool
 }
 
@@ -29,7 +30,12 @@ func (w *logWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	n := len(p)
-	remaining := MaxLog - w.size
+	remaining := w.limit - w.size
+	if w.limit == 0 {
+		n, e := w.file.Write(p)
+		w.size += n
+		return n, e
+	}
 	if len(p) > remaining {
 		p = p[:max(0, remaining)]
 		w.truncated = true
@@ -128,7 +134,10 @@ func Worker(state, id string) error {
 		return e
 	}
 	defer log.Close()
-	w := &logWriter{file: log}
+	w := &logWriter{file: log, limit: s.Config.TaskLogBytes}
+	if w.limit == 0 && s.Config.Mode != policy.Dangerous {
+		w.limit = MaxLog
+	}
 	c := exec.Command(a[0], a[1:]...)
 	c.Dir = execrun.DescriptorPath(d)
 	c.Env = execrun.Environment(s.Config.Env)
@@ -157,6 +166,18 @@ func Worker(state, id string) error {
 			}
 		}
 	}()
+	al, ae := audit.New(filepath.Join(state, "audit"))
+	if ae == nil {
+		ae = al.Write(audit.Record{Client: "task-worker", Operation: "task_dispatch", Mode: string(s.Config.Mode), Phase: "intent", TaskID: id, Sudo: s.Sudo})
+	}
+	if ae != nil {
+		finish(-1, "")
+		return errors.New("task audit unavailable; command refused")
+	}
+	if s.Sudo && !s.Config.GrantUntil.IsZero() && !time.Now().Before(s.Config.GrantUntil) {
+		finish(-1, "")
+		return errors.New("privileged grant expired before command dispatch")
+	}
 	e = execrun.RunCommand(ctx, c)
 	if s.Sudo && e != nil {
 		fmt.Fprintln(os.Stderr, "sudo -n command failed in worker context; terminal cache may be unavailable. Inspect task output; use explicitly configured scoped NOPASSWD rules if appropriate. Never send a password through MCP.")

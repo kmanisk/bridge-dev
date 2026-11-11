@@ -16,6 +16,7 @@ import (
 	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"github.com/kmanisk/bridge-dev/internal/tasks"
 	"github.com/kmanisk/bridge-dev/internal/transport"
+	"github.com/kmanisk/bridge-dev/internal/tunnel"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"os"
 	"os/exec"
@@ -78,6 +79,12 @@ func run(args []string) error {
 		}
 		args = args[1:]
 	}
+	if cmd == "tunnel" {
+		if len(args) == 0 || args[0] != "setup" {
+			return errors.New("usage: tunnel setup")
+		}
+		args = args[1:]
+	}
 	if cmd == "install" || cmd == "uninstall" {
 		if len(args) == 0 {
 			return errors.New("install/uninstall requires a client")
@@ -125,6 +132,10 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	switch cmd {
+	case "tunnel":
+		tty := prompt.Open()
+		defer tty.Close()
+		return tunnel.Setup(ctx, c, prompt.New(tty), os.Stdout)
 	case "install", "uninstall":
 		tty := prompt.Open()
 		defer tty.Close()
@@ -173,6 +184,8 @@ func run(args []string) error {
 		}
 	case "down":
 		return transport.Down(ctx, c)
+	case "watch":
+		return transport.Watch(ctx, c, os.Stdout)
 	case "status":
 		rt, e := transport.Status(c)
 		if e != nil {

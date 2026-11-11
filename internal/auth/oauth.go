@@ -80,20 +80,23 @@ type database struct {
 	Revoked map[string]bool
 }
 type OAuth struct {
-	OnConsent     func(client, status string) error
-	terminal      bool
-	prompt        *prompt.Coordinator
-	redirectHosts []string
-	codes         map[string]string
-	rates         map[string]rateWindow
-	consentGate   chan struct{}
-	consentTTL    time.Duration
-	rateLimit     int
-	ratePeriod    time.Duration
-	ctx           context.Context
-	cancel        context.CancelFunc
-	workers       sync.WaitGroup
-	closed        bool
+	EffectiveMode                     func() string
+	SessionDeadline                   time.Time
+	MaxClients, MaxTokens, MaxPending int
+	OnConsent                         func(client, status string) error
+	terminal                          bool
+	prompt                            *prompt.Coordinator
+	redirectHosts                     []string
+	codes                             map[string]string
+	rates                             map[string]rateWindow
+	consentGate                       chan struct{}
+	consentTTL                        time.Duration
+	rateLimit                         int
+	ratePeriod                        time.Duration
+	ctx                               context.Context
+	cancel                            context.CancelFunc
+	workers                           sync.WaitGroup
+	closed                            bool
 
 	mu     sync.Mutex
 	state  string
@@ -112,14 +115,14 @@ func NewOAuth(state, issuer, mode string, notice io.Writer) (*OAuth, error) {
 	if u.Scheme != "https" && (u.Scheme != "http" || !loopback(u.Hostname())) {
 		return nil, errors.New("OAuth issuer requires HTTPS (HTTP loopback only for development)")
 	}
-	if mode != "readonly" && mode != "user" {
-		return nil, errors.New("OAuth forbids privileged modes")
+	if mode != "readonly" && mode != "user" && mode != "sudo" && mode != "dangerous" {
+		return nil, errors.New("invalid OAuth mode")
 	}
 	dir := filepath.Join(state, "oauth")
 	if e = platform.PrivateDir(dir); e != nil {
 		return nil, e
 	}
-	o := &OAuth{state: dir, issuer: issuer, scope: "mcp:" + mode, notice: notice, now: time.Now}
+	o := &OAuth{MaxClients: 1024, MaxTokens: 16384, MaxPending: 64, state: dir, issuer: issuer, scope: "mcp:" + mode, notice: notice, now: time.Now}
 	e = platform.ReadJSON(filepath.Join(dir, "store.json"), &o.db)
 	if e != nil && !os.IsNotExist(e) {
 		return nil, e
@@ -183,13 +186,13 @@ func (o *OAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(405)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"issuer": o.issuer, "authorization_endpoint": o.issuer + "/authorize", "token_endpoint": o.issuer + "/token", "registration_endpoint": o.issuer + "/register", "revocation_endpoint": o.issuer + "/revoke", "response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none", "client_secret_basic"}, "authorization_response_iss_parameter_supported": true, "scopes_supported": []string{o.scope}, "client_id_metadata_document_supported": false})
+		writeJSON(w, 200, map[string]any{"issuer": o.issuer, "authorization_endpoint": o.issuer + "/authorize", "token_endpoint": o.issuer + "/token", "registration_endpoint": o.issuer + "/register", "revocation_endpoint": o.issuer + "/revoke", "response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none", "client_secret_basic"}, "authorization_response_iss_parameter_supported": true, "scopes_supported": []string{o.currentScope()}, "client_id_metadata_document_supported": false})
 	case "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp":
 		if r.Method != "GET" {
 			w.WriteHeader(405)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"resource": o.issuer + "/mcp", "authorization_servers": []string{o.issuer}, "scopes_supported": []string{o.scope}, "bearer_methods_supported": []string{"header"}})
+		writeJSON(w, 200, map[string]any{"resource": o.issuer + "/mcp", "authorization_servers": []string{o.issuer}, "scopes_supported": []string{o.currentScope()}, "bearer_methods_supported": []string{"header"}})
 	case "/register":
 		o.register(w, r)
 	case "/authorize":
@@ -214,7 +217,7 @@ func (o *OAuth) register(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(405)
 		return
 	}
-	if len(o.db.Clients) >= 128 {
+	if o.MaxClients > 0 && len(o.db.Clients) >= o.MaxClients {
 		oauthError(w, 429, "registration_limit")
 		return
 	}
@@ -301,9 +304,9 @@ func (o *OAuth) authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	scope := q.Get("scope")
 	if scope == "" {
-		scope = o.scope
+		scope = o.currentScope()
 	}
-	if scope != o.scope {
+	if scope != o.currentScope() {
 		oauthError(w, 400, "invalid_scope")
 		return
 	}
@@ -313,7 +316,7 @@ func (o *OAuth) authorize(w http.ResponseWriter, r *http.Request) {
 		o.beginTerminal(w, r, pending{Client: c.ID, Redirect: redirect, State: q.Get("state"), Challenge: challenge, Resource: q.Get("resource"), Scope: scope, CSRFHash: Hash(csrf), CookieHash: Hash(cookie)}, csrf, cookie)
 		return
 	}
-	if len(o.db.Pending) >= 32 {
+	if o.MaxPending > 0 && len(o.db.Pending) >= o.MaxPending {
 		oauthError(w, 429, "slow_down")
 		return
 	}
@@ -460,13 +463,25 @@ func (o *OAuth) token(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, 400, "unsupported_grant_type")
 		return
 	}
+	if cr.Scope != o.currentScope() {
+		oauthError(w, 400, "invalid_grant")
+		return
+	}
+	if !o.SessionDeadline.IsZero() && (cr.Scope == "mcp:sudo" || cr.Scope == "mcp:dangerous") {
+		cr.SessionExpires = minTime(cr.SessionExpires, o.SessionDeadline)
+	}
+	if !o.now().Before(cr.SessionExpires) {
+		oauthError(w, 400, "invalid_grant")
+		return
+	}
 	o.prune()
-	if len(o.db.Access) >= 1024 || len(o.db.Refresh) >= 4096 {
+	if o.MaxTokens > 0 && (len(o.db.Access) >= o.MaxTokens || len(o.db.Refresh) >= o.MaxTokens) {
 		oauthError(w, 429, "slow_down")
 		return
 	}
 	access, refresh := Random(), Random()
 	cr.Expires = minTime(o.now().Add(accessLifetime), cr.SessionExpires)
+	accessExpiry := cr.Expires
 	o.db.Access[Hash(access)] = cr
 	cr.Expires = minTime(o.now().Add(refreshLifetime), cr.SessionExpires)
 	o.db.Refresh[Hash(refresh)] = cr
@@ -476,7 +491,7 @@ func (o *OAuth) token(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, 500, "server_error")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"access_token": access, "token_type": "Bearer", "expires_in": int(accessLifetime.Seconds()), "refresh_token": refresh, "scope": cr.Scope})
+	writeJSON(w, 200, map[string]any{"access_token": access, "token_type": "Bearer", "expires_in": max(0, int(accessExpiry.Sub(o.now()).Seconds())), "refresh_token": refresh, "scope": cr.Scope})
 }
 func (o *OAuth) Validate(token string) (string, bool) {
 	p, e := o.Authenticate(token)
@@ -570,4 +585,11 @@ func (o *OAuth) authenticateClient(r *http.Request) (string, bool) {
 	}
 	c, ok := o.db.Clients[id]
 	return id, ok && c.Method == "none" && r.PostForm.Get("client_secret") == "" && r.Header.Get("Authorization") == ""
+}
+
+func (o *OAuth) currentScope() string {
+	if o.EffectiveMode != nil {
+		return "mcp:" + o.EffectiveMode()
+	}
+	return o.scope
 }

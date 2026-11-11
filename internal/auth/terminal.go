@@ -80,7 +80,7 @@ func (o *OAuth) beginTerminal(w http.ResponseWriter, r *http.Request, p pending,
 		oauthError(w, 429, "slow_down")
 		return
 	}
-	if len(o.db.Pending) >= 32 {
+	if o.MaxPending > 0 && len(o.db.Pending) >= o.MaxPending {
 		oauthError(w, 429, "slow_down")
 		return
 	}

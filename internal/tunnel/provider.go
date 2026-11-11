@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"github.com/kmanisk/bridge-dev/internal/config"
+	"github.com/kmanisk/bridge-dev/internal/execrun"
 	"io"
 	"net"
 	"net/url"
 	"os/exec"
 	"strings"
+	"syscall"
 )
 
 func ValidateOrigin(origin string) error {
@@ -55,7 +57,8 @@ func StartProvider(ctx context.Context, c config.Config, local string) (*Tunnel,
 		argv[i] = strings.NewReplacer("{local_url}", local, "{local_port}", u.Port(), "{public_host}", public.Hostname()).Replace(a)
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	if e = cmd.Start(); e != nil {
@@ -63,6 +66,6 @@ func StartProvider(ctx context.Context, c config.Config, local string) (*Tunnel,
 		return nil, e
 	}
 	done := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(done) }()
+	go func() { _ = execrun.WaitCommand(ctx, cmd); close(done) }()
 	return &Tunnel{URL: c.PublicOrigin, cancel: cancel, done: done}, nil
 }

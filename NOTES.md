@@ -227,3 +227,40 @@ Tests use temporary fake Codex/Claude executables and configuration files, cover
 denial/yes/idempotency/modified-entry refusal/uninstall and clipboard-independent
 print behavior. Installed Codex 0.167.1 was also exercised with isolated temporary
 CODEX_HOME for actual add/get/remove. No real workstation client config changed.
+
+## M14 - recovery, visibility and bounded file interaction
+
+Added owned process-group tunnel cleanup and restart with capped exponential
+backoff, repeated reachability checks, verified new URLs, origin credential
+invalidation and privileged-grant revocation. The positive privileged OAuth
+rotation test exposed and removed an additional Phase 1 OAuth-constructor ban
+missed by M12's negative-policy tests. Built-server tests now complete OAuth in
+sudo mode and invoke only a deliberately failing fake sudo; remote privileged
+success is no longer inferred solely from tool registration. Privileged token and
+refresh expiry are clipped to timed grants; metadata scopes track effective mode.
+
+status uses a local authenticated administration endpoint, reports effective mode,
+clients/last activity, tasks, idle/grant deadlines and last ten audit lines. A
+second owned runtime record recovers missing http.json; stale PIDs are never
+signalled. Missing state is stopped; undiscoverable locked state is explicitly
+partial and refuses unsafe shutdown. Added watch with rotation-aware audit tail.
+
+Named tunnel setup delegates login/create/DNS to native cloudflared after explicit
+confirmation and can return to account-free quick mode. Custom argv templates use
+an explicit verified HTTPS origin, without a shell. docs/TUNNELS.md explains trust
+and hostname rotation. No public tunnel/account/DNS operation ran in tests.
+
+Adopted Desktop Commander design lessons as idiomatic Go: file byte slices with
+next offsets and binary encoding; directory and filename/content search pages
+with continuation/incomplete/skipped metadata. Existing default whole-file and
+filename-list results remain compatible. Cursors are offsets, not snapshots;
+concurrent directory changes may change ordering. Exact atomic editing remains.
+Technical byte/output/task-log/search/depth/timeout/concurrency/auth-state bounds
+are configurable, including explicit dangerous-only unlimited meaningful bounds.
+The HTTP polling limit remains fixed at 25 seconds. These are resource/abuse
+bounds, never billing or monthly tool-call quotas. Actual task dispatch now also
+audits from the independent worker before starting a command.
+
+Regression tests cover fake tunnel rotation and actual terminal-consent OAuth
+credentials, safe partial state/down, named/quick setup, slices/content pages,
+configured/unlimited output, worker context failures and ambiguous result storage.

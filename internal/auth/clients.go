@@ -144,7 +144,7 @@ func (o *OAuth) checkKey(key string) (credential, error) {
 	if g.Resource != o.issuer+"/mcp" {
 		return g, Denied{"auth"}
 	}
-	if g.Scope != o.scope {
+	if g.Scope != o.currentScope() {
 		return g, Denied{"mode"}
 	}
 	return g, nil

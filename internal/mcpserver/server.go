@@ -31,21 +31,23 @@ import (
 )
 
 type Input struct {
-	RequestKey string   `json:"request_key,omitempty" jsonschema:"Stable unique key per logical operation; reuse only for retries"`
-	Encoding   string   `json:"encoding,omitempty"`
-	Path       string   `json:"path,omitempty" jsonschema:"Path within configured roots; relative paths use the first root"`
-	ID         string   `json:"id,omitempty" jsonschema:"Task ID; for fetch this is a file path"`
-	Query      string   `json:"query,omitempty" jsonschema:"Case-insensitive filename substring"`
-	Content    string   `json:"content,omitempty" jsonschema:"Replacement file contents; maximum 1 MiB"`
-	Old        string   `json:"old,omitempty"`
-	New        string   `json:"new,omitempty"`
-	Argv       []string `json:"argv,omitempty" jsonschema:"Absolute executable followed by literal arguments; never a shell string"`
-	Cwd        string   `json:"cwd,omitempty" jsonschema:"Explicit working directory within roots"`
-	Timeout    int      `json:"timeout_seconds,omitempty"`
-	Offset     int64    `json:"offset,omitempty" jsonschema:"Byte cursor returned by task_logs"`
-	Sudo       bool     `json:"sudo,omitempty" jsonschema:"Explicit privileged task request; local sudo mode only"`
-	ClientID   string   `json:"client_id,omitempty" jsonschema:"Stable client-selected completion cursor identity"`
-	Ack        string   `json:"ack,omitempty" jsonschema:"Acknowledge a previously returned task completion cursor"`
+	Limit         int64    `json:"limit,omitempty"`
+	ContentSearch bool     `json:"content_search,omitempty"`
+	RequestKey    string   `json:"request_key,omitempty" jsonschema:"Stable unique key per logical operation; reuse only for retries"`
+	Encoding      string   `json:"encoding,omitempty"`
+	Path          string   `json:"path,omitempty" jsonschema:"Path within configured roots; relative paths use the first root"`
+	ID            string   `json:"id,omitempty" jsonschema:"Task ID; for fetch this is a file path"`
+	Query         string   `json:"query,omitempty" jsonschema:"Case-insensitive filename substring"`
+	Content       string   `json:"content,omitempty" jsonschema:"Replacement file contents; maximum 1 MiB"`
+	Old           string   `json:"old,omitempty"`
+	New           string   `json:"new,omitempty"`
+	Argv          []string `json:"argv,omitempty" jsonschema:"Absolute executable followed by literal arguments; never a shell string"`
+	Cwd           string   `json:"cwd,omitempty" jsonschema:"Explicit working directory within roots"`
+	Timeout       int      `json:"timeout_seconds,omitempty"`
+	Offset        int64    `json:"offset,omitempty" jsonschema:"Byte cursor for task logs, file slices and paginated file operations"`
+	Sudo          bool     `json:"sudo,omitempty" jsonschema:"Explicit privileged task request; local sudo mode only"`
+	ClientID      string   `json:"client_id,omitempty" jsonschema:"Stable client-selected completion cursor identity"`
+	Ack           string   `json:"ack,omitempty" jsonschema:"Acknowledge a previously returned task completion cursor"`
 }
 type App struct {
 	Prompts         *prompt.Coordinator
@@ -84,6 +86,10 @@ func New(c config.Config, remote bool) (*App, error) {
 	if c.Mode == policy.Dangerous {
 		j.Unrestricted()
 	}
+	if e = j.Check(); e != nil {
+		j.Close()
+		return nil, e
+	}
 	binary, e := os.Executable()
 	if e != nil {
 		j.Close()
@@ -106,6 +112,10 @@ func New(c config.Config, remote bool) (*App, error) {
 			a.SafeJail = fsjail.Deny()
 		} else {
 			a.SafeJail, e = fsjail.New(c.Roots)
+			if e != nil {
+				a.SafeJail = fsjail.Deny()
+				e = nil
+			}
 		}
 		if e != nil {
 			j.Close()
@@ -113,6 +123,18 @@ func New(c config.Config, remote bool) (*App, error) {
 		}
 	} else {
 		a.SafeJail = j
+	}
+	j.ReadLimit = c.ReadBytes
+	j.WriteLimit = c.WriteBytes
+	if a.SafeJail != j {
+		a.SafeJail.ReadLimit = c.ReadBytes
+		a.SafeJail.WriteLimit = c.WriteBytes
+		if c.ReadBytes == 0 {
+			a.SafeJail.ReadLimit = filesystem.MaxRead
+		}
+		if c.WriteBytes == 0 {
+			a.SafeJail.WriteLimit = filesystem.MaxRead
+		}
 	}
 	duration, _ := time.ParseDuration(c.SudoFor)
 	a.Grant = privilege.New(c.Mode, duration, func() {
@@ -257,7 +279,11 @@ func (a *App) add(name, desc string, read bool) {
 						if e := authorize(); e != nil {
 							return nil, e
 						}
-						return a.call(auth.WithPrincipal(run, principal), name, in)
+						value, e := a.call(auth.WithPrincipal(run, principal), name, in)
+						if task, ok := value.(tasks.Task); ok && e == nil && (name == "task_start" || name == "task_restart") {
+							a.Events.Emit("Task " + task.ID + " started")
+						}
+						return value, e
 					}, wait)
 					if e == nil {
 						if response.Status == "completed" {
@@ -334,7 +360,10 @@ func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 		if p == "" {
 			p = in.ID
 		}
-		b, e := j.Read(p, filesystem.MaxRead)
+		if in.Offset != 0 || in.Limit != 0 {
+			return filesystem.ReadSlice(j, p, in.Offset, in.Limit, j.ReadLimit)
+		}
+		b, e := j.Read(p, j.ReadLimit)
 		if e != nil {
 			return nil, e
 		}
@@ -343,19 +372,27 @@ func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 		}
 		return string(b), nil
 	case "fs_list":
-		return filesystem.List(j, in.Path)
+		page, e := filesystem.ListPage(j, in.Path, in.Offset, int(in.Limit), a.Config.SearchResults)
+		if in.Offset != 0 || in.Limit != 0 {
+			return page, e
+		}
+		return page.Entries, e
 	case "fs_search", "search":
 		p := in.Path
 		if p == "" {
 			p = "."
 		}
-		return filesystem.Search(ctx, j, p, in.Query)
+		page, e := filesystem.SearchPage(ctx, j, p, in.Query, filesystem.SearchOptions{Offset: in.Offset, Limit: int(in.Limit), Results: a.Config.SearchResults, Visited: a.Config.SearchVisited, Depth: a.Config.SearchDepth, ReadBytes: j.ReadLimit, Content: in.ContentSearch})
+		if in.ContentSearch || in.Offset != 0 || in.Limit != 0 {
+			return page, e
+		}
+		return page.Entries, e
 	case "fs_write":
 		b := []byte(in.Content)
 		switch in.Encoding {
 		case "", "utf8":
 		case "base64":
-			if len(in.Content) > base64.StdEncoding.EncodedLen(filesystem.MaxRead) {
+			if j.WriteLimit > 0 && int64(len(in.Content)) > (j.WriteLimit+2)/3*4 {
 				return nil, errors.New("encoded write limit exceeded")
 			}
 			var e error
@@ -378,7 +415,9 @@ func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 		in.Argv = []string{"/bin/sh", "-c", in.Content}
 		fallthrough
 	case "exec", "sudo_exec":
-		return execrun.Run(ctx, j, policy.Commands{Allow: a.Config.Allow, Deny: a.Config.Deny, SudoAllow: a.Config.SudoAllow}, mode, execrun.Request{Argv: in.Argv, Cwd: in.Cwd, TimeoutSeconds: in.Timeout}, name == "sudo_exec", a.Config.Env)
+		deadline, _ := time.ParseDuration(a.Config.ExecTimeout)
+		maximum, _ := time.ParseDuration(a.Config.ExecMaxTimeout)
+		return execrun.RunWithLimits(ctx, j, policy.Commands{Allow: a.Config.Allow, Deny: a.Config.Deny, SudoAllow: a.Config.SudoAllow}, mode, execrun.Request{Argv: in.Argv, Cwd: in.Cwd, TimeoutSeconds: in.Timeout}, name == "sudo_exec", a.Config.Env, a.Config.OutputBytes, deadline, maximum)
 	case "task_start":
 		tm := *a.Tasks
 		tm.Config.Mode = mode
@@ -420,9 +459,10 @@ func (a *App) ConfigurePrompts(ctx context.Context, p *prompt.Coordinator) error
 		if status == "pending" || status == "approved" || status == "denied" {
 			a.Events.Emit("Operation " + status + ": " + op.Tool)
 		}
-		return a.Audit.Write(audit.Record{Client: op.Client, ClientName: op.Name, Operation: op.Tool, Mode: op.Mode, Category: op.Class, Path: op.Path, Resolved: op.Resolved, Cwd: op.Cwd, ApprovalID: id, Phase: status, Reason: reason, Allowed: status == "approved", Sudo: op.Class == "sudo"})
+		return a.Audit.Write(audit.Record{Client: op.Client, ClientName: op.Name, Operation: op.Tool, Mode: op.Mode, Category: op.Class, Path: op.Path, Resolved: op.Resolved, Cwd: op.Cwd, ApprovalID: id, Phase: status, Reason: reason, DurationMS: op.DurationMS, ExitCode: op.ExitCode, TaskID: op.TaskID, Allowed: status == "approved", Sudo: op.Class == "sudo"})
 	})
 	if e == nil {
+		m.MaxPending = a.Config.ApprovalPending
 		a.Approvals = m
 	}
 	return e
@@ -442,17 +482,21 @@ func (a *App) operation(name string, in Input) approval.Operation {
 	if in.Sudo {
 		class = "sudo"
 	}
+	j := a.Jail
+	if a.Grant.Mode() != policy.Dangerous {
+		j = a.SafeJail
+	}
 	path := in.Path
 	if name == "fetch" {
 		path = in.ID
 	}
 	resolved := ""
 	if path != "" {
-		resolved, _ = a.Jail.Path(path)
+		resolved, _ = j.Path(path)
 	}
 	cwd := in.Cwd
 	if cwd != "" {
-		cwd, _ = a.Jail.Path(cwd)
+		cwd, _ = j.Path(cwd)
 	}
 	copy := in
 	copy.ClientID = ""
@@ -463,6 +507,9 @@ func (a *App) operation(name string, in Input) approval.Operation {
 		Input                 Input
 	}{name, string(a.Grant.Mode()), resolved, cwd, copy})
 	display := fmt.Sprintf("path %q (resolved %q)", path, resolved)
+	if name == "shell" {
+		display = fmt.Sprintf("argv %q", []string{"/bin/sh", "-c", in.Content})
+	}
 	if len(in.Argv) > 0 {
 		display = fmt.Sprintf("argv %q", in.Argv)
 	}
