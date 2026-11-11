@@ -102,3 +102,7 @@ another wizard; the final transport lock still resolves concurrent startup races
 Tunnel health/discovery self-probes do not reset client inactivity. Authenticated
 MCP operations and authorization activity still do; active work is protected.
 The optional dashboard is deferred, with no new listener or authentication surface.
+
+Clipboard helpers may daemonize to retain clipboard ownership. Their output uses
+null file descriptors (not exec copier pipes) and WaitDelay bounds inherited-pipe
+cleanup; clipboard support must never hold startup/recovery/idle monitoring open.

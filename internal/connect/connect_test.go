@@ -476,3 +476,32 @@ func TestConnectPreservesExistingPartialInstance(t *testing.T) {
 		t.Fatal(e, p.asked, out.String())
 	}
 }
+
+func TestClipboardForkedOwnerDoesNotBlockStartup(t *testing.T) {
+	dir := t.TempDir()
+	done := filepath.Join(dir, "owner-finished")
+	script := "#!/bin/sh\n/bin/cat >/dev/null\n(/bin/sleep 1; : > '" + done + "') &\nexit 0\n"
+	if e := os.WriteFile(filepath.Join(dir, "wl-copy"), []byte(script), 0700); e != nil {
+		t.Fatal(e)
+	}
+	t.Setenv("PATH", dir)
+	started := time.Now()
+	if !CopyURL(context.Background(), "https://clipboard-fixture.example/mcp") {
+		t.Fatal("clipboard copy failed")
+	}
+	elapsed := time.Since(started)
+	// Wait for the bounded fake owner before temporary-directory cleanup.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, e := os.Stat(done); e == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("fake owner did not finish")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("daemonized clipboard owner blocked startup: %s", elapsed)
+	}
+}

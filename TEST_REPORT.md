@@ -200,7 +200,7 @@ self-probes excluded from idle activity. No privilege checks were relaxed.
 | ChatGPT account | Connector creation/OAuth initiation observed by user | Callback/tools not yet proven | User reconnect, terminal y, read call | Preserved registered client; no authorized activity yet |
 | Claude web account | Protocol/DCR implemented | Automated protocol only | Real account authorization/read pending | No actual account access available |
 | Optional dashboard | No; deferred | No | Explicitly incomplete | No new listener/authentication surface |
-| Private GitHub | Authorized | Publication verification pending | No human login needed so far | Existing gh identity kmanisk |
+| Private GitHub | Yes | PRIVATE; remote main matched cb564c6 | Final follow-up verified after push | test-output/sprint-publication.json |
 
 Final gate results are recorded after command completion below. Native macOS/ARM64,
 real Claude/ChatGPT write availability, named tunnels and user sudo contexts remain
@@ -225,18 +225,54 @@ private runtime/auth state, .env, logs and native tunnel credentials are ignored
 The optional isolated headless browser attempt could not load its fixture; it was
 stopped and its uncommitted harness removed. It is not browser compatibility proof.
 
-### Final source gates
+### Final source gates (including live clipboard fix)
 
 | Gate | Result | Local evidence |
 | --- | --- | --- |
-| go fmt/vet/uncached tests/race/staticcheck; make check | Pass | test-output/sprint-final-check.log |
+| go fmt/vet/uncached tests/race/staticcheck; make check | Pass | test-output/sprint-clipboard-check.log |
 | Actual built stdio/HTTP/OAuth/task subprocesses | Pass, normal and race instrumentation | integration suite in same log |
-| Bounded filesystem fuzz | Pass; 932,295 executions, 10 seconds, 2 workers | test-output/sprint-final-fuzz.log |
-| Four CGO_ENABLED=0 release cross-builds and host build | Pass | test-output/sprint-final-build.log |
+| Bounded filesystem fuzz | Pass; 1,007,785 executions, 10 seconds, 2 workers | test-output/sprint-clipboard-fuzz-build.log |
+| Four CGO_ENABLED=0 release cross-builds and host build | Pass | test-output/sprint-clipboard-fuzz-build.log |
 | Fish completions and all 22 manual Fish blocks | Syntax pass, no fixture commands executed | test-output/sprint-final-fish.log |
-| Unit / actual subprocess coverage | 65.6% / 40.1%, separate profiles | coverage/unit-functions.txt; subprocess-functions.txt |
+| Unit / actual subprocess coverage | 65.6% / 40.2%, separate profiles | coverage/unit-functions.txt; subprocess-functions.txt |
 | Diff whitespace / secret review | Pass with reviewed inert negative-test literals | git diff --check; redacted sprint-*-secrets reports |
 
 The previous M15 artifact hashes/coverage above are historical, not fingerprints
 for these changed sources. Current artifacts are ignored under bin/. Native
 macOS/ARM64 execution and actual provider handshakes remain separate manual gates.
+
+### Final live findings and publication
+
+Live restart found a clipboard-owner inheritance bug: wl-copy forked with stdout/
+stderr copier pipes, so exec.Cmd.Wait never completed and main remained in the
+ready callback. Graceful down canceled its owned tunnel; after exact identity/no
+client/no task verification, that stuck HTTP process required SIGQUIT diagnosis.
+Sanitized function-only traces identified connect.CopyURL. Fixed direct null
+outputs plus WaitDelay; fake-fork regression and the complete suite pass afterward.
+The replacement live session completed clipboard copying and entered monitoring.
+Its server RSS snapshot was about 20 MiB with 15 open descriptors, not a long soak
+or proof of no goroutine leaks. Metadata self-probes preserve its idle deadline;
+a manual invalid /authorize request correctly reached OAuth validation (400), which
+counts as authorization activity. Original saved config checksum is unchanged.
+
+Final readonly public endpoint passed HTTPS health, AS/PR metadata, canonical public
+URLs and unauthenticated MCP 401. GET /authorize without parameters reaches OAuth
+validation (400, not invalid origin). The production verifier's existing safe DNS
+fallback handled initial local negative caching; ordinary system-resolver curl
+subsequently passed HTTP 200 with TLS verify 0. No DNS/system configuration changed.
+No valid real ChatGPT browser consent/callback was approved by automation; that
+account interaction and a real read call remain pending. Claude web remains pending.
+The final temporary URL is available from status, not a durable connector address.
+
+The actual CGO-free release binary additionally passed isolated SDK stdio initialize,
+readonly registry exclusions, fs_list/fs_read/search/fetch, and a detached echo task
+recovered after stdio restart with exit 0 and retained logs. An initial smoke harness
+incorrectly named a missing explicit config and was correctly rejected; rerunning
+with a private temporary config passed. No user data or real sudo was involved.
+
+Private repository https://github.com/kmanisk/bridge-dev was created under kmanisk;
+visibility isPrivate=true and initial source cb564c68221cb0fcfd58e61abcbec9130fb1841e
+matched remote refs/heads/main after push. The follow-up containing this report is
+pushed and compared as the final publication gate; its exact verified hash belongs
+in the agent's final report and local ignored publication receipt. No force-push,
+public visibility, permanent service or unrelated repository action is authorized.

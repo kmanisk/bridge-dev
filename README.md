@@ -150,6 +150,8 @@ Connectors / Add custom connector (labels may differ), enter that URL and author
 Keep the Bridge terminal visible: compare the six-digit browser/terminal code,
 client ID, requested scope and registered redirect host, then type y only if you
 initiated the request. Consent expires in 60 seconds; reconnect for a new request.
+If the app retains stale registration after a hostname change, recreate only the
+Bridge connector with the new URL and automatic registration.
 No Origin header is required for GET /authorize. A normal unauthenticated browser
 visit to /mcp returns unauthorized; that is expected. See MANUAL_TEST.md for the
 browser-origin regression and account test checklist.

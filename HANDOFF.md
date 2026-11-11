@@ -41,3 +41,10 @@ pagination/search/install/event lessons; no Node dependency/source was imported.
 Final gate and private GitHub publication results follow TEST_REPORT.md. Audit the
 actual gh remote visibility/HEAD before claiming a push passed. Ignored build,
 coverage and test-output artifacts remain local; no secrets belong in commits.
+
+Live recovery additionally found daemonized clipboard output holding exec's copier
+pipes open. Preserve the direct-null-output/WaitDelay fix and fake-fork regression.
+The verified old HTTP process required diagnostic SIGQUIT after graceful down had
+stopped the owned tunnel; no tasks or other stdio processes were terminated. The
+private repository exists and initial verified source cb564c6 was pushed. Check the
+final TEST_REPORT/publication receipt and remote HEAD for the final follow-up.

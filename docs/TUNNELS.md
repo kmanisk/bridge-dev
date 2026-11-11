@@ -31,3 +31,8 @@ for loopback-only OAuth development without a relay.
 No public tunnel, account login or DNS change runs during automated tests. Fake
 processes and loopback-only HTTPS-origin proxies cover startup, exit/restart,
 origin-bound token invalidation, grant revocation and metadata consistency.
+
+After a Quick Tunnel hostname change, a client may retain a DCR client ID from the
+previous issuer. If updating the URL and reconnecting still fails, remove only the
+old Bridge connector and create it again with the newly printed URL and automatic
+registration. Do not reuse old client secrets or callbacks from another origin.

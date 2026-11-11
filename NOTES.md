@@ -462,3 +462,32 @@ four CGO-free cross-builds/host build, 932,295 bounded filesystem fuzz execution
 profiles are 65.6%/40.1%; native terminal/browser/provider paths remain manual.
 All source changes reviewed; no credentials/runtime/build files staged. Next step
 is private repository publication and final readonly session refresh.
+
+## Final live clipboard recovery
+
+The actual foreground refresh exposed a startup hang missed by the earlier fake
+clipboard: wl-copy's background owner inherited io.Discard copier pipes, leaving
+Cmd.Wait blocked even after its parent exited. The main goroutine had not returned
+from the clipboard-ready callback, so it never entered idle/recovery monitoring.
+Down canceled the owned tunnel but could not finish the stuck startup callback.
+After verifying exact process identity and no authenticated clients/running tasks,
+the already-stopping HTTP process was terminated with SIGQUIT for diagnosis. Only
+function names/locations were retained privately; no argument/credential dump was
+published. Existing stdio processes were untouched. The dead owned tmux pane was
+reused; no unrelated process or session was killed.
+
+Fix: clipboard stdout/stderr use exec's direct null descriptors instead of copier
+pipes, with a bounded WaitDelay. Regression uses a fake forking clipboard owner and
+waits for its bounded completion before removing the temporary fixture. Full gates
+were rerun after this final source change. Release binary SDK smoke also passed
+readonly initialize/list/read/search/fetch and a harmless detached echo task recovered
+in a new stdio server with exit 0 and retained output. No real sudo was used.
+Private kmanisk/bridge-dev was created and cb564c6 pushed/compared with remote main;
+final clipboard hardening commit will be verified against remote after its push.
+
+Clipboard follow-up gates: complete make check/race/staticcheck, 1,007,785 bounded
+fuzz executions, four cross-builds/host build and coverage pass. Current separate
+profiles: 65.6% unit / 40.2% actual subprocess. Public readonly TLS/health/discovery/
+401 checks pass; ordinary curl DNS/TLS succeeds after initial cache propagation.
+Final startup clipboard callback completes. Actual ChatGPT/Claude handshake/read
+and optional dashboard remain explicitly incomplete; no approval was automated.

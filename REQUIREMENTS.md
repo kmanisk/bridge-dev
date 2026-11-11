@@ -68,7 +68,7 @@ explicitly pending, not converted into a software implementation success.
 | 31 literal argv/cwd/env/timeout/output/process groups | Yes | Execution/output/shim/group tests | Allowlisting is not a sandbox | execrun; integration |
 | 32 module/temporary identity | Yes | Direct identity/build metadata tests | No final naming requested | identity; go.mod |
 | 33 Fish manual/completions/no live shell installation | Yes | fish -n + 20 parsed Fish blocks | No | completions; scripts/check-fish |
-| 34 direct package and actual subprocess coverage | Yes | 65.6% unit; 40.1% subprocess (final sprint) | Uncovered paths listed, not hidden | coverage/*; TEST_REPORT |
+| 34 direct package and actual subprocess coverage | Yes | 65.6% unit; 40.2% subprocess (final sprint) | Uncovered paths listed, not hidden | coverage/*; TEST_REPORT |
 | 35 required interaction/security/recovery tests | Yes locally | Scripted/fake/native isolated cases | Human-only cases explicitly pending | TEST_REPORT; MANUAL_TEST |
 | 36 full uncached normal/race/vet/staticcheck/fuzz/build gates | Yes | Final code all pass | No | test-output/m15-* |
 | 37 M8-M15 incremental local milestones | Yes | Verified milestone commits | No | git log; NOTES |
@@ -88,10 +88,11 @@ currently blocked; the manual environment rows are outstanding acceptance eviden
 | --- | --- | --- | --- | --- |
 | OAuth browser navigation/form Origin fix | Yes | Guard-to-OAuth/PKCE/SDK regression | Real ChatGPT pending | internal/transport/oauth_browser_test.go |
 | Previous public DNS/TLS readiness fixes | Preserved | Baseline make check | Existing readonly tunnel inspected | 7678c20, 575f3a2 |
-| Private GitHub creation and push | Authorized, pending validation | Not yet | Existing gh authentication available | Sprint E |
+| Private GitHub creation and push | Yes | PRIVATE and source cb564c6 matched remote main | Final follow-up verified after push | Sprint E publication receipt |
 | Dashboard | No; explicitly deferred | Not tested | Optional UI remains incomplete | Core MCP/security gates prioritized |
 | Wizard per-field validation and duplicate startup | Yes | Scripted typo/reuse and held partial runtime lock | No live config changes | connect/connect_test.go |
 | Idle lifetime unaffected by tunnel metadata probes | Yes | Direct discovery regression; existing active-request/idle integration | Public runtime updated after tests | transport/http_test.go; integration/lifecycle_test.go |
+| Forking clipboard helper cannot block startup/shutdown | Yes | Fake bounded owner; actual live recovery | Final foreground run checked separately | connect/connect_test.go |
 | Prompt-safe terminal events and consent expiry callbacks | Yes | Bounded buffer/cancel/serialization; state/iss/code issuance tests | Real browser confirmation pending | prompt/prompt_test.go; auth/terminal_test.go |
 
 Historical no-remote/no-public-exposure rows describe earlier milestone authority;

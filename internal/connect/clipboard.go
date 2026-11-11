@@ -22,8 +22,10 @@ func CopyURL(ctx context.Context, url string) bool {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		c := exec.CommandContext(ctx, p, a[1:]...)
 		c.Stdin = strings.NewReader(url)
-		c.Stdout = io.Discard
-		c.Stderr = io.Discard
+		// nil outputs attach directly to the null device. io.Discard creates
+		// copier pipes; a daemonizing clipboard owner can inherit those pipes
+		// and keep Cmd.Wait blocked after the launcher has exited.
+		c.WaitDelay = 250 * time.Millisecond
 		e = c.Run()
 		cancel()
 		if e == nil {
