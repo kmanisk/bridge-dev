@@ -83,7 +83,12 @@ func Prepare(j *fsjail.Jail, p policy.Commands, m policy.Mode, r Request, sudo b
 	}
 	a := append([]string{}, r.Argv...)
 	if sudo {
-		a = SudoArgv("/usr/bin/sudo", a)
+		sudoPath, se := exec.LookPath("sudo")
+		if se != nil {
+			d.Close()
+			return nil, nil, errors.New("sudo unavailable")
+		}
+		a = SudoArgv(sudoPath, a)
 	}
 	return a, d, nil
 }

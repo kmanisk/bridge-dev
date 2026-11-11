@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/kmanisk/bridge-dev/internal/events"
+	"github.com/kmanisk/bridge-dev/internal/privilege"
 	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"github.com/kmanisk/bridge-dev/internal/transport"
 	"io"
@@ -13,6 +14,9 @@ func Run(ctx context.Context, args []string, getenv func(string) string, p *prom
 	out = &events.Writer{Out: out}
 	c, e := Prepare(ctx, args, getenv, p, out)
 	if e != nil {
+		return e
+	}
+	if e = privilege.Authorize(ctx, &c, p, out, true); e != nil {
 		return e
 	}
 	opt.Prompts = p

@@ -18,14 +18,10 @@ const (
 
 func (m Mode) Validate(remote bool) error {
 	switch m {
-	case Readonly, User:
+	case Readonly, User, Sudo, Dangerous:
 		return nil
-	case Sudo, Dangerous:
-		if !remote {
-			return nil
-		}
 	}
-	return errors.New("invalid or remotely forbidden permission mode")
+	return errors.New("invalid permission mode")
 }
 func (m Mode) Write() bool      { return m == User || m == Sudo || m == Dangerous }
 func (m Mode) Privileged() bool { return m == Sudo || m == Dangerous }
@@ -55,11 +51,14 @@ func (p Commands) Check(argv []string, sudo bool, dangerous bool) error {
 	if len(argv) == 0 || !filepath.IsAbs(argv[0]) || filepath.Clean(argv[0]) != argv[0] {
 		return errors.New("argv requires a clean absolute executable path")
 	}
+	if dangerous {
+		return nil
+	}
 	if slices.Contains(p.Deny, argv[0]) {
 		return errors.New("command denied")
 	}
 	if sudo {
-		if !slices.Contains(p.SudoAllow, argv[0]) {
+		if p.SudoAllow != nil && !slices.Contains(p.SudoAllow, argv[0]) {
 			return errors.New("command not sudo-allowlisted")
 		}
 		return nil

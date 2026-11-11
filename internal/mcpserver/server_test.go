@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kmanisk/bridge-dev/internal/auth"
 	"github.com/kmanisk/bridge-dev/internal/config"
 	"github.com/kmanisk/bridge-dev/internal/policy"
 	"github.com/kmanisk/bridge-dev/internal/prompt"
@@ -35,6 +36,7 @@ func appTest(t *testing.T, mode policy.Mode) *App {
 	root := c.Roots[0]
 	c.Mode = mode
 	c.AckDanger = true
+	c.PrivilegedAuthorized = true
 	a, e := New(c, false)
 	if e != nil {
 		t.Fatal(e)
@@ -128,5 +130,67 @@ func TestPendingApprovalAndRetry(t *testing.T) {
 	b, _ = os.ReadFile(filepath.Join(a.Config.Roots[0], "write"))
 	if string(b) != "later" {
 		t.Fatal("duplicate effect")
+	}
+}
+
+func TestGrantExpiryRegistryAndQueue(t *testing.T) {
+	a := appTest(t, policy.Sudo)
+	cs := clientTest(t, a)
+	a.Grant.Revoke()
+	list, e := cs.ListTools(context.Background(), nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, tool := range list.Tools {
+		if tool.Name == "sudo_exec" || tool.Name == "exec" || tool.Name == "fs_write" {
+			t.Fatal("expired capability listed", tool.Name)
+		}
+	}
+	if e = a.Authorize("sudo_exec", Input{}, "sudo"); e == nil {
+		t.Fatal("expired invocation authorized")
+	}
+}
+func TestRemotePrivilegeRequiresAuthorization(t *testing.T) {
+	c := config.Defaults()
+	c.StateDir = t.TempDir()
+	os.Chmod(c.StateDir, 0700)
+	c.Roots = []string{t.TempDir()}
+	c.Mode = policy.Sudo
+	if _, e := New(c, true); e == nil {
+		t.Fatal("bearer privilege")
+	}
+	c.OAuth = true
+	if _, e := New(c, true); e == nil {
+		t.Fatal("missing current acknowledgment")
+	}
+}
+
+func TestQueuedPrivilegeExpires(t *testing.T) {
+	fake := t.TempDir()
+	os.WriteFile(filepath.Join(fake, "sudo"), []byte("#!/bin/sh\nexit 98\n"), 0700)
+	t.Setenv("PATH", fake)
+	a := appTest(t, policy.Sudo)
+	a.Config.Approve = "sudo"
+	p := &scriptedPrompt{answers: make(chan string, 1)}
+	if e := a.ConfigurePrompts(context.Background(), prompt.New(p)); e != nil {
+		t.Fatal(e)
+	}
+	cs := clientTest(t, a)
+	r, e := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "sudo_exec", Arguments: map[string]any{"argv": []string{"/usr/bin/id"}, "cwd": a.Config.Roots[0], "request_key": "expires"}})
+	if e != nil || r.IsError {
+		t.Fatal(r, e)
+	}
+	var result struct {
+		Data struct {
+			ID string `json:"pending_id"`
+		} `json:"data"`
+	}
+	b, _ := json.Marshal(r.StructuredContent)
+	json.Unmarshal(b, &result)
+	a.Grant.Revoke()
+	p.answers <- "y"
+	response, e := a.Approvals.Status(context.Background(), auth.Identity(context.Background()), result.Data.ID, time.Second)
+	if e != nil || response.Status != "denied" || response.Reason != "expired" {
+		t.Fatal(response, e)
 	}
 }

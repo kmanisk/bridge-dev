@@ -17,12 +17,15 @@ import (
 	"github.com/kmanisk/bridge-dev/internal/identity"
 	"github.com/kmanisk/bridge-dev/internal/platform"
 	"github.com/kmanisk/bridge-dev/internal/policy"
+	"github.com/kmanisk/bridge-dev/internal/privilege"
 	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"github.com/kmanisk/bridge-dev/internal/tasks"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -45,19 +48,24 @@ type Input struct {
 	Ack        string   `json:"ack,omitempty" jsonschema:"Acknowledge a previously returned task completion cursor"`
 }
 type App struct {
-	Approvals *approval.Manager
-	Remote    bool
-	Events    *events.Hub
-	Config    config.Config
-	Jail      *fsjail.Jail
-	Tasks     *tasks.Manager
-	Audit     *audit.Log
-	Server    *mcp.Server
+	Prompts         *prompt.Coordinator
+	registryMu      sync.Mutex
+	registryExpired bool
+	Grant           *privilege.Grant
+	SafeJail        *fsjail.Jail
+	Approvals       *approval.Manager
+	Remote          bool
+	Events          *events.Hub
+	Config          config.Config
+	Jail            *fsjail.Jail
+	Tasks           *tasks.Manager
+	Audit           *audit.Log
+	Server          *mcp.Server
 }
 
 func New(c config.Config, remote bool) (*App, error) {
-	if c.Mode == policy.Dangerous && !c.AckDanger && !c.PrivilegedAuthorized {
-		return nil, errors.New("dangerous preference requires current startup authorization")
+	if c.Mode.Privileged() && !c.PrivilegedAuthorized {
+		return nil, errors.New("privileged preference requires current startup authorization")
 	}
 	if e := c.Validate(remote); e != nil {
 		return nil, e
@@ -68,7 +76,6 @@ func New(c config.Config, remote bool) (*App, error) {
 	roots := c.Roots
 	if c.Mode == policy.Dangerous {
 		roots = []string{"/"}
-		c.Roots = roots
 	}
 	j, e := fsjail.New(roots)
 	if e != nil {
@@ -94,12 +101,44 @@ func New(c config.Config, remote bool) (*App, error) {
 	}
 	s := mcp.NewServer(&mcp.Implementation{Name: identity.Name, Version: identity.Version}, nil)
 	a := &App{Config: c, Jail: j, Tasks: tm, Audit: al, Server: s, Events: events.New(string(c.Mode), nil), Remote: remote}
+	if c.Mode == policy.Dangerous {
+		if len(c.Roots) == 0 {
+			a.SafeJail = fsjail.Deny()
+		} else {
+			a.SafeJail, e = fsjail.New(c.Roots)
+		}
+		if e != nil {
+			j.Close()
+			return nil, e
+		}
+	} else {
+		a.SafeJail = j
+	}
+	duration, _ := time.ParseDuration(c.SudoFor)
+	a.Grant = privilege.New(c.Mode, duration, func() {
+		fallback := a.Config.PreviousMode
+		if fallback == "" {
+			fallback = policy.Readonly
+		}
+		a.Events.SetMode(string(fallback))
+		a.Events.Emit("Privileged grant expired; effective mode " + string(fallback))
+		_ = a.Audit.Write(audit.Record{Client: "terminal", Operation: "grant_expired", Mode: string(fallback), Phase: "expired", Reason: "expired"})
+	})
+	a.Grant.SetFallback(c.PreviousMode)
+	if c.Mode.Privileged() {
+		if e = a.Audit.Write(audit.Record{Client: "terminal", Operation: "grant_created", Mode: string(c.Mode), Phase: "approved", Allowed: true}); e != nil {
+			j.Close()
+			return nil, e
+		}
+	}
+
 	if e = a.ConfigurePrompts(context.Background(), nil); e != nil {
 		j.Close()
 		return nil, e
 	}
 	s.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			a.RefreshTools()
 			result, e := next(ctx, method, req)
 			name := ""
 			if info, ok := req.(interface{ ClientInfo() *mcp.Implementation }); ok {
@@ -133,21 +172,33 @@ func New(c config.Config, remote bool) (*App, error) {
 		}
 	}
 	if c.Mode.Privileged() {
-		a.add("sudo_exec", "Run explicit sudo-allowlisted argv through sudo -n; never passwords", false)
+		a.add("sudo_exec", "Run argv as root through sudo -n; any command unless sudo_commands is configured; never passwords", false)
+		if c.Mode == policy.Dangerous && c.Shell {
+			a.add("shell", "Run explicit shell source in dangerous mode only", false)
+		}
 	}
 	return a, nil
 }
 func (a *App) Close() { a.Approvals.Close(); a.Jail.Close() }
 func (a *App) add(name, desc string, read bool) {
 	f := name == "exec" || name == "sudo_exec" || name == "task_start" || name == "task_restart"
-	mcp.AddTool(a.Server, &mcp.Tool{Name: name, Description: desc, InputSchema: inputSchema(name, a.Config.Mode.Privileged()), Annotations: &mcp.ToolAnnotations{ReadOnlyHint: read, OpenWorldHint: &f}}, func(ctx context.Context, req *mcp.CallToolRequest, in Input) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(a.Server, &mcp.Tool{Name: name, Description: desc, InputSchema: inputSchema(name, a.Grant.Mode().Privileged()), Annotations: &mcp.ToolAnnotations{ReadOnlyHint: read, OpenWorldHint: &f}}, func(ctx context.Context, req *mcp.CallToolRequest, in Input) (*mcp.CallToolResult, any, error) {
 		start := time.Now()
 		if info := req.ClientInfo(); info != nil {
 			a.Events.Seen(auth.Client(ctx), info.Name, auth.Client(ctx) != "stdio-local")
 		}
 		a.Events.Tool(auth.Client(ctx), name)
+		if name == "task_restart" {
+			r, sudo, e := a.Tasks.Execution(in.ID)
+			if e != nil {
+				return nil, nil, e
+			}
+			in.Argv = r.Argv
+			in.Cwd = r.Cwd
+			in.Sudo = sudo
+		}
 		opmeta := a.operation(name, in)
-		record := audit.Record{Path: opmeta.Path, Resolved: opmeta.Resolved, Cwd: opmeta.Cwd, Category: opmeta.Class, Phase: "intent", Client: auth.Client(ctx), Operation: name, Mode: string(a.Config.Mode), Sudo: name == "sudo_exec" || in.Sudo}
+		record := audit.Record{Path: opmeta.Path, Resolved: opmeta.Resolved, Cwd: opmeta.Cwd, Category: opmeta.Class, Phase: "intent", Client: auth.Client(ctx), Operation: name, Mode: string(a.Grant.Mode()), Sudo: name == "sudo_exec" || in.Sudo}
 		// Audit intent before side effects. A failed audit append fails the operation.
 		if e := a.Audit.Write(record); e != nil {
 			return nil, nil, errors.New("audit unavailable; operation refused")
@@ -160,7 +211,12 @@ func (a *App) add(name, desc string, read bool) {
 				return auth.ErrUnauthorized
 			}
 			if principal.Check != nil {
-				return principal.Check()
+				if e := principal.Check(); e != nil {
+					return e
+				}
+			}
+			if e := a.Authorize(name, in, opmeta.Mode); e != nil {
+				return e
 			}
 			return nil
 		}
@@ -184,7 +240,25 @@ func (a *App) add(name, desc string, read bool) {
 						}
 					}
 					var response approval.Response
-					response, e = a.Approvals.Submit(ctx, principal, op, authorize, func(run context.Context) (any, error) { return a.call(auth.WithPrincipal(run, principal), name, in) }, wait)
+					response, e = a.Approvals.Submit(ctx, principal, op, authorize, func(run context.Context) (any, error) {
+						if name == "sudo_exec" && a.Prompts.Available() {
+							if e := execrun.SudoAvailable(run); e != nil {
+								sudo, se := exec.LookPath("sudo")
+								if se != nil {
+									return nil, se
+								}
+								authctx, cancel := context.WithTimeout(run, 120*time.Second)
+								defer cancel()
+								if e = a.Prompts.Run(authctx, []string{sudo, "-v"}); e != nil {
+									return nil, errors.New("sudo authentication failed")
+								}
+							}
+						}
+						if e := authorize(); e != nil {
+							return nil, e
+						}
+						return a.call(auth.WithPrincipal(run, principal), name, in)
+					}, wait)
 					if e == nil {
 						if response.Status == "completed" {
 							if response.Error != "" {
@@ -245,6 +319,11 @@ func (a *App) add(name, desc string, read bool) {
 	})
 }
 func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
+	mode := a.Grant.Mode()
+	j := a.Jail
+	if mode != policy.Dangerous {
+		j = a.SafeJail
+	}
 	switch name {
 	case "probe_read":
 		return "probe read succeeded", nil
@@ -255,7 +334,7 @@ func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 		if p == "" {
 			p = in.ID
 		}
-		b, e := a.Jail.Read(p, filesystem.MaxRead)
+		b, e := j.Read(p, filesystem.MaxRead)
 		if e != nil {
 			return nil, e
 		}
@@ -264,13 +343,13 @@ func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 		}
 		return string(b), nil
 	case "fs_list":
-		return filesystem.List(a.Jail, in.Path)
+		return filesystem.List(j, in.Path)
 	case "fs_search", "search":
 		p := in.Path
 		if p == "" {
 			p = "."
 		}
-		return filesystem.Search(ctx, a.Jail, p, in.Query)
+		return filesystem.Search(ctx, j, p, in.Query)
 	case "fs_write":
 		b := []byte(in.Content)
 		switch in.Encoding {
@@ -287,15 +366,24 @@ func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 		default:
 			return nil, errors.New("unsupported encoding")
 		}
-		return "written", a.Jail.Write(in.Path, b)
+		return "written", j.Write(in.Path, b)
 	case "fs_edit":
-		return "edited", a.Jail.Edit(in.Path, in.Old, in.New)
+		return "edited", j.Edit(in.Path, in.Old, in.New)
 	case "proc_list":
 		return platform.Processes(ctx)
+	case "shell":
+		if mode != policy.Dangerous || !a.Config.Shell {
+			return nil, errors.New("mode forbids shell")
+		}
+		in.Argv = []string{"/bin/sh", "-c", in.Content}
+		fallthrough
 	case "exec", "sudo_exec":
-		return execrun.Run(ctx, a.Jail, policy.Commands{Allow: a.Config.Allow, Deny: a.Config.Deny, SudoAllow: a.Config.SudoAllow}, a.Config.Mode, execrun.Request{Argv: in.Argv, Cwd: in.Cwd, TimeoutSeconds: in.Timeout}, name == "sudo_exec", a.Config.Env)
+		return execrun.Run(ctx, j, policy.Commands{Allow: a.Config.Allow, Deny: a.Config.Deny, SudoAllow: a.Config.SudoAllow}, mode, execrun.Request{Argv: in.Argv, Cwd: in.Cwd, TimeoutSeconds: in.Timeout}, name == "sudo_exec", a.Config.Env)
 	case "task_start":
-		return a.Tasks.Start(ctx, a.Jail, execrun.Request{Argv: in.Argv, Cwd: in.Cwd}, in.Sudo)
+		tm := *a.Tasks
+		tm.Config.Mode = mode
+		tm.Config.GrantUntil = a.Grant.Expiry()
+		return tm.Start(ctx, j, execrun.Request{Argv: in.Argv, Cwd: in.Cwd}, in.Sudo)
 	case "task_list":
 		return a.Tasks.List()
 	case "task_status":
@@ -307,7 +395,13 @@ func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 	case "task_stop":
 		return a.Tasks.Stop(ctx, in.ID)
 	case "task_restart":
-		return a.Tasks.Restart(ctx, a.Jail, in.ID)
+		tm := *a.Tasks
+		tm.Config.Mode = mode
+		tm.Config.GrantUntil = a.Grant.Expiry()
+		if old, e := a.Tasks.Status(in.ID); e != nil || old.State == "running" || old.State == "starting" {
+			return nil, errors.New("stop task before restart")
+		}
+		return tm.Start(ctx, j, execrun.Request{Argv: in.Argv, Cwd: in.Cwd}, in.Sudo)
 	case "task_forget":
 		return "forgotten", a.Tasks.Forget(in.ID)
 	default:
@@ -318,6 +412,7 @@ func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 // ConfigurePrompts is called before serving; the shared coordinator serializes
 // consent, tool approval, startup and sudo terminal interaction.
 func (a *App) ConfigurePrompts(ctx context.Context, p *prompt.Coordinator) error {
+	a.Prompts = p
 	if a.Approvals != nil {
 		a.Approvals.Close()
 	}
@@ -366,7 +461,7 @@ func (a *App) operation(name string, in Input) approval.Operation {
 	digest, _ := approval.Digest(struct {
 		Tool, Mode, Path, Cwd string
 		Input                 Input
-	}{name, string(a.Config.Mode), resolved, cwd, copy})
+	}{name, string(a.Grant.Mode()), resolved, cwd, copy})
 	display := fmt.Sprintf("path %q (resolved %q)", path, resolved)
 	if len(in.Argv) > 0 {
 		display = fmt.Sprintf("argv %q", in.Argv)
@@ -374,7 +469,7 @@ func (a *App) operation(name string, in Input) approval.Operation {
 	if strings.HasPrefix(name, "task_") {
 		display += fmt.Sprintf(" task %q", in.ID)
 	}
-	return approval.Operation{Tool: name, Class: class, Mode: string(a.Config.Mode), Path: path, Resolved: resolved, Cwd: cwd, Digest: digest, RequestKey: in.RequestKey, Display: display}
+	return approval.Operation{Tool: name, Class: class, Mode: string(a.Grant.Mode()), Path: path, Resolved: resolved, Cwd: cwd, Digest: digest, RequestKey: in.RequestKey, Display: display}
 }
 
 func denialReason(e error) string {
@@ -399,4 +494,41 @@ func denialReason(e error) string {
 	default:
 		return "policy"
 	}
+}
+
+func (a *App) Authorize(name string, in Input, expected string) error {
+	mode := a.Grant.Mode()
+	if string(mode) != expected {
+		return auth.Denied{Reason: "expired"}
+	}
+	write := false
+	switch name {
+	case "fs_write", "fs_edit", "exec", "task_start", "task_stop", "task_restart", "task_forget":
+		write = true
+	case "sudo_exec", "shell":
+		if !mode.Privileged() {
+			return auth.Denied{Reason: "mode"}
+		}
+	}
+	if write && !mode.Write() || in.Sudo && !mode.Privileged() || name == "shell" && (mode != policy.Dangerous || !a.Config.Shell) {
+		return auth.Denied{Reason: "mode"}
+	}
+	return nil
+}
+func (a *App) RefreshTools() {
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
+	mode := a.Grant.Mode()
+	if mode == a.Config.Mode || a.registryExpired {
+		return
+	}
+	a.registryExpired = true
+	a.Server.RemoveTools("sudo_exec", "shell")
+	if !mode.Write() {
+		a.Server.RemoveTools("fs_write", "fs_edit", "exec", "task_start", "task_stop", "task_restart", "task_forget")
+	} else {
+		a.Server.RemoveTools("task_start")
+		a.add("task_start", "Start durable allowlisted argv; survives MCP exit", false)
+	}
+	a.Events.SetMode(string(mode))
 }

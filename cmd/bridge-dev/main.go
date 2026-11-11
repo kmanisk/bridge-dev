@@ -11,7 +11,7 @@ import (
 	"github.com/kmanisk/bridge-dev/internal/fsjail"
 	"github.com/kmanisk/bridge-dev/internal/identity"
 	"github.com/kmanisk/bridge-dev/internal/mcpserver"
-	"github.com/kmanisk/bridge-dev/internal/policy"
+	"github.com/kmanisk/bridge-dev/internal/privilege"
 	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"github.com/kmanisk/bridge-dev/internal/tasks"
 	"github.com/kmanisk/bridge-dev/internal/transport"
@@ -36,6 +36,16 @@ func run(args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: " + identity.Binary + " stdio|up|down|status|tasks|config check|doctor")
 	}
+	if args[0] == "_sudoers-install" {
+		if len(args) != 4 || os.Geteuid() != 0 {
+			return errors.New("invalid privileged installer invocation")
+		}
+		visudo := "/usr/bin/visudo"
+		if _, e := os.Stat(visudo); e != nil {
+			visudo = "/usr/sbin/visudo"
+		}
+		return privilege.InstallValidated(args[1], args[2], args[3], "/etc/sudoers.d", visudo)
+	}
 	if args[0] == "_task-worker" {
 		if len(args) != 3 {
 			return errors.New("invalid worker arguments")
@@ -55,9 +65,10 @@ func run(args []string) error {
 	action := ""
 	id := ""
 	if cmd == "sudoers" {
-		if len(args) == 0 || args[0] != "preview" {
-			return errors.New("only sudoers preview is supported; installation is a manual user action")
+		if len(args) == 0 || (args[0] != "preview" && args[0] != "install") {
+			return errors.New("usage: sudoers preview|install --sudo-commands /absolute/command")
 		}
+		action = args[0]
 		args = args[1:]
 	}
 	if cmd == "config" {
@@ -111,23 +122,27 @@ func run(args []string) error {
 		if e != nil {
 			return e
 		}
-		text, e := policy.SudoersPreview(u.Username, c.SudoAllow)
-		if e != nil {
-			return e
-		}
-		visudo, e := exec.LookPath("visudo")
-		if e != nil {
-			return e
-		}
-		if e = policy.ValidateSudoers(text, visudo); e != nil {
-			return e
-		}
-		fmt.Print(text)
-		return nil
-	case "up":
 		tty := prompt.Open()
 		defer tty.Close()
-		return transport.RunWithOptions(ctx, c, transport.Options{Prompts: prompt.New(tty)})
+		return privilege.Sudoers(ctx, u.Username, c.SudoAllow, action == "install", prompt.New(tty), os.Stdout)
+	case "up":
+		if c.Detach {
+			unit, e := transport.Detach(ctx, c)
+			if e != nil {
+				return e
+			}
+			return printJSON(map[string]string{"transient_unit": unit})
+		}
+		tty := prompt.Open()
+		defer tty.Close()
+		p := prompt.New(tty)
+		if c.Headless {
+			p = prompt.New(nil)
+		}
+		if e = privilege.Authorize(ctx, &c, p, os.Stderr, true); e != nil {
+			return e
+		}
+		return transport.RunWithOptions(ctx, c, transport.Options{Prompts: p})
 	case "clients":
 		switch action {
 		case "list":
@@ -177,11 +192,23 @@ func run(args []string) error {
 		}
 		return printJSON(map[string]any{"name": identity.Name, "version": identity.Version, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH, "tools": tools, "mode": c.Mode})
 	case "stdio":
+		tty := prompt.Open()
+		defer tty.Close()
+		p := prompt.New(tty)
+		if c.Headless {
+			p = prompt.New(nil)
+		}
+		if e = privilege.Authorize(ctx, &c, p, os.Stderr, false); e != nil {
+			return e
+		}
 		a, e := mcpserver.New(c, false)
 		if e != nil {
 			return e
 		}
 		defer a.Close()
+		if e = a.ConfigurePrompts(ctx, p); e != nil {
+			return e
+		}
 		return a.Server.Run(ctx, &mcp.StdioTransport{})
 	case "tasks":
 		binary, _ := os.Executable()

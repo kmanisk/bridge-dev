@@ -11,12 +11,16 @@ import (
 )
 
 func liveMetrics(t *Task) {
-	if t.Backend != "systemd" || t.Unit == "" {
+	if t.Backend != "systemd" && t.Backend != "systemd-system" || t.Unit == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	b, e := exec.CommandContext(ctx, "systemctl", "--user", "show", t.Unit, "-p", "MainPID", "-p", "CPUUsageNSec", "-p", "MemoryCurrent").Output()
+	scope := "--user"
+	if t.Backend == "systemd-system" {
+		scope = "--system"
+	}
+	b, e := exec.CommandContext(ctx, "systemctl", scope, "show", t.Unit, "-p", "MainPID", "-p", "CPUUsageNSec", "-p", "MemoryCurrent").Output()
 	if e != nil {
 		return
 	}

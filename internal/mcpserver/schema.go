@@ -16,6 +16,9 @@ func inputSchema(name string, privileged bool) map[string]any {
 	case "fs_write":
 		fields = []string{"path", "content", "encoding"}
 		required = []string{"path", "content"}
+	case "shell":
+		fields = []string{"content", "cwd", "timeout_seconds"}
+		required = []string{"content", "cwd"}
 	case "fs_edit":
 		fields = []string{"path", "old", "new"}
 		required = fields

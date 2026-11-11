@@ -183,3 +183,6 @@ func (j *Jail) Path(p string) (string, error) {
 	}
 	return filepath.Join(r.path, q), nil
 }
+
+// Deny constructs an empty authority used when a privileged grant expires without safe roots.
+func Deny() *Jail { return &Jail{} }

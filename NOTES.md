@@ -174,3 +174,40 @@ approval transitions and denial reasons. Command arguments, contents, auth token
 and terminal codes are excluded. Host-header rejection logging is rate limited.
 Direct tests cover approvals, timeout/headless, retries, session isolation,
 revocation before execution, audit failure and subprocess crash boundaries.
+
+## M12 - effective privileged sessions and noninteractive execution
+
+Replaced the categorical remote privilege ban with OAuth plus current startup
+authorization. Saved sudo/dangerous preferences require a typed startup phrase;
+only manually set ack_privileged=true bypasses it. The wizard never sets that
+value. Foreground startup attaches sudo -v directly to the controlling terminal.
+A cold foreground sudo cache can request renewed validation through the same
+coordinator; every queued operation is revalidated afterward. Detached/headless
+operation never prompts or reads a password. Actual commands always use sudo -n.
+Sudo defaults to unrestricted argv; explicit sudo_commands is optional. Dangerous
+bypasses command allow/deny policy and roots, with optional explicit shell tool.
+
+Timed grants downgrade to the preceding safe configured mode (readonly when no
+preceding safe mode exists), remove stale tools, and deny queued privileged work.
+Already-running tasks continue. The fallback uses separate safe roots, never the
+dangerous full-filesystem handle. Health reports only mode and basic health.
+
+Privileged background tasks launch sudo -n systemd-run system units with a worker
+running as the original user. The worker must independently authorize its actual
+sudo -n command, typically through deliberately scoped NOPASSWD rules; terminal
+credential caches are not assumed transferable. Failed authorization is a durable
+failed task, with a clear worker diagnostic. This preserves user-owned state and
+avoids executing a root worker from mutable user metadata. Root task execution
+requires explicit authorization in both launcher and worker contexts.
+
+Added preview/confirmed sudoers install with immutable-preview digest verification,
+visudo -cf validation of the exact snapshot, atomic read-only installation, and
+refusal to overwrite an existing rule. Default previews contain only no-argument
+rules; broad executables receive warnings. No rule installs automatically.
+
+up --detach snapshots private configuration and starts a transient systemd user
+unit, never enabling it. Required terminal approvals deny; ordinary approve=none
+calls remain usable. Pairing-code mode is refused detached to avoid journal secret
+exposure. Tests cover phrases/manual ack, OAuth gating, timed/queued expiry,
+registry changes, cold sudo contexts, system-unit argv, detached launch and rule
+snapshot validation using temporary fake executables only.

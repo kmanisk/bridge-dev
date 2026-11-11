@@ -46,7 +46,12 @@ func stdio(t *testing.T, root, state, mode, backend string) *mcp.ClientSession {
 	t.Helper()
 	ctx := context.Background()
 	client := mcp.NewClient(&mcp.Implementation{Name: "integration", Version: "1"}, nil)
-	cmd := exec.Command(binary, "stdio", "--roots", root, "--state-dir", state, "--mode", mode, "--task-backend", backend, "--allow-commands", "/bin/echo,/bin/sh,/bin/sleep")
+	cmd := exec.Command(binary, "stdio", "--headless", "--roots", root, "--state-dir", state, "--mode", mode, "--task-backend", backend, "--allow-commands", "/bin/echo,/bin/sh,/bin/sleep")
+	if mode == "sudo" || mode == "dangerous" {
+		cfg := filepath.Join(privateTemp(t), "privileged.toml")
+		os.WriteFile(cfg, []byte("ack_privileged = true\n"), 0600)
+		cmd.Args = append(cmd.Args, "--config", cfg)
+	}
 	cmd.Stderr = os.Stderr
 	cmd.Env = isolatedEnv(t)
 	s, e := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
@@ -303,13 +308,18 @@ func privateTemp(t *testing.T) string {
 }
 
 func isolatedEnv(t *testing.T) []string {
+	fakeDir := t.TempDir()
+	if e := os.WriteFile(filepath.Join(fakeDir, "sudo"), []byte("#!/bin/sh\necho 'fake sudo: interactive authentication disabled in tests' >&2\nexit 1\n"), 0700); e != nil {
+		t.Fatal(e)
+	}
+
 	t.Helper()
 	out := []string{}
 	for _, v := range os.Environ() {
-		if strings.HasPrefix(v, "BRIDGE_DEV_") || strings.HasPrefix(v, "XDG_CONFIG_HOME=") {
+		if strings.HasPrefix(v, "BRIDGE_DEV_") || strings.HasPrefix(v, "XDG_CONFIG_HOME=") || strings.HasPrefix(v, "PATH=") {
 			continue
 		}
 		out = append(out, v)
 	}
-	return append(out, "XDG_CONFIG_HOME="+t.TempDir())
+	return append(out, "PATH="+fakeDir+":"+os.Getenv("PATH"), "XDG_CONFIG_HOME="+t.TempDir())
 }

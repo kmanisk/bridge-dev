@@ -96,7 +96,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte("ok\n"))
+		_, _ = w.Write([]byte("ok mode=" + string(h.App.Grant.Mode()) + "\n"))
 		return
 	}
 	select {

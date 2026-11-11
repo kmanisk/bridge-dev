@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"github.com/kmanisk/bridge-dev/internal/config"
 	"github.com/kmanisk/bridge-dev/internal/execrun"
 	"github.com/kmanisk/bridge-dev/internal/fsjail"
@@ -90,7 +91,17 @@ func (m *Manager) Start(ctx context.Context, j *fsjail.Jail, r execrun.Request, 
 	dir, _ := m.path(id)
 	t := Task{ID: id, Argv: append([]string{}, r.Argv...), Cwd: r.Cwd, Started: time.Now().UTC(), State: "starting", LogPath: filepath.Join(dir, "output.log"), Backend: "detached"}
 	backend := m.Config.Backend
-	if runtime.GOOS == "linux" && backend != "detached" {
+	if sudo {
+		if runtime.GOOS != "linux" {
+			return Task{}, errors.New("privileged background tasks require Linux systemd system units")
+		}
+		if !m.Config.GrantUntil.IsZero() && !time.Now().Before(m.Config.GrantUntil) {
+			return Task{}, errors.New("privileged grant expired")
+		}
+		t.Backend = "systemd-system"
+		t.Unit = identity.Binary + "-task-" + id + ".service"
+	}
+	if !sudo && runtime.GOOS == "linux" && backend != "detached" {
 		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		e = exec.CommandContext(checkCtx, "systemctl", "--user", "show-environment").Run()
 		cancel()
@@ -131,6 +142,17 @@ func (m *Manager) Start(ctx context.Context, j *fsjail.Jail, r execrun.Request, 
 	if t.Backend == "systemd" {
 		args = append([]string{"--user", "--quiet", "--collect", "--service-type=exec", "--unit=" + t.Unit, "--property=Restart=no", "--property=TimeoutStopSec=5s", "--", m.Binary}, args...)
 		c = exec.CommandContext(ctx, "systemd-run", args...)
+	} else if t.Backend == "systemd-system" {
+		sudoPath, se := exec.LookPath("sudo")
+		if se != nil {
+			return Task{}, se
+		}
+		systemd, se := exec.LookPath("systemd-run")
+		if se != nil {
+			return Task{}, se
+		}
+		args = append([]string{systemd, "--system", "--quiet", "--collect", "--service-type=exec", "--unit=" + t.Unit, "--property=Restart=no", "--property=TimeoutStopSec=5s", fmt.Sprintf("--property=User=%d", os.Getuid()), fmt.Sprintf("--property=Group=%d", os.Getgid()), "--", m.Binary}, args...)
+		c = exec.CommandContext(ctx, sudoPath, append([]string{"-n", "--"}, args...)...)
 	} else {
 		c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	}
@@ -142,7 +164,7 @@ func (m *Manager) Start(ctx context.Context, j *fsjail.Jail, r execrun.Request, 
 	c.Stdout = f
 	c.Stderr = f
 	c.Stdin = nil
-	if t.Backend == "systemd" {
+	if t.Backend == "systemd" || t.Backend == "systemd-system" {
 		e = c.Run()
 	} else {
 		e = c.Start()
@@ -366,4 +388,14 @@ func (m *Manager) Cursor(client string, ack string) (string, error) {
 		old = ack
 	}
 	return old, nil
+}
+
+func (m *Manager) Execution(id string) (execrun.Request, bool, error) {
+	dir, e := m.path(id)
+	if e != nil {
+		return execrun.Request{}, false, e
+	}
+	var s spec
+	e = platform.ReadJSON(filepath.Join(dir, "spec.json"), &s)
+	return execrun.Request{Argv: s.Task.Argv, Cwd: s.Task.Cwd}, s.Sudo, e
 }

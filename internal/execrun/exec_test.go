@@ -87,3 +87,22 @@ func TestDirectPrivilegeBrokerDenied(t *testing.T) {
 		}
 	}
 }
+
+func TestSudoOwnContext(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "sudo")
+	os.WriteFile(fake, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\nexit 1\n"), 0700)
+	t.Setenv("PATH", dir)
+	j, e := fsjail.New([]string{dir})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer j.Close()
+	r, e := Run(context.Background(), j, policy.Commands{}, policy.Sudo, Request{Argv: []string{"/usr/bin/id"}, Cwd: dir}, true, nil)
+	if e != nil || r.ExitCode != 1 || !strings.Contains(r.Output, "-n\n--\n/usr/bin/id") {
+		t.Fatal(r, e)
+	}
+	if e = SudoAvailable(context.Background()); e == nil {
+		t.Fatal("cold context accepted")
+	}
+}

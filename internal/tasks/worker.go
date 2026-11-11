@@ -96,7 +96,11 @@ func Worker(state, id string) error {
 	if e = platform.AtomicJSON(filepath.Join(dir, "status.json"), t); e != nil {
 		return e
 	}
-	j, e := fsjail.New(s.Config.Roots)
+	roots := s.Config.Roots
+	if s.Config.Mode == policy.Dangerous {
+		roots = []string{"/"}
+	}
+	j, e := fsjail.New(roots)
 	if e != nil {
 		finish(-1, "")
 		return e
@@ -105,6 +109,13 @@ func Worker(state, id string) error {
 	if s.Config.Mode == policy.Dangerous {
 		j.Unrestricted()
 	}
+	if s.Sudo {
+		if !s.Config.GrantUntil.IsZero() && !time.Now().Before(s.Config.GrantUntil) {
+			finish(-1, "")
+			return errors.New("privileged grant expired before worker dispatch")
+		}
+	}
+
 	a, d, e := execrun.Prepare(j, policy.Commands{Allow: s.Config.Allow, Deny: s.Config.Deny, SudoAllow: s.Config.SudoAllow}, s.Config.Mode, execrun.Request{Argv: t.Argv, Cwd: t.Cwd}, s.Sudo)
 	if e != nil {
 		finish(-1, "")
@@ -147,6 +158,9 @@ func Worker(state, id string) error {
 		}
 	}()
 	e = execrun.RunCommand(ctx, c)
+	if s.Sudo && e != nil {
+		fmt.Fprintln(os.Stderr, "sudo -n command failed in worker context; terminal cache may be unavailable. Inspect task output; use explicitly configured scoped NOPASSWD rules if appropriate. Never send a password through MCP.")
+	}
 	code := -1
 	sig := ""
 	if c.ProcessState != nil {

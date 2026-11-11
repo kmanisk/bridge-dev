@@ -96,3 +96,18 @@ their services. OAuth does not make either provider trustworthy. Prompt injectio
 remains a serious risk when reads of untrusted content precede writes/execution.
 Earlier Phase 1 statements above are historical where superseded explicitly by
 docs/SUPERSEDED_RESTRICTIONS.md; remote privilege is still awaiting M12 here.
+
+Phase 2 privileged sessions supersede Phase 1's categorical remote ban. sudo and
+dangerous require OAuth remotely and current startup authorization. A manually
+edited ack_privileged=true is an intentional startup opt-out; wizard preferences
+never create it. approve=none means automatic authorized operations, including
+root actions under the current effective grant. Class-session approval cannot
+elevate mode. Expiry revokes future dispatch, including already-queued approvals;
+running jobs continue. Dangerous remote access can compromise the entire computer.
+
+Privileged background workers use system units running as the original user and
+must authorize sudo -n in that context, independently of the foreground terminal.
+Do not assume a successful terminal sudo -v proves a systemd worker can run root
+commands. Scoped NOPASSWD may be necessary. sudoers installation requires explicit
+terminal confirmation; only a preview-matching, visudo-validated immutable snapshot
+is installed. No passwords cross MCP or Bridge's input parsing.

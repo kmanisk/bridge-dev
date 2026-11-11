@@ -6,7 +6,7 @@ import (
 )
 
 func TestPolicy(t *testing.T) {
-	for _, m := range []Mode{"", "invalid", Sudo, Dangerous} {
+	for _, m := range []Mode{"", "invalid"} {
 		if m.Validate(true) == nil {
 			t.Fatal(m)
 		}
@@ -15,8 +15,8 @@ func TestPolicy(t *testing.T) {
 	if p.Check([]string{"/bin/echo"}, false, false) == nil {
 		t.Fatal("deny precedence")
 	}
-	if p.Check([]string{"/bin/id"}, true, true) == nil {
-		t.Fatal("sudo always requires allowlist")
+	if p.Check([]string{"/bin/id"}, true, true) != nil {
+		t.Fatal("dangerous must bypass command policy")
 	}
 }
 func TestSudoersPreview(t *testing.T) {

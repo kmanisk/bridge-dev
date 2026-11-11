@@ -17,30 +17,33 @@ import (
 )
 
 type Config struct {
-	Schema               int      `toml:"schema_version"`
-	Approve              string   `toml:"approve"`
-	Auth                 string   `toml:"auth"`
-	AckPrivileged        bool     `toml:"ack_privileged"`
-	SudoFor              string   `toml:"sudo_for"`
-	Shell                bool     `toml:"shell"`
-	RedirectHosts        []string `toml:"redirect_hosts"`
-	TunnelArgv           []string `toml:"tunnel_argv"`
-	TunnelName           string   `toml:"tunnel_name"`
-	PublicOrigin         string   `toml:"public_origin"`
-	ReadBytes            int64    `toml:"read_bytes"`
-	WriteBytes           int64    `toml:"write_bytes"`
-	OutputBytes          int      `toml:"output_bytes"`
-	TaskLogBytes         int      `toml:"task_log_bytes"`
-	SearchResults        int      `toml:"search_results"`
-	SearchVisited        int      `toml:"search_visited"`
-	HTTPBodyBytes        int64    `toml:"http_body_bytes"`
-	HTTPConcurrency      int      `toml:"http_concurrency"`
-	ExecTimeout          string   `toml:"exec_timeout"`
-	ConfigExists         bool     `toml:"-"`
-	Reconfigure          bool     `toml:"-"`
-	Detach               bool     `toml:"-"`
-	Print                bool     `toml:"-"`
-	PrivilegedAuthorized bool     `toml:"-"`
+	PreviousMode         policy.Mode `toml:"-"`
+	GrantUntil           time.Time   `toml:"-"`
+	Headless             bool        `toml:"-"`
+	Schema               int         `toml:"schema_version"`
+	Approve              string      `toml:"approve"`
+	Auth                 string      `toml:"auth"`
+	AckPrivileged        bool        `toml:"ack_privileged"`
+	SudoFor              string      `toml:"sudo_for"`
+	Shell                bool        `toml:"shell"`
+	RedirectHosts        []string    `toml:"redirect_hosts"`
+	TunnelArgv           []string    `toml:"tunnel_argv"`
+	TunnelName           string      `toml:"tunnel_name"`
+	PublicOrigin         string      `toml:"public_origin"`
+	ReadBytes            int64       `toml:"read_bytes"`
+	WriteBytes           int64       `toml:"write_bytes"`
+	OutputBytes          int         `toml:"output_bytes"`
+	TaskLogBytes         int         `toml:"task_log_bytes"`
+	SearchResults        int         `toml:"search_results"`
+	SearchVisited        int         `toml:"search_visited"`
+	HTTPBodyBytes        int64       `toml:"http_body_bytes"`
+	HTTPConcurrency      int         `toml:"http_concurrency"`
+	ExecTimeout          string      `toml:"exec_timeout"`
+	ConfigExists         bool        `toml:"-"`
+	Reconfigure          bool        `toml:"-"`
+	Detach               bool        `toml:"-"`
+	Print                bool        `toml:"-"`
+	PrivilegedAuthorized bool        `toml:"-"`
 
 	Mode       policy.Mode `toml:"mode"`
 	Roots      []string    `toml:"roots"`
@@ -116,6 +119,10 @@ func load(args []string, getenv func(string) string, c Config, allowMissing bool
 	if allowMissing {
 		c.OAuth = true
 	}
+	c.PreviousMode = policy.Readonly
+	if !c.Mode.Privileged() {
+		c.PreviousMode = c.Mode
+	}
 	fs := flag.NewFlagSet(identity.Binary, flag.ContinueOnError)
 	fs.StringVar(&c.ConfigFile, "config", path, "configuration file")
 	mode := string(c.Mode)
@@ -161,6 +168,7 @@ func load(args []string, getenv func(string) string, c Config, allowMissing bool
 	fs.StringVar(&c.PublicOrigin, "public-origin", c.PublicOrigin, "explicit custom/named HTTPS origin")
 	fs.BoolVar(&c.Shell, "shell", c.Shell, "enable explicit dangerous shell tool")
 	fs.BoolVar(&c.Reconfigure, "reconfigure", false, "repeat configuration wizard")
+	fs.BoolVar(&c.Headless, "headless", false, "noninteractive transient worker")
 	fs.BoolVar(&c.Detach, "detach", false, "transient background HTTP host")
 	fs.BoolVar(&c.Print, "print", false, "preview client changes only")
 	fs.Int64Var(&c.ReadBytes, "read-bytes", c.ReadBytes, "read byte bound")
@@ -241,6 +249,9 @@ func (c Config) Validate(remote bool) error {
 		return errors.New("invalid execution timeout")
 	}
 
+	if remote && c.Mode.Privileged() && !c.OAuth {
+		return errors.New("remote privileged modes require OAuth")
+	}
 	if e := c.Mode.Validate(remote); e != nil {
 		return e
 	}

@@ -12,7 +12,7 @@ remain explicitly separate from local implementation.
 | M9 wizard, connect, verified startup, clipboard, instructions | Yes | Scripted wizard/reuse/reconfigure/precedence, fake tunnel public metadata, clipboard, full regression | No | internal/connect/connect_test.go; test-output/m9-* |
 | M10 serialized prompts, OAuth terminal consent, sessions/revocation | Yes | Approve/deny/timeout/rate, redirect/queue/revoke/origin tests; full regression | No | internal/auth/terminal_test.go; test-output/m10-* |
 | M11 approval queues, polling, durable request deduplication | Yes | Scripted approvals/retries/revocation/crash, MCP polling, full regression | No | internal/approval/manager_test.go; internal/mcpserver/server_test.go; test-output/m11-* |
-| M12 effective privileges, sudo, dangerous, grants, detach | No | No | No | Planned |
+| M12 effective privileges, sudo, dangerous, grants, detach | Yes | Fake sudo/systemd, phrase/manual ack, expiry, mode registry, worker context and installer snapshot tests | No | internal/privilege; internal/tasks/privileged_test.go; test-output/m12-* |
 | M13 local-client install/print/uninstall | No | No | No | Planned |
 | M14 status/watch/down, tunnel recovery and task events | No | No | No | Planned |
 | M14 bounded read/search improvements from reference | No | No | No | Planned |
