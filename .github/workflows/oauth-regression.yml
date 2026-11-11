@@ -1,0 +1,25 @@
+name: OAuth consent regression (temporary)
+on:
+  push:
+    branches: [fix/oauth-consent-replay]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install fish
+        run: sudo apt-get update && sudo apt-get install -y fish
+      - name: Focused OAuth tests
+        run: go test -count=1 ./internal/auth ./internal/transport
+      - name: OAuth race tests
+        run: go test -race -count=1 ./internal/auth ./internal/transport
+      - name: Full regression and vet
+        run: go vet ./... && go test -count=1 ./...
+      - name: Check Go formatting
+        run: test -z "$(gofmt -l internal/auth/oauth.go internal/auth/terminal.go internal/auth/terminal_test.go internal/auth/clients.go)"
