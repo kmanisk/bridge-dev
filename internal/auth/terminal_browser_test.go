@@ -10,11 +10,22 @@ import (
 	"net/url"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/kmanisk/bridge-dev/internal/prompt"
 )
+
+type browserResponseCode struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *browserResponseCode) WriteHeader(code int) {
+	w.code = code
+	w.ResponseWriter.WriteHeader(code)
+}
 
 // TestTerminalRealBrowserRedirect exercises a real browser navigation from an
 // initiating origin through the scripted consent page to an OAuth callback.
@@ -38,7 +49,21 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 	}
 	o.ConfigureTerminal(ctx, prompt.New(&terminalAnswers{answer: "y"}), []string{"127.0.0.1"})
 	defer o.Close()
-	srv := httptest.NewServer(o)
+	var gets, posts, postBad atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorder := &browserResponseCode{ResponseWriter: w}
+		o.ServeHTTP(recorder, r)
+		if r.URL.Path == "/authorize" {
+			if r.Method == http.MethodGet {
+				gets.Add(1)
+			} else if r.Method == http.MethodPost {
+				posts.Add(1)
+				if recorder.code == http.StatusBadRequest {
+					postBad.Add(1)
+				}
+			}
+		}
+	}))
 	defer srv.Close()
 	received := make(chan url.Values, 1)
 	callback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +127,20 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 		t.Fatalf("headless browser did not finish OAuth navigation: %v", err)
 	}
 	if !bytes.Contains(output, []byte("bridge-browser-callback-ok")) {
-		t.Fatal("browser did not land on the registered OAuth callback")
+		reason := "unexpected_page"
+		switch {
+		case bytes.Contains(output, []byte("invalid_request")):
+			reason = "oauth_invalid_request"
+		case bytes.Contains(output, []byte("invalid origin")):
+			reason = "origin_rejected"
+		case bytes.Contains(output, []byte("Confirm in the local Bridge terminal")):
+			reason = "consent_page_still_waiting"
+		case bytes.Contains(output, []byte("ERR_CONNECTION")):
+			reason = "browser_connection_error"
+		case bytes.Contains(output, []byte("chrome-error")):
+			reason = "browser_error_page"
+		}
+		t.Fatalf("headless browser callback missing category=%s authorize_get=%d authorize_post=%d rejected_post=%d", reason, gets.Load(), posts.Load(), postBad.Load())
 	}
 	var callbackQuery url.Values
 	select {
