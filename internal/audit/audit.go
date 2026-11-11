@@ -1,5 +1,4 @@
-// Package audit records metadata only. Arguments, paths, contents, headers and
-// environment are deliberately absent from the record schema.
+// Package audit records operation metadata without command arguments or contents.
 package audit
 
 import (
@@ -19,7 +18,15 @@ type Record struct {
 	Client     string    `json:"client"`
 	Operation  string    `json:"operation"`
 	Mode       string    `json:"mode"`
-	Allowed    bool      `json:"allowed"`
+	Allowed    bool      `json:"allowed,omitempty"`
+	Pending    bool      `json:"pending,omitempty"`
+	ClientName string    `json:"client_name,omitempty"`
+	Category   string    `json:"category,omitempty"`
+	Path       string    `json:"requested_path,omitempty"`
+	Resolved   string    `json:"resolved_path,omitempty"`
+	Cwd        string    `json:"cwd,omitempty"`
+	ApprovalID string    `json:"approval_id,omitempty"`
+	Reason     string    `json:"denial_reason,omitempty"`
 	DurationMS int64     `json:"duration_ms"`
 	ExitCode   *int      `json:"exit_code,omitempty"`
 	TaskID     string    `json:"task_id,omitempty"`
@@ -59,6 +66,10 @@ func (l *Log) Write(r Record) error {
 	}
 	defer f.Close()
 	r.Time = time.Now().UTC()
+	if r.Phase == "intent" || r.Phase == "pending" {
+		r.Pending = true
+		r.Allowed = false
+	}
 	if e = json.NewEncoder(f).Encode(r); e != nil {
 		return e
 	}

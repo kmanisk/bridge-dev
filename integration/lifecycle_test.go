@@ -105,7 +105,7 @@ func TestAuditFailureRefusesSideEffect(t *testing.T) {
 	if e := os.Mkdir(lock, 0700); e != nil {
 		t.Fatal(e)
 	}
-	r, e := s.CallTool(context.Background(), &mcp.CallToolParams{Name: "fs_write", Arguments: map[string]any{"path": "must-not-exist", "content": "denied"}})
+	r, e := s.CallTool(context.Background(), &mcp.CallToolParams{Name: "fs_write", Arguments: map[string]any{"path": "must-not-exist", "content": "denied", "request_key": "audit-failure"}})
 	if e == nil && (r == nil || !r.IsError) {
 		t.Fatal("audit failure allowed write")
 	}

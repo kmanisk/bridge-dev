@@ -12,6 +12,7 @@ type Principal struct {
 	Session       string
 	Scope         string
 	Origin        string
+	CallDeadline  time.Time
 	Expires       time.Time
 	Authenticated bool
 	Check         func() error

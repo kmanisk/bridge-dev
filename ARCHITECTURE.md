@@ -120,3 +120,10 @@ and [PKCE S256](https://www.rfc-editor.org/rfc/rfc7636).
 The filesystem design follows [Go's traversal-resistant APIs](https://go.dev/blog/osroot)
 with additional Linux openat2 restrictions. References are design inputs;
 project test evidence is recorded separately in TEST_REPORT.md.
+
+Phase 2 request dispatch: each mutating MCP call supplies request_key. The server
+stores its exact operation digest and authenticated application session before
+launching a side effect. approval_status returns pending/completed/denied/unknown.
+A pending response is not success; inspect result/error after polling. Reuse the
+same key only for retries. Unknown crash outcomes require reconciliation with
+files, task IDs or process evidence, never automatic execution under a new key.

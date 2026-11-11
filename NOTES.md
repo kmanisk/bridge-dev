@@ -151,3 +151,26 @@ consent approval/denial/timeout/rate-limit, queued HTTP responses, serialization
 headless refusal, redirects, client revocation, session identity, mode/origin
 invalidation and retained legacy PKCE/refresh/revocation. No real web account,
 TTY password or public tunnel was involved. CIMD is optional and deferred.
+
+## M11 - approvals and durable dispatch
+
+Added per-client authorization-session approvals, a single prompt coordinator,
+120-second denial timeout, yes/no/class-session responses, and private random
+pending IDs. MCP approval_status and task_wait accept bounded polling. HTTP
+operation waits are capped at 24 seconds, with a 25-second response ceiling;
+long work returns a pending result rather than a false success. Headless gated
+operations deny. Every dispatch revalidates the principal after the prompt.
+
+Mutating operations now require request_key: one stable unique key per logical
+operation, reused only for retries. This explicit protocol requirement replaces
+Phase 1's unconditional repeated dispatch. A changed operation under an existing
+key is rejected. Atomic private records precede dispatch; crashed dispatches
+report unknown and are never rerun automatically. This is at-most-once automatic
+dispatch, not exactly-once execution. Results are retrievable only by the same
+client/application session/scope/origin. A fresh key permits an intentional repeat.
+
+Audit intent now uses pending, with requested/resolved paths, operation category,
+approval transitions and denial reasons. Command arguments, contents, auth tokens
+and terminal codes are excluded. Host-header rejection logging is rate limited.
+Direct tests cover approvals, timeout/headless, retries, session isolation,
+revocation before execution, audit failure and subprocess crash boundaries.

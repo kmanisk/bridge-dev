@@ -173,3 +173,13 @@ func (j *Jail) Unrestricted() {
 		j.roots[i].unrestricted = true
 	}
 }
+
+// Path describes the lexical target under a pinned root. Actual access still
+// uses descriptor-relative validation, including symlink and mount checks.
+func (j *Jail) Path(p string) (string, error) {
+	r, q, e := j.resolve(p)
+	if e != nil {
+		return "", e
+	}
+	return filepath.Join(r.path, q), nil
+}

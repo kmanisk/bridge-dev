@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kmanisk/bridge-dev/internal/approval"
 	"github.com/kmanisk/bridge-dev/internal/audit"
 	"github.com/kmanisk/bridge-dev/internal/auth"
 	"github.com/kmanisk/bridge-dev/internal/config"
@@ -16,38 +17,42 @@ import (
 	"github.com/kmanisk/bridge-dev/internal/identity"
 	"github.com/kmanisk/bridge-dev/internal/platform"
 	"github.com/kmanisk/bridge-dev/internal/policy"
+	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"github.com/kmanisk/bridge-dev/internal/tasks"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
 
 type Input struct {
-	Encoding string   `json:"encoding,omitempty"`
-	Path     string   `json:"path,omitempty" jsonschema:"Path within configured roots; relative paths use the first root"`
-	ID       string   `json:"id,omitempty" jsonschema:"Task ID; for fetch this is a file path"`
-	Query    string   `json:"query,omitempty" jsonschema:"Case-insensitive filename substring"`
-	Content  string   `json:"content,omitempty" jsonschema:"Replacement file contents; maximum 1 MiB"`
-	Old      string   `json:"old,omitempty"`
-	New      string   `json:"new,omitempty"`
-	Argv     []string `json:"argv,omitempty" jsonschema:"Absolute executable followed by literal arguments; never a shell string"`
-	Cwd      string   `json:"cwd,omitempty" jsonschema:"Explicit working directory within roots"`
-	Timeout  int      `json:"timeout_seconds,omitempty"`
-	Offset   int64    `json:"offset,omitempty" jsonschema:"Byte cursor returned by task_logs"`
-	Sudo     bool     `json:"sudo,omitempty" jsonschema:"Explicit privileged task request; local sudo mode only"`
-	ClientID string   `json:"client_id,omitempty" jsonschema:"Stable client-selected completion cursor identity"`
-	Ack      string   `json:"ack,omitempty" jsonschema:"Acknowledge a previously returned task completion cursor"`
+	RequestKey string   `json:"request_key,omitempty" jsonschema:"Stable unique key per logical operation; reuse only for retries"`
+	Encoding   string   `json:"encoding,omitempty"`
+	Path       string   `json:"path,omitempty" jsonschema:"Path within configured roots; relative paths use the first root"`
+	ID         string   `json:"id,omitempty" jsonschema:"Task ID; for fetch this is a file path"`
+	Query      string   `json:"query,omitempty" jsonschema:"Case-insensitive filename substring"`
+	Content    string   `json:"content,omitempty" jsonschema:"Replacement file contents; maximum 1 MiB"`
+	Old        string   `json:"old,omitempty"`
+	New        string   `json:"new,omitempty"`
+	Argv       []string `json:"argv,omitempty" jsonschema:"Absolute executable followed by literal arguments; never a shell string"`
+	Cwd        string   `json:"cwd,omitempty" jsonschema:"Explicit working directory within roots"`
+	Timeout    int      `json:"timeout_seconds,omitempty"`
+	Offset     int64    `json:"offset,omitempty" jsonschema:"Byte cursor returned by task_logs"`
+	Sudo       bool     `json:"sudo,omitempty" jsonschema:"Explicit privileged task request; local sudo mode only"`
+	ClientID   string   `json:"client_id,omitempty" jsonschema:"Stable client-selected completion cursor identity"`
+	Ack        string   `json:"ack,omitempty" jsonschema:"Acknowledge a previously returned task completion cursor"`
 }
 type App struct {
-	Remote bool
-	Events *events.Hub
-	Config config.Config
-	Jail   *fsjail.Jail
-	Tasks  *tasks.Manager
-	Audit  *audit.Log
-	Server *mcp.Server
+	Approvals *approval.Manager
+	Remote    bool
+	Events    *events.Hub
+	Config    config.Config
+	Jail      *fsjail.Jail
+	Tasks     *tasks.Manager
+	Audit     *audit.Log
+	Server    *mcp.Server
 }
 
 func New(c config.Config, remote bool) (*App, error) {
@@ -89,6 +94,10 @@ func New(c config.Config, remote bool) (*App, error) {
 	}
 	s := mcp.NewServer(&mcp.Implementation{Name: identity.Name, Version: identity.Version}, nil)
 	a := &App{Config: c, Jail: j, Tasks: tm, Audit: al, Server: s, Events: events.New(string(c.Mode), nil), Remote: remote}
+	if e = a.ConfigurePrompts(context.Background(), nil); e != nil {
+		j.Close()
+		return nil, e
+	}
 	s.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			result, e := next(ctx, method, req)
@@ -115,7 +124,7 @@ func New(c config.Config, remote bool) (*App, error) {
 		a.add("fetch", "Read an allowed file (read-only alias of fs_read)", true)
 		return a, nil
 	}
-	for _, t := range []struct{ n, d string }{{"fs_read", "Read a regular file within roots, at most 1 MiB"}, {"fs_list", "List at most 200 directory entries within roots"}, {"fs_search", "Search file names within roots, at most 200 matches"}, {"search", "Search allowed file names; alias of fs_search"}, {"fetch", "Read an allowed regular file; alias of fs_read"}, {"proc_list", "List process IDs, parents and names; arguments and environment excluded"}, {"task_list", "List durable tasks and final exit status"}, {"task_status", "Get one durable task status"}, {"task_logs", "Read task output incrementally using byte offsets"}, {"task_wait", "Wait at most 25 seconds for task completion"}} {
+	for _, t := range []struct{ n, d string }{{"fs_read", "Read a regular file within roots, at most 1 MiB"}, {"fs_list", "List at most 200 directory entries within roots"}, {"fs_search", "Search file names within roots, at most 200 matches"}, {"search", "Search allowed file names; alias of fs_search"}, {"fetch", "Read an allowed regular file; alias of fs_read"}, {"proc_list", "List process IDs, parents and names; arguments and environment excluded"}, {"task_list", "List durable tasks and final exit status"}, {"task_status", "Get one durable task status"}, {"task_logs", "Read task output incrementally using byte offsets"}, {"task_wait", "Wait at most 25 seconds for task completion"}, {"approval_status", "Poll an approval or operation result using its pending ID; only its originating client session may retrieve it"}} {
 		a.add(t.n, t.d, true)
 	}
 	if c.Mode.Write() {
@@ -128,7 +137,7 @@ func New(c config.Config, remote bool) (*App, error) {
 	}
 	return a, nil
 }
-func (a *App) Close() { a.Jail.Close() }
+func (a *App) Close() { a.Approvals.Close(); a.Jail.Close() }
 func (a *App) add(name, desc string, read bool) {
 	f := name == "exec" || name == "sudo_exec" || name == "task_start" || name == "task_restart"
 	mcp.AddTool(a.Server, &mcp.Tool{Name: name, Description: desc, InputSchema: inputSchema(name, a.Config.Mode.Privileged()), Annotations: &mcp.ToolAnnotations{ReadOnlyHint: read, OpenWorldHint: &f}}, func(ctx context.Context, req *mcp.CallToolRequest, in Input) (*mcp.CallToolResult, any, error) {
@@ -137,7 +146,8 @@ func (a *App) add(name, desc string, read bool) {
 			a.Events.Seen(auth.Client(ctx), info.Name, auth.Client(ctx) != "stdio-local")
 		}
 		a.Events.Tool(auth.Client(ctx), name)
-		record := audit.Record{Phase: "intent", Client: auth.Client(ctx), Operation: name, Mode: string(a.Config.Mode), Sudo: name == "sudo_exec" || in.Sudo}
+		opmeta := a.operation(name, in)
+		record := audit.Record{Path: opmeta.Path, Resolved: opmeta.Resolved, Cwd: opmeta.Cwd, Category: opmeta.Class, Phase: "intent", Client: auth.Client(ctx), Operation: name, Mode: string(a.Config.Mode), Sudo: name == "sudo_exec" || in.Sudo}
 		// Audit intent before side effects. A failed audit append fails the operation.
 		if e := a.Audit.Write(record); e != nil {
 			return nil, nil, errors.New("audit unavailable; operation refused")
@@ -145,17 +155,58 @@ func (a *App) add(name, desc string, read bool) {
 		principal := auth.Identity(ctx)
 		var data any
 		var e error
-		if a.Remote && !principal.Authenticated {
-			e = auth.ErrUnauthorized
-		} else if principal.Check != nil {
-			e = principal.Check()
+		authorize := func() error {
+			if a.Remote && !principal.Authenticated {
+				return auth.ErrUnauthorized
+			}
+			if principal.Check != nil {
+				return principal.Check()
+			}
+			return nil
 		}
-		if e == nil {
-			data, e = a.call(ctx, name, in)
+		if e = authorize(); e == nil {
+			if name == "approval_status" || name == "task_wait" && len(in.ID) == 43 {
+				if in.Timeout < 0 || in.Timeout > 25 {
+					e = errors.New("wait limit is 25 seconds")
+				} else {
+					data, e = a.Approvals.Status(ctx, principal, in.ID, time.Duration(in.Timeout)*time.Second)
+				}
+			} else {
+				op := a.operation(name, in)
+				if op.Class == "read" && !a.Approvals.Gated(op) {
+					data, e = a.call(ctx, name, in)
+				} else {
+					wait := time.Duration(-1)
+					if a.Remote {
+						wait = 24 * time.Second
+						if !principal.CallDeadline.IsZero() {
+							wait = max(0, time.Until(principal.CallDeadline))
+						}
+					}
+					var response approval.Response
+					response, e = a.Approvals.Submit(ctx, principal, op, authorize, func(run context.Context) (any, error) { return a.call(auth.WithPrincipal(run, principal), name, in) }, wait)
+					if e == nil {
+						if response.Status == "completed" {
+							if response.Error != "" {
+								e = errors.New(response.Error)
+							} else {
+								e = json.Unmarshal(response.Data, &data)
+							}
+						} else if response.Status == "denied" {
+							e = errors.New(response.Error)
+						} else {
+							data = response
+						}
+					}
+				}
+			}
 		}
 		record.Phase = "result"
 		record.DurationMS = time.Since(start).Milliseconds()
 		record.Allowed = e == nil
+		if e != nil {
+			record.Reason = denialReason(e)
+		}
 		if r, ok := data.(execrun.Result); ok {
 			record.ExitCode = &r.ExitCode
 		}
@@ -261,5 +312,91 @@ func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 		return "forgotten", a.Tasks.Forget(in.ID)
 	default:
 		return nil, fmt.Errorf("unsupported tool %s", name)
+	}
+}
+
+// ConfigurePrompts is called before serving; the shared coordinator serializes
+// consent, tool approval, startup and sudo terminal interaction.
+func (a *App) ConfigurePrompts(ctx context.Context, p *prompt.Coordinator) error {
+	if a.Approvals != nil {
+		a.Approvals.Close()
+	}
+	m, e := approval.New(ctx, a.Config.StateDir, a.Config.Approve, p, func(op approval.Operation, id, status, reason string) error {
+		if status == "pending" || status == "approved" || status == "denied" {
+			a.Events.Emit("Operation " + status + ": " + op.Tool)
+		}
+		return a.Audit.Write(audit.Record{Client: op.Client, ClientName: op.Name, Operation: op.Tool, Mode: op.Mode, Category: op.Class, Path: op.Path, Resolved: op.Resolved, Cwd: op.Cwd, ApprovalID: id, Phase: status, Reason: reason, Allowed: status == "approved", Sudo: op.Class == "sudo"})
+	})
+	if e == nil {
+		a.Approvals = m
+	}
+	return e
+}
+func (a *App) operation(name string, in Input) approval.Operation {
+	class := "read"
+	switch name {
+	case "fs_write", "fs_edit", "probe_write":
+		class = "write"
+	case "exec", "shell":
+		class = "exec"
+	case "task_start", "task_stop", "task_restart", "task_forget":
+		class = "task_mutation"
+	case "sudo_exec":
+		class = "sudo"
+	}
+	if in.Sudo {
+		class = "sudo"
+	}
+	path := in.Path
+	if name == "fetch" {
+		path = in.ID
+	}
+	resolved := ""
+	if path != "" {
+		resolved, _ = a.Jail.Path(path)
+	}
+	cwd := in.Cwd
+	if cwd != "" {
+		cwd, _ = a.Jail.Path(cwd)
+	}
+	copy := in
+	copy.ClientID = ""
+	copy.Ack = ""
+	copy.RequestKey = ""
+	digest, _ := approval.Digest(struct {
+		Tool, Mode, Path, Cwd string
+		Input                 Input
+	}{name, string(a.Config.Mode), resolved, cwd, copy})
+	display := fmt.Sprintf("path %q (resolved %q)", path, resolved)
+	if len(in.Argv) > 0 {
+		display = fmt.Sprintf("argv %q", in.Argv)
+	}
+	if strings.HasPrefix(name, "task_") {
+		display += fmt.Sprintf(" task %q", in.ID)
+	}
+	return approval.Operation{Tool: name, Class: class, Mode: string(a.Config.Mode), Path: path, Resolved: resolved, Cwd: cwd, Digest: digest, RequestKey: in.RequestKey, Display: display}
+}
+
+func denialReason(e error) string {
+	var d auth.Denied
+	if errors.As(e, &d) {
+		return d.Reason
+	}
+	s := e.Error()
+	switch {
+	case strings.Contains(s, "outside allowed"):
+		return "outside_roots"
+	case strings.Contains(s, "symlink") || strings.Contains(s, "too many levels"):
+		return "symlink_escape"
+	case strings.Contains(s, "denied by user"):
+		return "user_denied"
+	case strings.Contains(s, "mode"):
+		return "mode"
+	case errors.Is(e, auth.ErrUnauthorized):
+		return "auth"
+	case strings.Contains(s, "request_key"):
+		return "invalid_request"
+	default:
+		return "policy"
 	}
 }

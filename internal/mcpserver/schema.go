@@ -34,11 +34,15 @@ func inputSchema(name string, privileged bool) map[string]any {
 	case "task_logs":
 		fields = []string{"id", "offset"}
 		required = []string{"id"}
-	case "task_wait":
+	case "task_wait", "approval_status":
 		fields = []string{"id", "timeout_seconds"}
 		required = []string{"id"}
 	}
-	fields = append(fields, "client_id", "ack")
+	fields = append(fields, "client_id", "ack", "request_key")
+	switch name {
+	case "fs_write", "fs_edit", "exec", "sudo_exec", "task_start", "task_stop", "task_restart", "task_forget", "shell":
+		required = append(required, "request_key")
+	}
 	properties := map[string]any{}
 	for _, f := range fields {
 		v := map[string]any{"type": "string"}
@@ -49,7 +53,7 @@ func inputSchema(name string, privileged bool) map[string]any {
 			v = map[string]any{"type": "integer", "minimum": 0}
 		case "timeout_seconds":
 			v = map[string]any{"type": "integer", "minimum": 0, "maximum": 600}
-			if name == "task_wait" {
+			if name == "task_wait" || name == "approval_status" {
 				v["maximum"] = 25
 			}
 		case "encoding":

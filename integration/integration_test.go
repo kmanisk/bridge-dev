@@ -57,6 +57,15 @@ func stdio(t *testing.T, root, state, mode, backend string) *mcp.ClientSession {
 }
 func call(t *testing.T, s *mcp.ClientSession, name string, args map[string]any) map[string]json.RawMessage {
 	t.Helper()
+	switch name {
+	case "probe_write", "fs_write", "fs_edit", "exec", "sudo_exec", "task_start", "task_stop", "task_restart", "task_forget":
+		if args == nil {
+			args = map[string]any{}
+		}
+		if _, ok := args["request_key"]; !ok {
+			args["request_key"] = fmt.Sprintf("%d", time.Now().UnixNano())
+		}
+	}
 	r, e := s.CallTool(context.Background(), &mcp.CallToolParams{Name: name, Arguments: args})
 	if e != nil || r.IsError {
 		t.Fatalf("%s: %v %+v", name, e, r)

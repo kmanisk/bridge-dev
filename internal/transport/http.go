@@ -41,6 +41,7 @@ type binding struct {
 	Verified bool
 }
 type Handler struct {
+	hostDenied atomic.Int64
 	binding    atomic.Pointer[binding]
 	mcpHandler http.Handler
 	App        *mcpserver.App
@@ -73,6 +74,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		issuerHost = u.Host
 	}
 	if r.Host != h.Host && (issuerHost == "" || r.Host != issuerHost) {
+		previous := h.hostDenied.Load()
+		if time.Now().Unix()-previous >= 10 && h.hostDenied.CompareAndSwap(previous, time.Now().Unix()) {
+			_ = h.App.Audit.Write(audit.Record{Client: "unauthenticated", Operation: "http_host", Mode: string(h.App.Config.Mode), Phase: "denied", Reason: "invalid_request"})
+		}
 		http.Error(w, "invalid host", http.StatusForbidden)
 		return
 	}
@@ -152,7 +157,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Active.Add(1)
 	defer func() { h.Last.Store(time.Now().UnixNano()); h.Active.Add(-1) }()
-	h.MCP().ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), principal)))
+	principal.CallDeadline = time.Now().Add(24 * time.Second)
+	http.TimeoutHandler(h.MCP(), 25*time.Second, "request timeout; poll with the same request_key").ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), principal)))
 }
 func (h *Handler) snapshot() binding {
 	if b := h.binding.Load(); b != nil {
@@ -231,6 +237,9 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 		return e
 	}
 	defer a.Close()
+	if e = a.ConfigurePrompts(ctx, opt.Prompts); e != nil {
+		return e
+	}
 	if opt.Connect {
 		a.Events = events.New(string(c.Mode), out)
 	}
