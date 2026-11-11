@@ -56,7 +56,7 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 		return nil
 	}
 	defer o.Close()
-	var gets, posts, postBad atomic.Int64
+	var gets, posts, postBad, postRedirect atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Chrome's virtual-time budget can dispatch the first POST before the
 		// local asynchronous prompt worker runs. Wait only in this test fixture,
@@ -76,6 +76,9 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 				posts.Add(1)
 				if recorder.code == http.StatusBadRequest {
 					postBad.Add(1)
+				}
+				if recorder.code == http.StatusSeeOther {
+					postRedirect.Add(1)
 				}
 			}
 		}
@@ -142,7 +145,12 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("headless browser did not finish OAuth navigation: %v", err)
 	}
-	if !bytes.Contains(output, []byte("bridge-browser-callback-ok")) {
+	// The callback request, not --dump-dom's capture of a previous page,
+	// proves navigation: Chrome may snapshot before completing a 303.
+	var callbackQuery url.Values
+	select {
+	case callbackQuery = <-received:
+	case <-time.After(2 * time.Second):
 		reason := "unexpected_page"
 		switch {
 		case bytes.Contains(output, []byte("invalid_request")):
@@ -156,13 +164,7 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 		case bytes.Contains(output, []byte("chrome-error")):
 			reason = "browser_error_page"
 		}
-		t.Fatalf("headless browser callback missing category=%s authorize_get=%d authorize_post=%d rejected_post=%d", reason, gets.Load(), posts.Load(), postBad.Load())
-	}
-	var callbackQuery url.Values
-	select {
-	case callbackQuery = <-received:
-	default:
-		t.Fatal("callback server did not receive authorization code")
+		t.Fatalf("headless browser callback missing category=%s authorize_get=%d authorize_post=%d rejected_post=%d redirected_post=%d", reason, gets.Load(), posts.Load(), postBad.Load(), postRedirect.Load())
 	}
 	if callbackQuery.Get("state") != "browser-test-state" || callbackQuery.Get("iss") != o.issuer || callbackQuery.Get("code") == "" {
 		t.Fatal("browser callback lacks expected OAuth state/issuer/code")
