@@ -287,3 +287,23 @@ func TestPrivilegedTokensExpireWithGrant(t *testing.T) {
 	}
 	tokenTest(t, c, srv.URL, url.Values{"grant_type": {"refresh_token"}, "client_id": {id}, "refresh_token": {v["refresh_token"].(string)}, "resource": {o.issuer + "/mcp"}}, 400)
 }
+
+func TestRegistrationBoundIsNotLifetimeQuota(t *testing.T) {
+	o, srv, c, _ := newOAuthTest(t)
+	o.MaxClients = 1
+	id := registerTest(t, c, srv.URL)
+	r, e := c.Post(srv.URL+"/register", "application/json", strings.NewReader(`{"redirect_uris":["http://127.0.0.1:9999/callback"]}`))
+	if e != nil {
+		t.Fatal(e)
+	}
+	r.Body.Close()
+	if r.StatusCode != 429 {
+		t.Fatal("resource bound ignored", r.StatusCode)
+	}
+	if e = RevokeClients(strings.TrimSuffix(o.state, "/oauth"), id, false); e != nil {
+		t.Fatal(e)
+	}
+	if next := registerTest(t, c, srv.URL); next == id {
+		t.Fatal("identity reused")
+	}
+}

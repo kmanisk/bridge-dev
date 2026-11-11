@@ -13,7 +13,6 @@ import (
 
 	"github.com/kmanisk/bridge-dev/internal/auth"
 	"github.com/kmanisk/bridge-dev/internal/identity"
-	"github.com/kmanisk/bridge-dev/internal/platform"
 	"github.com/kmanisk/bridge-dev/internal/policy"
 	"github.com/kmanisk/bridge-dev/internal/prompt"
 )
@@ -107,8 +106,34 @@ func InstallValidated(user, source, digest, base, visudo string) error {
 	} else if !os.IsNotExist(e) {
 		return e
 	}
-	if e = platform.Atomic(path, b); e != nil {
+
+	tmp, e := os.CreateTemp(base, ".bridge-sudoers-")
+	if e != nil {
 		return e
 	}
-	return os.Chmod(path, 0440)
+	defer os.Remove(tmp.Name())
+	if _, e = tmp.Write(b); e == nil {
+		e = tmp.Chmod(0440)
+	}
+	if e == nil {
+		e = tmp.Sync()
+	}
+	ce := tmp.Close()
+	if e == nil {
+		e = ce
+	}
+	if e != nil {
+		return e
+	}
+	// Link creates the final directory entry without ever replacing an existing
+	// administrator's rule, including a concurrent creation after Lstat.
+	if e = os.Link(tmp.Name(), path); e != nil {
+		return e
+	}
+	dir, e := os.Open(base)
+	if e != nil {
+		return e
+	}
+	defer dir.Close()
+	return dir.Sync()
 }

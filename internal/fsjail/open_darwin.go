@@ -39,6 +39,13 @@ func secureOpen(r entry, p string, write, create bool) (*os.File, error) {
 		f.Close()
 		return nil, errors.New("special files forbidden")
 	}
+	if !r.unrestricted {
+		root, e := r.root.Stat(".")
+		if e != nil || s.Sys().(*syscall.Stat_t).Dev != root.Sys().(*syscall.Stat_t).Dev {
+			f.Close()
+			return nil, errors.New("nested mount crossings forbidden")
+		}
+	}
 	return f, nil
 }
 func links(s os.FileInfo) uint64 { return uint64(s.Sys().(*syscall.Stat_t).Nlink) }

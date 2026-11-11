@@ -17,10 +17,11 @@ type entry struct {
 	root         *os.Root
 }
 type Jail struct {
-	ReadLimit  int64
-	WriteLimit int64
-	roots      []entry
-	mu         sync.Mutex
+	unrestricted bool
+	ReadLimit    int64
+	WriteLimit   int64
+	roots        []entry
+	mu           sync.Mutex
 }
 
 func New(paths []string) (*Jail, error) {
@@ -138,7 +139,7 @@ func (j *Jail) write(p string, b []byte) error {
 		if se != nil || !s.Mode().IsRegular() {
 			return errors.New("regular file required")
 		}
-		if links(s) > 1 {
+		if links(s) > 1 && !j.unrestricted {
 			return errors.New("hard-linked writes are forbidden")
 		}
 		mode = s.Mode()
@@ -175,6 +176,7 @@ func (j *Jail) Edit(p, old, new string) error {
 
 // Unrestricted retains regular-file checks but permits all paths and mounts.
 func (j *Jail) Unrestricted() {
+	j.unrestricted = true
 	for i := range j.roots {
 		j.roots[i].unrestricted = true
 	}

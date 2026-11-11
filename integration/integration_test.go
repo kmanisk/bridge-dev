@@ -17,6 +17,7 @@ import (
 )
 
 var binary string
+var subprocessCoverage string
 
 func TestMain(m *testing.M) {
 	dir, e := os.MkdirTemp("", "bridge-dev-integration-")
@@ -24,7 +25,11 @@ func TestMain(m *testing.M) {
 		panic(e)
 	}
 	binary = filepath.Join(dir, "bridge-dev")
-	buildArgs := []string{"build", "-o", binary}
+	subprocessCoverage = filepath.Join(dir, "coverage")
+	if e = os.Mkdir(subprocessCoverage, 0700); e != nil {
+		panic(e)
+	}
+	buildArgs := []string{"build", "-cover", "-coverpkg=github.com/kmanisk/bridge-dev/internal/...,github.com/kmanisk/bridge-dev/cmd/...", "-o", binary}
 	cgo := "0"
 	if integrationRace {
 		buildArgs = append(buildArgs, "-race")
@@ -39,6 +44,25 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	code := m.Run()
+	if out := os.Getenv("BRIDGE_DEV_COVERAGE_OUT"); out != "" {
+		if e = os.MkdirAll(out, 0700); e != nil {
+			fmt.Fprintln(os.Stderr, e)
+			code = 1
+		} else {
+			report := exec.Command("go", "tool", "covdata", "textfmt", "-i="+subprocessCoverage, "-o="+filepath.Join(out, "subprocess.out"))
+			if b, e := report.CombinedOutput(); e != nil {
+				fmt.Fprintln(os.Stderr, string(b), e)
+				code = 1
+			}
+			percent := exec.Command("go", "tool", "covdata", "percent", "-i="+subprocessCoverage)
+			if b, e := percent.CombinedOutput(); e == nil {
+				_ = os.WriteFile(filepath.Join(out, "subprocess-percent.txt"), b, 0600)
+			} else {
+				fmt.Fprintln(os.Stderr, e)
+				code = 1
+			}
+		}
+	}
 	os.RemoveAll(dir)
 	os.Exit(code)
 }
@@ -316,10 +340,10 @@ func isolatedEnv(t *testing.T) []string {
 	t.Helper()
 	out := []string{}
 	for _, v := range os.Environ() {
-		if strings.HasPrefix(v, "BRIDGE_DEV_") || strings.HasPrefix(v, "XDG_CONFIG_HOME=") || strings.HasPrefix(v, "PATH=") {
+		if strings.HasPrefix(v, "BRIDGE_DEV_") || strings.HasPrefix(v, "XDG_CONFIG_HOME=") || strings.HasPrefix(v, "PATH=") || strings.HasPrefix(v, "GOCOVERDIR=") || strings.HasPrefix(v, "HOME=") || strings.HasPrefix(v, "XDG_STATE_HOME=") || strings.HasPrefix(v, "XDG_CACHE_HOME=") || strings.HasPrefix(v, "XDG_DATA_HOME=") {
 			continue
 		}
 		out = append(out, v)
 	}
-	return append(out, "PATH="+fakeDir+":"+os.Getenv("PATH"), "XDG_CONFIG_HOME="+t.TempDir())
+	return append(out, "PATH="+fakeDir+":"+os.Getenv("PATH"), "XDG_CONFIG_HOME="+t.TempDir(), "XDG_STATE_HOME="+t.TempDir(), "XDG_CACHE_HOME="+t.TempDir(), "XDG_DATA_HOME="+t.TempDir(), "HOME="+t.TempDir(), "GOCOVERDIR="+subprocessCoverage)
 }

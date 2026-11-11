@@ -2,7 +2,7 @@ GO ?= go
 BINARY := bridge-dev
 STATICCHECK := .tools/staticcheck
 
-.PHONY: build test check race fuzz staticcheck cross clean
+.PHONY: build test check race fuzz staticcheck cross coverage fish-check clean
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w' -o bin/$(BINARY) ./cmd/bridge-dev
 
@@ -12,13 +12,13 @@ test:
 race:
 	$(GO) test -race -count=1 ./...
 
-staticcheck:
+staticcheck: fish-check
 	$(STATICCHECK) ./...
 
 fuzz:
 	$(GO) test ./internal/fsjail -run='^$$' -fuzz=FuzzPaths -fuzztime=10s -parallel=2
 
-check:
+check: fish-check
 	$(GO) fmt ./...
 	$(GO) vet ./...
 	$(GO) test -count=1 ./...
@@ -33,3 +33,14 @@ cross:
 
 clean:
 	rm -f bin/$(BINARY) bin/$(BINARY)-linux-amd64 bin/$(BINARY)-linux-arm64 bin/$(BINARY)-darwin-amd64 bin/$(BINARY)-darwin-arm64
+
+coverage:
+	mkdir -p coverage
+	$(GO) test -count=1 -coverprofile=coverage/unit.out ./internal/...
+	BRIDGE_DEV_COVERAGE_OUT=$(CURDIR)/coverage $(GO) test -count=1 ./integration
+	$(GO) tool cover -func=coverage/unit.out > coverage/unit-functions.txt
+	$(GO) tool cover -func=coverage/subprocess.out > coverage/subprocess-functions.txt
+
+fish-check:
+	fish -n completions/$(BINARY).fish
+	$(GO) run ./scripts/check-fish

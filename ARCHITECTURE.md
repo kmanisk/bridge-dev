@@ -1,129 +1,83 @@
 # Architecture
 
-One CGO-free Go executable contains CLI, official MCP SDK server, HTTP host,
-local authorization server and durable worker entry point. There is no resident
-control-plane daemon. A task owns an independent worker only while that task
-is running. HTTP `up` runs in the foreground until shutdown or idle expiry.
-
-```mermaid
-flowchart LR
-  L[Local MCP client] -->|stdio| M[Mode-specific registry]
-  R[Remote MCP client] -->|Authenticated HTTP JSON| H[Host / Origin / limits]
-  H --> M
-  H --> O[OAuth consent and token endpoints]
-  M --> F[Descriptor-relative filesystem]
-  M --> E[Argv runner]
-  M --> T[Durable task manager]
-  T --> W[Independent task worker]
-  W --> S[Transient systemd unit or detached session]
-  W --> D[Atomic status + bounded log]
-  M --> A[Metadata audit JSONL]
-```
-
-## Packages
+One Go binary owns on-demand stdio or loopback Streamable HTTP. The official
+Go MCP SDK is pinned to v1.8.0. Stateless=true, JSONResponse=true and cancellation
+propagation are verified SDK APIs; no simple-tunnel SSE dependency exists. No
+Bridge daemon, telemetry, account service or hosted relay is involved.
 
 | Package | Responsibility |
 | --- | --- |
-| identity | Temporary name, binary, module, version constants |
-| config | Strict TOML, environment/CLI precedence, validation |
-| policy | Modes, executable allow/deny, sudo preview |
-| fsjail | Allowed-root handles, Linux openat2, Darwin os.Root, atomic replace |
-| filesystem | Bounded directory listing and filename search |
-| execrun | Argv/cwd/environment, bounded output, timeout/group cleanup |
-| tasks | Worker specification/status, lifecycle, cursor logs and completion acknowledgments |
-| auth | Private bearer token, OAuth registration, consent, PKCE, tokens, revocation |
-| transport | SDK HTTP transport, authentication, limits, idle exit, local administration |
-| tunnel | Owned outbound cloudflared process and Quick Tunnel URL parsing |
-| audit | Cross-process locked append/rotation, metadata-only schema |
-| platform | Durable atomic files, locks, process identity and process listing |
-| mcpserver | Registry construction and handlers with audit/event attachment |
+| identity | Temporary name, module/build metadata, environment prefix |
+| config | Strict TOML, safe defaults, CLI > env > file precedence, reversible private migration |
+| prompt | Prompter interface and one terminal coordinator; direct sudo TTY delegation |
+| connect | Wizard, doctor, startup/clipboard/client instructions |
+| transport | Authenticated bounded HTTP, canonical-origin binding, idle/recovery, safe admin status/down/watch |
+| auth | Local bearer, OAuth/PKCE/DCR, consent/session/refresh/revoke persistence |
+| privilege | Current startup authorization, timed downgrade, validated sudoers install |
+| approval | Exact operation digests, per-client queued gates, polling, durable at-most-once dispatch |
+| mcpserver | Typed schemas, mode-specific registration, per-call authorization and tool adapters |
+| fsjail/filesystem | Pinned filesystem authority, atomic writes/edits, bounded reads/list/search pages |
+| execrun | Literal argv, cwd/env policy, bounded output/deadlines, owned-group lifecycle |
+| tasks | Independent workers, systemd/detached backends, durable final status/logs/events/cursors |
+| tunnel | Owned quick/named/custom argv transports, origin validation/native setup |
+| clientinstall | Preview/confirm native registrations, private receipts, ownership-safe uninstall |
+| audit/events/platform | Rotated metadata JSONL, safe foreground events, private atomic state/process identity |
 
-## Filesystem authority
+Startup: validate preferences and executables, obtain current privilege authority,
+start HTTP, establish tunnel origin, create origin-scoped OAuth, then verify health,
+AS/PR metadata and the unauthenticated MCP challenge. Only then advertise /mcp.
+Exact Host/Origin checks do not trust proxy headers. Loopback bearer administration
+is separate from OAuth tool access. /healthz reveals only basic health/mode.
 
-Allowed roots are canonicalized only during setup, then pinned by directory
-handles. Canonicalization is not the per-operation authorization mechanism.
-Linux uses openat2 relative to pinned roots with RESOLVE_BENEATH,
-RESOLVE_NO_SYMLINKS, RESOLVE_NO_MAGICLINKS and RESOLVE_NO_XDEV. O_PATH permits
-inode validation before opening data. Only regular files/directories can be
-reopened via the pinned `/proc/self/fd` entry. Existing-file write permission is
-checked without truncation, and fresh-file data is synced and atomically
-renamed inside a validated parent descriptor. Directory sync makes rename
-persistence explicit. This avoids outside-target writes through link changes.
-No claim is made to prevent another authorized local process modifying contents.
+OAuth registrations and hashed credentials persist privately. Six-digit consent
+is a local match code, not a bearer token. Browser approval is impossible without
+terminal confirmation; code mode preserves the original pairing ceremony. Consent
+expires in 60s with one active prompt; tool requests queue independently and share
+the coordinator. Refresh rotates and session expiry is fixed; privileged credentials
+are clipped to grant expiry. CIMD is not advertised. Client names are self-reported.
+Socket lifetime does not determine application authorization session lifetime.
 
-Dangerous mode pins `/` and uses RESOLVE_IN_ROOT with magic-link protection,
-allowing ordinary symlinks and mount crossings while retaining supported-type
-and size checks. macOS uses os.Root with nonblocking/no-follow final opens,
-regular-file validation and descriptor-relative atomic replacement. Same-user
-mount/device replacement is excluded on macOS; native verification is pending.
+Mutations require request_key. Under a cross-process key lock, an exact digest and
+identity/session/scope/origin/mode binding are durably stored before dispatch. A
+modified request under that key denies. Pending approval IDs are random and expire;
+only their originating authorized session can poll them. HTTP returns pending
+before its 25s ceiling, with approval_status/task_wait polling. Approved/dispatched
+states are atomic. A dispatcher crash after dispatch and before durable result is
+unknown; automatic redispatch never occurs. No exactly-once claim is made. Receipts
+must be retained; deleting them forfeits protection against historic retries.
 
-## Execution and task persistence
+Authorization is checked at invocation, after approval/sudo authentication and
+immediately before process launch. Expiry updates registration and effective mode;
+old clients cannot dispatch stale commands. Saved preference is not a grant. The
+prior safe configured mode is restored, or readonly. Dangerous uses a separate
+full-authority file handle; downgrade selects safe roots or denies when absent.
 
-Commands require an absolute executable and explicit cwd. Cwd is held by a
-validated descriptor while starting the child. No request environment or shell
-string is interpreted. A fresh process group is created. Linux waitid WNOWAIT
-and Darwin process-exit kqueue notification retain the group leader unreaped
-until cancellation/cleanup signaling is done, preventing PID-group reuse.
-Synchronous timeout defaults to 30 seconds and is capped at ten minutes.
+Tasks have an independent worker, private spec/status/logs, process identity, unit
+identity and final completion event. Workers audit before executing; final status
+is fsynced independently before unit collection. Ordinary Linux tasks prefer
+systemd user units; detached workers use separate sessions on fallback platforms.
+Privileged Linux task launch uses sudo -n systemd-run with a system unit running
+the worker as the original user. The worker independently uses sudo -n, commonly
+requiring deliberate scoped NOPASSWD. It never borrows a terminal password/cache.
+Root workers do not consume mutable user-owned task specs as root. Stop writes a
+task control record; the worker gracefully terminates its own unreaped group before
+forced cleanup. Unknown/lost results are not fabricated or automatically restarted.
 
-Task start first durably writes spec/status. Linux launches the binary's private
-worker entry point through `systemd-run --user --collect --service-type=exec`.
-Fallback uses a detached new session. The worker independently revalidates
-policy and roots, writes its identity, runs argv, logs at most 16 MiB, then
-syncs output and atomically persists final status. It exits only after normal
-completion handling; systemd collection therefore cannot erase normal results.
-Stop is a private-file request to a live worker, not a signal to a stored PID.
-Unexpected worker death/reboot is `lost`; command results cannot be reconstructed
-if the worker dies before persistence. Tasks are not automatically resumed.
+Tunnel failure pauses advertised access. Backoff is 1s doubling to 30s, bounded
+by shutdown/idle. Each replacement is verified; a changed origin invalidates old
+credentials and privileged grants. Stable-origin reconnect preserves sessions.
+Only owned groups stop. status recovers missing http.json through server.json and
+verifies identity plus authenticated local admin response; no stale PID is killed.
 
-Completion records are persisted separately before final status, with a
-monotonic sequence allocated under a cross-process lock. Status can recover from
-the completion record if a worker exits between the two atomic writes. Per-client
-acknowledged cursors are independent, locked, durable files. Forgetting task
-metadata does not erase the event. Wall-clock rollback does not reorder cursors.
-Live systemd cgroup metrics are sampled on status/list requests only; task_wait
-does not repeatedly spawn metric queries. Detached live sampling is unavailable.
+File offsets/pages preserve default Phase 1 whole-file/name-list results. Explicit
+pagination adds next offsets/eof/more/incomplete metadata. Search never follows
+arbitrary symlinks. Cursors are not snapshots; changes may shift ordering. Ordinary
+writes use fresh inodes, pinned parents and sync/rename, not EvalSymlinks checks.
+Linux openat2 rejects unsupported symlink/mount crossings; macOS uses os.Root,
+no-follow/device checks and still needs native runtime validation.
 
-## HTTP and authorization
-
-HTTP uses official SDK v1.8.0 StreamableHTTPHandler with Stateless and
-JSONResponse. The SDK negotiates supported protocol versions; tests include
-SDK-default negotiation and explicit 2025-11-25 requests. Older legacy SSE-only
-transport is not implemented. A loopback listener and exact Host/Origin checks
-remain active even with a tunnel; only its explicitly captured issuer hostname
-is added. Reverse-proxy forwarding headers cannot change authority.
-
-Local bearer and remote OAuth are distinct. OAuth grants exactly the configured
-readonly/user scope for this MCP resource. A local human approves each grant
-using a request-specific terminal code and cookie/CSRF-bound browser form.
-Public and client_secret_basic confidential clients can dynamically register.
-Authorization responses include RFC 9207 issuer identification; bearer
-challenges include the required scope. Metadata does not
-advertise client ID metadata documents or unimplemented auth methods.
-
-State writes use fsync + rename, and cross-process audit/cursor operations use
-flock. HTTP has one instance per state directory. OAuth state is held under its
-HTTP instance ownership; a second instance cannot concurrently mutate it.
-Tools audit intent before side effects and completion after. An audit write
-failure refuses the operation; a post-side-effect audit failure is reported,
-not rolled back. JSONL rotation is serialized across workers and transports.
-
-## Verified reference versions
-
-The [official SDK v1.8.0](https://github.com/modelcontextprotocol/go-sdk/tree/v1.8.0)
-implements current MCP 2026-07-28 and older protocol compatibility. Transport,
-authorization and annotations were checked against [Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http),
-[MCP authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)
-and [tools](https://modelcontextprotocol.io/specification/2026-07-28/server/tools).
-OAuth follows the authorization-code profile in the [OAuth 2.1 draft](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1)
-and [PKCE S256](https://www.rfc-editor.org/rfc/rfc7636).
-The filesystem design follows [Go's traversal-resistant APIs](https://go.dev/blog/osroot)
-with additional Linux openat2 restrictions. References are design inputs;
-project test evidence is recorded separately in TEST_REPORT.md.
-
-Phase 2 request dispatch: each mutating MCP call supplies request_key. The server
-stores its exact operation digest and authenticated application session before
-launching a side effect. approval_status returns pending/completed/denied/unknown.
-A pending response is not success; inspect result/error after polling. Reuse the
-same key only for retries. Unknown crash outcomes require reconciliation with
-files, task IDs or process evidence, never automatic execution under a new key.
+Config/schema migration backs up v1 before private atomic replacement. Restore is
+explicit; invalid config never becomes permission to broaden defaults. Runtime
+acknowledgment is not saved by normal wizard paths. Native client registration
+uses snapshots so a later config edit cannot silently promote an installed client.
+Local Git milestone commits are authorized; remotes/publication are prohibited.

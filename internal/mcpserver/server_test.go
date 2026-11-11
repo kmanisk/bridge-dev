@@ -3,8 +3,12 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"github.com/kmanisk/bridge-dev/internal/identity"
+	"github.com/kmanisk/bridge-dev/internal/platform"
+	"github.com/kmanisk/bridge-dev/internal/tasks"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,6 +69,10 @@ func TestRegistryAndFilesystem(t *testing.T) {
 		t.Run(string(mode), func(t *testing.T) {
 			a := appTest(t, mode)
 			cs := clientTest(t, a)
+			clients := a.Events.Clients()
+			if len(clients) != 1 || clients[0].Name != "unverified client" {
+				t.Fatal("initialize name missing", clients)
+			}
 			list, e := cs.ListTools(context.Background(), nil)
 			if e != nil {
 				t.Fatal(e)
@@ -192,5 +200,69 @@ func TestQueuedPrivilegeExpires(t *testing.T) {
 	response, e := a.Approvals.Status(context.Background(), auth.Identity(context.Background()), result.Data.ID, time.Second)
 	if e != nil || response.Status != "denied" || response.Reason != "expired" {
 		t.Fatal(response, e)
+	}
+}
+
+func TestTaskResourceAndApprovalBoundary(t *testing.T) {
+	a := appTest(t, policy.Readonly)
+	cs := clientTest(t, a)
+	templates, e := cs.ListResourceTemplates(context.Background(), nil)
+	if e != nil || len(templates.ResourceTemplates) != 2 {
+		t.Fatal(templates, e)
+	}
+	id := tasks.ID()
+	dir := filepath.Join(a.Config.StateDir, "tasks", id)
+	os.Mkdir(dir, 0700)
+	code := 0
+	now := time.Now()
+	task := tasks.Task{ID: id, State: "completed", Completed: &now, ExitCode: &code, LogPath: filepath.Join(dir, "output.log")}
+	platform.AtomicJSON(filepath.Join(dir, "status.json"), task)
+	os.WriteFile(task.LogPath, []byte("resource-log"), 0600)
+	r, e := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: identity.Name + "-task:///" + id + "/logs?offset=4"})
+	if e != nil || len(r.Contents) != 1 || !strings.Contains(r.Contents[0].Text, "urce-log") {
+		t.Fatal(r, e)
+	}
+	a2 := appTest(t, policy.Readonly)
+	a2.Config.Approve = "all" // Registration is fixed at construction, checked with a fresh application below.
+	c := a2.Config
+	c.StateDir = t.TempDir()
+	os.Chmod(c.StateDir, 0700)
+	a3, e := New(c, false)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer a3.Close()
+	templates, e = clientTest(t, a3).ListResourceTemplates(context.Background(), nil)
+	if e != nil || len(templates.ResourceTemplates) != 0 {
+		t.Fatal("resource approval bypass", templates, e)
+	}
+}
+
+func TestInvocationScopeAndAuditContent(t *testing.T) {
+	a := appTest(t, policy.User)
+	a.Remote = true
+	cs := clientTest(t, a) // A bare in-memory remote client has no authenticated principal.
+	r, e := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "fs_write", Arguments: map[string]any{"path": "no-write", "content": "SECRET_CONTENT", "request_key": "no-auth"}})
+	if e == nil && !r.IsError {
+		t.Fatal("unauthenticated remote write")
+	}
+	if _, e = os.Stat(filepath.Join(a.Config.Roots[0], "no-write")); !os.IsNotExist(e) {
+		t.Fatal("unauthenticated side effect")
+	}
+	b, e := os.ReadFile(filepath.Join(a.Config.StateDir, "audit", "audit.jsonl"))
+	if e != nil || strings.Contains(string(b), "SECRET_CONTENT") {
+		t.Fatal("audit content leak", e)
+	}
+}
+
+func TestDangerousCloseReleasesSafeRoots(t *testing.T) {
+	a := appTest(t, policy.Dangerous)
+	a.Close()
+	f, e := a.SafeJail.Directory(".")
+	if f != nil {
+		f.Close()
+	}
+	if e == nil {
+		t.Fatal("safe root descriptor leaked")
 	}
 }

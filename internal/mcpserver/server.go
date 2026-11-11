@@ -35,10 +35,10 @@ type Input struct {
 	ContentSearch bool     `json:"content_search,omitempty"`
 	RequestKey    string   `json:"request_key,omitempty" jsonschema:"Stable unique key per logical operation; reuse only for retries"`
 	Encoding      string   `json:"encoding,omitempty"`
-	Path          string   `json:"path,omitempty" jsonschema:"Path within configured roots; relative paths use the first root"`
+	Path          string   `json:"path,omitempty" jsonschema:"Path authorized by effective mode; ordinary relative paths use the first root, dangerous uses /"`
 	ID            string   `json:"id,omitempty" jsonschema:"Task ID; for fetch this is a file path"`
-	Query         string   `json:"query,omitempty" jsonschema:"Case-insensitive filename substring"`
-	Content       string   `json:"content,omitempty" jsonschema:"Replacement file contents; maximum 1 MiB"`
+	Query         string   `json:"query,omitempty" jsonschema:"Case-insensitive filename substring, or literal file contents when content_search=true"`
+	Content       string   `json:"content,omitempty" jsonschema:"Replacement contents within configured write byte bound"`
 	Old           string   `json:"old,omitempty"`
 	New           string   `json:"new,omitempty"`
 	Argv          []string `json:"argv,omitempty" jsonschema:"Absolute executable followed by literal arguments; never a shell string"`
@@ -107,6 +107,12 @@ func New(c config.Config, remote bool) (*App, error) {
 	}
 	s := mcp.NewServer(&mcp.Implementation{Name: identity.Name, Version: identity.Version}, nil)
 	a := &App{Config: c, Jail: j, Tasks: tm, Audit: al, Server: s, Events: events.New(string(c.Mode), nil), Remote: remote}
+	initialized := false
+	defer func() {
+		if !initialized {
+			a.Close()
+		}
+	}()
 	if c.Mode == policy.Dangerous {
 		if len(c.Roots) == 0 {
 			a.SafeJail = fsjail.Deny()
@@ -168,9 +174,18 @@ func New(c config.Config, remote bool) (*App, error) {
 					name = ci.Name
 				}
 			}
+			if method == "initialize" {
+				if ip, ok := req.GetParams().(*mcp.InitializeParams); ok && ip.ClientInfo != nil {
+					name = ip.ClientInfo.Name
+				}
+			}
 			a.Events.Seen(auth.Client(ctx), name, auth.Client(ctx) != "stdio-local")
-			if method == "tools/call" && e != nil {
-				if ae := a.Audit.Write(audit.Record{Client: auth.Client(ctx), Operation: "invalid_or_unavailable_tool", Mode: string(c.Mode), Allowed: false, Phase: "result"}); ae != nil {
+			failed := e != nil
+			if cr, ok := result.(*mcp.CallToolResult); ok && cr.IsError {
+				failed = true
+			}
+			if method == "tools/call" && failed {
+				if ae := a.Audit.Write(audit.Record{Client: auth.Client(ctx), Operation: "invalid_or_unavailable_tool", Mode: string(a.Grant.Mode()), Reason: "invalid_request", Allowed: false, Phase: "denied"}); ae != nil {
 					return nil, errors.New("audit failure")
 				}
 			}
@@ -183,13 +198,15 @@ func New(c config.Config, remote bool) (*App, error) {
 		a.add("probe_write", "Dummy write probe; returns confirmation without changing user files", false)
 		a.add("search", "Search allowed file names (read-only alias of fs_search)", true)
 		a.add("fetch", "Read an allowed file (read-only alias of fs_read)", true)
+		initialized = true
 		return a, nil
 	}
-	for _, t := range []struct{ n, d string }{{"fs_read", "Read a regular file within roots, at most 1 MiB"}, {"fs_list", "List at most 200 directory entries within roots"}, {"fs_search", "Search file names within roots, at most 200 matches"}, {"search", "Search allowed file names; alias of fs_search"}, {"fetch", "Read an allowed regular file; alias of fs_read"}, {"proc_list", "List process IDs, parents and names; arguments and environment excluded"}, {"task_list", "List durable tasks and final exit status"}, {"task_status", "Get one durable task status"}, {"task_logs", "Read task output incrementally using byte offsets"}, {"task_wait", "Wait at most 25 seconds for task completion"}, {"approval_status", "Poll an approval or operation result using its pending ID; only its originating client session may retrieve it"}} {
+	a.resources()
+	for _, t := range []struct{ n, d string }{{"fs_read", "Read an authorized regular file; offset/limit select bounded byte slices"}, {"fs_list", "List authorized directory entries; offset/limit enable continuation metadata"}, {"fs_search", "Search authorized file names or content_search=true; offset/limit enable continuation metadata"}, {"search", "Search allowed file names; alias of fs_search"}, {"fetch", "Read an allowed regular file; alias of fs_read"}, {"proc_list", "List process IDs, parents and names; arguments and environment excluded"}, {"task_list", "List durable tasks and final exit status"}, {"task_status", "Get one durable task status"}, {"task_logs", "Read task output incrementally using byte offsets"}, {"task_wait", "Wait at most 25 seconds for task completion"}, {"approval_status", "Poll an approval or operation result using its pending ID; only its originating client session may retrieve it"}} {
 		a.add(t.n, t.d, true)
 	}
 	if c.Mode.Write() {
-		for _, t := range []struct{ n, d string }{{"fs_write", "Write a regular file within roots, at most 1 MiB"}, {"fs_edit", "Replace old text exactly once in an allowed file"}, {"exec", "Run allowlisted argv with explicit cwd, timeout and bounded output"}, {"task_start", "Start durable allowlisted argv; survives MCP exit"}, {"task_stop", "Request graceful task termination before forced termination"}, {"task_restart", "Start a new task from completed task argv under current policy"}, {"task_forget", "Remove only terminal task metadata and logs"}} {
+		for _, t := range []struct{ n, d string }{{"fs_write", "Atomically write an authorized regular file within configured byte bound"}, {"fs_edit", "Replace old text exactly once in an allowed file"}, {"exec", "Run literal argv under effective command policy, explicit cwd, deadline and output bound"}, {"task_start", "Start durable literal argv under effective policy; survives MCP exit"}, {"task_stop", "Request graceful task termination before forced termination"}, {"task_restart", "Start a new task from completed task argv under current policy"}, {"task_forget", "Remove only terminal task metadata and logs"}} {
 			a.add(t.n, t.d, false)
 		}
 	}
@@ -199,9 +216,20 @@ func New(c config.Config, remote bool) (*App, error) {
 			a.add("shell", "Run explicit shell source in dangerous mode only", false)
 		}
 	}
+	initialized = true
 	return a, nil
 }
-func (a *App) Close() { a.Approvals.Close(); a.Jail.Close() }
+func (a *App) Close() {
+	if a.Approvals != nil {
+		a.Approvals.Close()
+	}
+	if a.Jail != nil {
+		a.Jail.Close()
+	}
+	if a.SafeJail != nil && a.SafeJail != a.Jail {
+		a.SafeJail.Close()
+	}
+}
 func (a *App) add(name, desc string, read bool) {
 	f := name == "exec" || name == "sudo_exec" || name == "task_start" || name == "task_restart"
 	mcp.AddTool(a.Server, &mcp.Tool{Name: name, Description: desc, InputSchema: inputSchema(name, a.Grant.Mode().Privileged()), Annotations: &mcp.ToolAnnotations{ReadOnlyHint: read, OpenWorldHint: &f}}, func(ctx context.Context, req *mcp.CallToolRequest, in Input) (*mcp.CallToolResult, any, error) {
@@ -220,7 +248,7 @@ func (a *App) add(name, desc string, read bool) {
 			in.Sudo = sudo
 		}
 		opmeta := a.operation(name, in)
-		record := audit.Record{Path: opmeta.Path, Resolved: opmeta.Resolved, Cwd: opmeta.Cwd, Category: opmeta.Class, Phase: "intent", Client: auth.Client(ctx), Operation: name, Mode: string(a.Grant.Mode()), Sudo: name == "sudo_exec" || in.Sudo}
+		record := audit.Record{ClientName: auth.Identity(ctx).Name, Path: opmeta.Path, Resolved: opmeta.Resolved, Cwd: opmeta.Cwd, Category: opmeta.Class, Phase: "intent", Client: auth.Client(ctx), Operation: name, Mode: string(a.Grant.Mode()), Sudo: name == "sudo_exec" || in.Sudo}
 		// Audit intent before side effects. A failed audit append fails the operation.
 		if e := a.Audit.Write(record); e != nil {
 			return nil, nil, errors.New("audit unavailable; operation refused")
@@ -231,6 +259,9 @@ func (a *App) add(name, desc string, read bool) {
 		authorize := func() error {
 			if a.Remote && !principal.Authenticated {
 				return auth.ErrUnauthorized
+			}
+			if a.Remote && principal.Scope != "mcp:"+opmeta.Mode {
+				return auth.Denied{Reason: "mode"}
 			}
 			if principal.Check != nil {
 				if e := principal.Check(); e != nil {
@@ -301,10 +332,18 @@ func (a *App) add(name, desc string, read bool) {
 				}
 			}
 		}
-		record.Phase = "result"
+		record.Phase = "completed"
 		record.DurationMS = time.Since(start).Milliseconds()
 		record.Allowed = e == nil
+		if pending, ok := data.(approval.Response); ok {
+			record.Phase = pending.Status
+			if pending.Status == "pending" {
+				record.Pending = true
+				record.Allowed = false
+			}
+		}
 		if e != nil {
+			record.Phase = "denied"
 			record.Reason = denialReason(e)
 		}
 		if r, ok := data.(execrun.Result); ok {
@@ -346,6 +385,15 @@ func (a *App) add(name, desc string, read bool) {
 }
 func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 	mode := a.Grant.Mode()
+	recheck := func() error {
+		if e := a.Authorize(name, in, string(mode)); e != nil {
+			return e
+		}
+		if p := auth.Identity(ctx); p.Check != nil {
+			return p.Check()
+		}
+		return nil
+	}
 	j := a.Jail
 	if mode != policy.Dangerous {
 		j = a.SafeJail
@@ -417,12 +465,12 @@ func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 	case "exec", "sudo_exec":
 		deadline, _ := time.ParseDuration(a.Config.ExecTimeout)
 		maximum, _ := time.ParseDuration(a.Config.ExecMaxTimeout)
-		return execrun.RunWithLimits(ctx, j, policy.Commands{Allow: a.Config.Allow, Deny: a.Config.Deny, SudoAllow: a.Config.SudoAllow}, mode, execrun.Request{Argv: in.Argv, Cwd: in.Cwd, TimeoutSeconds: in.Timeout}, name == "sudo_exec", a.Config.Env, a.Config.OutputBytes, deadline, maximum)
+		return execrun.RunWithLimits(ctx, j, policy.Commands{Allow: a.Config.Allow, Deny: a.Config.Deny, SudoAllow: a.Config.SudoAllow}, mode, execrun.Request{Argv: in.Argv, Cwd: in.Cwd, TimeoutSeconds: in.Timeout, Authorize: recheck}, name == "sudo_exec", a.Config.Env, a.Config.OutputBytes, deadline, maximum)
 	case "task_start":
 		tm := *a.Tasks
 		tm.Config.Mode = mode
 		tm.Config.GrantUntil = a.Grant.Expiry()
-		return tm.Start(ctx, j, execrun.Request{Argv: in.Argv, Cwd: in.Cwd}, in.Sudo)
+		return tm.Start(ctx, j, execrun.Request{Argv: in.Argv, Cwd: in.Cwd, Authorize: recheck}, in.Sudo)
 	case "task_list":
 		return a.Tasks.List()
 	case "task_status":
@@ -440,7 +488,7 @@ func (a *App) call(ctx context.Context, name string, in Input) (any, error) {
 		if old, e := a.Tasks.Status(in.ID); e != nil || old.State == "running" || old.State == "starting" {
 			return nil, errors.New("stop task before restart")
 		}
-		return tm.Start(ctx, j, execrun.Request{Argv: in.Argv, Cwd: in.Cwd}, in.Sudo)
+		return tm.Start(ctx, j, execrun.Request{Argv: in.Argv, Cwd: in.Cwd, Authorize: recheck}, in.Sudo)
 	case "task_forget":
 		return "forgotten", a.Tasks.Forget(in.ID)
 	default:
@@ -532,6 +580,10 @@ func denialReason(e error) string {
 		return "symlink_escape"
 	case strings.Contains(s, "denied by user"):
 		return "user_denied"
+	case strings.Contains(s, "operation denied: expired"):
+		return "expired"
+	case strings.Contains(s, "operation denied: revoked"):
+		return "revoked"
 	case strings.Contains(s, "mode"):
 		return "mode"
 	case errors.Is(e, auth.ErrUnauthorized):
@@ -575,7 +627,7 @@ func (a *App) RefreshTools() {
 		a.Server.RemoveTools("fs_write", "fs_edit", "exec", "task_start", "task_stop", "task_restart", "task_forget")
 	} else {
 		a.Server.RemoveTools("task_start")
-		a.add("task_start", "Start durable allowlisted argv; survives MCP exit", false)
+		a.add("task_start", "Start durable literal argv under effective policy; survives MCP exit", false)
 	}
 	a.Events.SetMode(string(mode))
 }

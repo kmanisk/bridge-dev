@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -21,7 +22,7 @@ func SudoersPreview(user string, paths []string) (string, error) {
 	var b strings.Builder
 	b.WriteString("# Preview only. No-argument commands; review before manual installation.\n")
 	for _, p := range paths {
-		if !safeCommand.MatchString(p) {
+		if !safeCommand.MatchString(p) || filepath.Clean(p) != p {
 			return "", errors.New("unsupported sudoers command path")
 		}
 		fmt.Fprintf(&b, "%s ALL=(root) NOPASSWD: %s \"\"\n", user, p)

@@ -19,9 +19,10 @@ const MaxOutput = 1 << 20
 const MaxDuration = 10 * time.Minute
 
 type Request struct {
-	Argv           []string `json:"argv"`
-	Cwd            string   `json:"cwd"`
-	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
+	Authorize      func() error `json:"-"`
+	Argv           []string     `json:"argv"`
+	Cwd            string       `json:"cwd"`
+	TimeoutSeconds int          `json:"timeout_seconds,omitempty"`
 }
 type Result struct {
 	Output    string `json:"output"`
@@ -129,6 +130,11 @@ func RunWithLimits(ctx context.Context, j *fsjail.Jail, p policy.Commands, m pol
 	c.Stderr = out
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	c.WaitDelay = time.Second
+	if r.Authorize != nil {
+		if e = r.Authorize(); e != nil {
+			return Result{}, e
+		}
+	}
 	e = RunCommand(ctx, c)
 	result := Result{Output: out.B.String(), Truncated: out.Truncated, TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded)}
 	if c.ProcessState != nil {

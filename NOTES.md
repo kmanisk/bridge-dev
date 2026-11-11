@@ -264,3 +264,36 @@ audits from the independent worker before starting a command.
 Regression tests cover fake tunnel rotation and actual terminal-consent OAuth
 credentials, safe partial state/down, named/quick setup, slices/content pages,
 configured/unlimited output, worker context failures and ambiguous result storage.
+
+## M15 - final regression, coverage, Fish and synchronized documentation
+
+Added direct identity/platform tests and expanded server/filesystem tests. Actual
+server integration builds use go build -cover and private GOCOVERDIR, preserving
+race-built subprocess validation. make coverage exports separate unit/subprocess
+profiles: final statement totals are 64.7% and 43.6%. These are not a combined score;
+TTY, native privileged/provider/platform and some failure paths remain uncovered.
+A 27-second actual HTTP command returns a pending ID before 25 seconds, completes
+through polling, and is not redispatched under its retried request key.
+
+Added Fish completions without live installation, rewritten exact Fish manual and
+a Go-only syntax checker for all 20 Fish blocks. Current official client docs were
+reviewed; the current ChatGPT Plugins path and older account-specific Apps path
+are both explained, DCR is selected, and no account/plan access is inferred.
+Task status/log resource templates were added using verified SDK APIs; approve=all
+omits alternate resources so they cannot bypass gated read tools. Initialization
+names are recorded as self-reported, with direct SDK assertions.
+
+Final review corrected safe-root descriptor cleanup, pre-launch authorization and
+worker grant checks, Darwin device checks, concurrent no-replace sudoers install,
+pruning of revoked/expired DCR registrations, audit pending/completion/auth reasons,
+and public up URL output. Watch rotation has a direct regression test. Broad root
+write/exec implications are documented explicitly; no OS sandbox claim is made.
+
+Final make check (fmt/vet/uncached normal/race/staticcheck/Fish), make fuzz (979,426
+executions), all four CGO-free cross-builds, host build and make coverage passed.
+Linux artifacts are statically linked. No real sudo/public tunnel/native macOS or
+real AI account was used. No project process or loaded user unit remained in the
+final cleanup check. All intentional supersessions and remaining human evidence
+are synchronized in REQUIREMENTS.md, TEST_REPORT.md and MANUAL_TEST.md. No mandatory
+local implementation blocker remains. No remote, push, publication or permanent
+service was created. Local M15 commit follows the verified source/doc review.

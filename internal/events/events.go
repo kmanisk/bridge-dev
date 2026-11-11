@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"io"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -36,7 +37,10 @@ func (h *Hub) emit(text string) {
 func (h *Hub) Seen(id, name string, authenticated bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, known := h.clients[id]
+	prior, known := h.clients[id]
+	if name == "" {
+		name = prior.Name
+	}
 	c := Client{ID: id, Name: name, Authenticated: authenticated, LastSeen: time.Now().UTC(), Status: "last seen; continuous connection unknown"}
 	h.clients[id] = c
 	if !known && authenticated {
@@ -61,6 +65,7 @@ func (h *Hub) Clients() []Client {
 	for _, c := range h.clients {
 		out = append(out, c)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 func (h *Hub) SetMode(mode string) { h.mu.Lock(); defer h.mu.Unlock(); h.mode = mode }

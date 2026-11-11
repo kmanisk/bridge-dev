@@ -1,38 +1,37 @@
 # Threat model
 
-Assets: local data, command authority, privileged authority, process identity,
-task results, OAuth/bearer credentials and audit integrity. The owner chooses
-roots, executables, permission mode, client access and whether to open a tunnel.
+Assets are user data, process/root authority, durable task outcomes, client grants,
+OAuth/bearer secrets and audit integrity. The human chooses roots, mode, native
+executables, providers and approval policy. A correct implementation cannot make
+an untrusted AI or provider trustworthy.
 
-| Actor or failure | Boundary and response |
+| Threat/failure | Boundary and response |
 | --- | --- |
-| Prompt-injected model/tool input | Typed SDK arguments, registry mode gating, path/argv validation; annotations never authorize |
-| Unauthenticated remote requester | No MCP access; public health is minimal; OAuth grants require local human consent |
-| Malicious website/DNS rebinding | Exact Host and Origin, loopback binding; proxy headers do not relax policy |
-| Traversal/symlink/magic-link race | Pinned root/parent descriptors and Linux openat2; explicit Darwin constraints |
-| Special file/FIFO or huge file | Linux O_PATH type check before data open, nonblocking backend opens, byte limits |
-| Concurrent hard-link/path replacement during write | Fresh inode + descriptor-relative atomic rename; no escaped-target truncation |
-| Runaway command/output | Timeout, fresh process group, bounded output and task logs; background children cleaned on exit |
-| MCP crash/disconnection | Independent task worker and durable records; no transport-owned task process |
-| Reused/stale task PID | Process identity check; stops use worker control file, never stored PID signaling |
-| systemd collection | Final status written independently before normal worker exit |
-| Worker crash/reboot/storage loss | Lost/unknown state preserved, no fabricated exit code or blind process signal |
-| OAuth code interception | S256 PKCE, code expiry/single use, exact callback/client/resource binding |
-| Consent/CSRF/phishing | Request-specific local code, exact display, browser cookie + CSRF token, state echo; human must verify intent |
-| Stolen refresh token/replay | Hashed storage, rotation, expiry, replay-family revocation |
-| Audit secret leak | No argv/content/env/header fields; local bounded JSONL only |
-| Compromised same OS account/root | Outside scope; it can inspect memory, alter executables/state, or bypass server policy |
-| Trusted executable used maliciously | Explicit execution delegation; command policy is not an OS sandbox |
+| Prompt injection | Untrusted content may influence tool use; narrow modes/roots and human approval help, but do not sandbox interpreters |
+| Unauthenticated client | Explicit bearer locally or OAuth remotely; no MCP tool access from health/discovery |
+| Misleading provider name | OAuth client ID is authenticated; initialize.clientInfo and registration display name remain self-reported |
+| OAuth interception/replay | PKCE S256, single-use code, exact redirect, resource/scope/session/expiry binding, refresh rotation/revocation |
+| Consent phishing/CSRF | Local terminal match code and confirmation, one prompt at a time, short expiry, host allowlist, cookies/CSRF/state |
+| Stale/elevated capability | Per-call and pre-launch checks; timed tokens/grants and dynamic registry; queued work cannot use expired grants |
+| Guess/replay/modify approval | Random ID, exact digest, identity/session binding and durable at-most-once automatic dispatch |
+| Crash during dispatch/result | Unknown remains unknown; no automatic retry under an ambiguous key |
+| Path/symlink/mount race | Linux pinned descriptors/openat2; Darwin os.Root/no-follow/device checks with unverified native runtime gate |
+| Hard-link mutation | Restricted writes reject links and rename a fresh inode under a pinned parent |
+| Huge/special file or runaway output | Configurable sizes, regular-file checks, timeouts/concurrency; explicit dangerous-only unlimited bounds |
+| Unrelated process termination | Owned unreaped group cleanup; task control files; verified process identities; no arbitrary PID kill tool |
+| Server/tunnel/client disconnect | Independent task worker and durable completion metadata; application authorization differs from socket lifetime |
+| systemd collection | Worker saves final exit independently before normal collection |
+| Reboot/worker force-kill/disk loss | Lost/unknown outcome; no fabricated code or blind signal; audit failure refuses dispatch |
+| Tunnel hostname rotation | Verified canonical origin; old tokens and elevated grants invalidated; connector must be updated |
+| Cloudflare/AI vendor observation | Separate external trust boundaries; Bridge owns no relay/accounts, but providers see their traffic |
+| sudo cache context mismatch | sudo -n in actual context, explicit failure rather than background password prompt; deliberate scoped sudoers option |
+| Secret leakage | No token URLs/logs/argv/password handling; private XDG state; metadata-only rotated audit |
+| Same OS account/root compromise | Outside scope: can inspect memory, modify binary/state, or bypass Bridge |
 
-Availability limits are deliberate but not complete DoS protection. HTTP handlers
-and request bodies, registrations, pending grants and tokens are bounded. File
-search visits at most 10,000 entries/depth 32 and returns at most 200 matches;
-listing returns at most 200 entries without pagination in this build. Read/write
-operations are at most 1 MiB. The owner must manage completed tasks and total disk
-space. No automatic hosted monitoring or background cleanup daemon exists.
-
-Residual risks: independent security review, macOS runtime verification, full
-client compatibility, aggregate task storage quota, stronger OAuth abuse limits,
-crash-finalization for forcibly killed workers,
-and command sandboxing are not proven by this build's tests. Each is a distinct
-limit; local unit/integration results do not establish Internet-facing safety.
+Read/write authority and command allowlists are not operating-system sandboxes.
+Dangerous remote access can compromise the machine. There is no Bridge-operated
+telemetry, account or hosted relay and no monthly/tool-call billing quota. There
+are technical abuse/resource bounds. Aggregate task and deduplication metadata
+storage still requires operator care; deleting tombstones weakens retry safety.
+Native macOS, real web accounts, real Cloudflare and real sudo contexts are manual
+gates. Local passing tests do not prove Internet-facing security or provider access.

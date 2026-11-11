@@ -140,7 +140,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !valid {
 		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s/.well-known/oauth-protected-resource"`, h.BaseURL())+fmt.Sprintf(`, scope="mcp:%s"`, h.App.Grant.Mode()))
-		_ = h.App.Audit.Write(audit.Record{Client: "unauthenticated", Operation: "http_auth", Mode: string(h.App.Config.Mode), Allowed: false})
+		_ = h.App.Audit.Write(audit.Record{Client: "unauthenticated", Operation: "http_auth", Mode: string(h.App.Grant.Mode()), Phase: "denied", Reason: "auth", Allowed: false})
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -401,7 +401,7 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 			emit("Temporary URL: reconnect your AI apps after URL changes.\n")
 		}
 	} else {
-		emit("%s/mcp (mode=%s, probe=%t); token file: %s\n", local, c.Mode, c.Probe, filepath.Join(c.StateDir, "token"))
+		emit("%s (mode=%s, probe=%t); token file: %s\n", rt.PublicURL, c.Mode, c.Probe, filepath.Join(c.StateDir, "token"))
 	}
 	if opt.Ready != nil {
 		opt.Ready(rt)

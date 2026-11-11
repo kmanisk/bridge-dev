@@ -90,6 +90,9 @@ func (m *Manager) Start(ctx context.Context, j *fsjail.Jail, r execrun.Request, 
 	id := ID()
 	dir, _ := m.path(id)
 	t := Task{ID: id, Argv: append([]string{}, r.Argv...), Cwd: r.Cwd, Started: time.Now().UTC(), State: "starting", LogPath: filepath.Join(dir, "output.log"), Backend: "detached"}
+	if m.Config.Mode.Privileged() && !m.Config.GrantUntil.IsZero() && !time.Now().Before(m.Config.GrantUntil) {
+		return Task{}, errors.New("privileged grant expired")
+	}
 	backend := m.Config.Backend
 	if sudo {
 		if runtime.GOOS != "linux" {
@@ -164,6 +167,11 @@ func (m *Manager) Start(ctx context.Context, j *fsjail.Jail, r execrun.Request, 
 	c.Stdout = f
 	c.Stderr = f
 	c.Stdin = nil
+	if r.Authorize != nil {
+		if e = r.Authorize(); e != nil {
+			return Task{}, e
+		}
+	}
 	if t.Backend == "systemd" || t.Backend == "systemd-system" {
 		e = c.Run()
 	} else {

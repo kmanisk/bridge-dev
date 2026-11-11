@@ -217,6 +217,18 @@ func (o *OAuth) register(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(405)
 		return
 	}
+	// Bound simultaneous stored registrations, never lifetime registrations.
+	revocations, e := revocationState(o.state)
+	if e != nil {
+		oauthError(w, 503, "temporarily_unavailable")
+		return
+	}
+	for id, c := range o.db.Clients {
+		if !c.Expires.IsZero() && !o.now().Before(c.Expires) || revocations.Clients[id] || !revocations.AllBefore.IsZero() && !c.Created.After(revocations.AllBefore) {
+			delete(o.db.Clients, id)
+		}
+	}
+	o.prune()
 	if o.MaxClients > 0 && len(o.db.Clients) >= o.MaxClients {
 		oauthError(w, 429, "registration_limit")
 		return
@@ -542,12 +554,12 @@ func (o *OAuth) prune() {
 		}
 	}
 	for k, v := range o.db.Access {
-		if !now.Before(v.Expires) {
+		if _, exists := o.db.Clients[v.Client]; !exists || !now.Before(v.Expires) {
 			delete(o.db.Access, k)
 		}
 	}
 	for k, v := range o.db.Refresh {
-		if !now.Before(v.Expires) {
+		if _, exists := o.db.Clients[v.Client]; !exists || !now.Before(v.Expires) {
 			delete(o.db.Refresh, k)
 		}
 	}

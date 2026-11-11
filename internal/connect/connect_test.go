@@ -164,3 +164,25 @@ func TestConnectFakeTunnelVerifiedPublicMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestUpPrintsVerifiedPublicURL(t *testing.T) {
+	dir := private(t)
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "cloudflared"), []byte("#!/bin/sh\necho 'https://up-fixture.trycloudflare.com' >&2\nexec /bin/sleep 30\n"), 0700)
+	t.Setenv("PATH", bin)
+	c := config.Defaults()
+	c.Roots = []string{t.TempDir()}
+	c.StateDir = filepath.Join(dir, "state")
+	c.OAuth = true
+	c.Tunnel = "cloudflared"
+	c.Port = 0
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var out bytes.Buffer
+	e := transport.RunWithOptions(ctx, c, transport.Options{Out: &out, ClientFactory: func(local string) *http.Client {
+		return &http.Client{Transport: &proxy{local: local}, Timeout: time.Second}
+	}, Ready: func(transport.Runtime) { cancel() }})
+	if e != nil || !strings.Contains(out.String(), "https://up-fixture.trycloudflare.com/mcp") {
+		t.Fatal(e, out.String())
+	}
+}

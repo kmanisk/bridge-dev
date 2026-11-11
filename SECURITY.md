@@ -1,113 +1,101 @@
-# Security policy and operational controls
+# Security policy and boundaries
 
-This is an unreviewed development build. Do not expose sensitive roots or grant
-broad executable access before reviewing its policy and the documented limits.
-Report vulnerabilities privately to the eventual maintainer; no public security
-contact or hosted reporting endpoint exists while naming/publication is pending.
+This development build has local automated evidence, not an independent security
+audit or formal OAuth certification. Report issues locally to the operator; no
+hosted reporting/telemetry endpoint exists. Do not post tokens, state files,
+private keys, file contents or sensitive audit paths in public reports.
 
-## Controls
+Bridge operates no accounts, infrastructure, analytics, subscriptions, billing
+counter, tool-call quota or relay. Optional Cloudflare Tunnel is a third-party
+hosted relay. Cloudflare and AI vendors can observe traffic flowing through their
+services. OAuth does not make those providers trustworthy. An HTTPS health check
+only proves reachability. Actual account compatibility must be tested separately.
 
-- Default readonly; invalid/missing explicit configuration never widens modes.
-- Mode-specific registry, with no hidden callable write/sudo tools in readonly.
-- HTTP rejects sudo/dangerous and requires authentication for every MCP request.
-- Loopback binding, exact Host/Origin validation, no trusted proxy headers.
-- Request-body, concurrency, timeout, output, search and file-size bounds.
-- Descriptor-relative path access; no EvalSymlinks-only TOCTOU claim.
-- Linux rejects arbitrary symlinks/mount crossings/special files before data open.
-- Atomic replacement avoids escaped/hard-linked target mutation during writes.
-- No request-controlled shell/environment; explicit allow/deny executable policy.
-- Sudo is noninteractive, separately allowlisted and local-only. Passwords are
-  never requested. Preview validation does not install sudoers.
-- Worker-owned process groups; stale task records cannot cause arbitrary PID kills.
-- Persistent final task status is independent of systemd's collected metadata.
-- 256-bit bearer/consent/code/token randomness, 0600 files, private state dirs.
-- PKCE S256, exact redirect registration, CSRF and state, resource binding,
-  expiring opaque tokens, hashed credential storage, refresh rotation/replay
-  detection, and family revocation. Token comparisons use constant-time helpers
-  where a secret comparison is needed; opaque token lookup uses SHA-256 keys.
-- Audit contains a fixed metadata schema, redacts by omission, rotates locally,
-  and has no telemetry/export path.
+AI input, file text, websites and self-reported client names are untrusted.
+Annotations are hints, not authorization. Prompt injection remains serious whenever
+read access is followed by mutation/execution. Neither filesystem nor command
+allowlisting is an OS sandbox. An allowed interpreter can invoke more commands.
+A compromised OS account/root can bypass Bridge; that adversary is outside scope.
+Keep roots narrow: granting write/execution over Bridge binaries, configuration,
+state or other startup programs can undermine controls in this same user account.
 
-## Boundaries
+readonly is the default. Missing/invalid config never elevates. Registry construction
+omits forbidden tools and invocation revalidates mode, scope, session, expiry and
+revocation. Saved privileged mode needs current startup authorization: typed phrase
+or the explicit manual ack_privileged exception. Remote sudo/dangerous needs OAuth.
+User-selected approve=none permits automatic authorized operations; it does not
+create a grant. Class-session approvals are scoped to identity, authorization
+session, origin, mode and class. They do not elevate permissions. Remote dangerous
+access may completely compromise this computer and all its data.
 
-Readonly means filesystem/process/task observation, not a guarantee against data
-exfiltration by a client. Any allowed read can reveal secrets stored in that
-root. Task argv and logs are sensitive private operational data. Model requests,
-file contents, command output and website instructions are untrusted.
+OAuth is authorization-code + PKCE S256, exact registered redirect matching,
+resource/scope binding, DCR, expiry, rotating refresh and replay-family revocation.
+CIMD is not implemented or advertised. Terminal consent serializes through the
+shared coordinator, shows the browser's random six-digit code, expires in 60s and
+rate-limits repeats. Browser requests cannot approve themselves. Default redirect
+hosts are explicit; additional hosts need deliberate configuration. Consent and
+tool prompts use the controlling terminal; default is deny. Client identities are
+OAuth registrations, not verified Claude/ChatGPT provider identities. Stateless
+connection close does not revoke the application authorization session.
 
-Executable allowlisting authorizes the whole executable, including file/network
-access, flags, subprocesses and interpreters it can invoke. This is not seccomp,
-a container, a VM, or a filesystem sandbox for commands. Explicit denied paths
-do not block a different program implementing equivalent behavior. Grant
-execution only when that delegation is intended. A privileged executable can
-modify or compromise this server; scoped sudoers must independently enforce the
-human's privileged boundary.
+Public issuer/resource URLs come from the configured/verified canonical HTTPS
+origin, never Host or forwarded headers. Exact Host/Origin checks wrap the SDK.
+Token headers are mandatory on MCP; health is minimal and exposes only mode.
+Local development bearer tokens contain 256 random bits, live in 0600 files and
+are never accepted in URL query/path tokens. HTTP has bounded bodies/concurrency,
+timeouts and a fixed 25s long-poll ceiling. Tunnels start only when selected;
+automated tests use fake processes and loopback proxies. New hostname invalidates
+origin-bound credentials and privileged grants; reauthorization is required.
 
-Local OS-account compromise, root, malicious bind mounts/device creation,
-symlinked state parents controlled by the same user, and hostile replacement
-of installed executables are outside the trusted-user-state boundary. Linux
-NO_XDEV reduces mount attacks; macOS relies on trusted mount/device setup.
-Only Linux amd64 has runtime evidence in this run. Other builds are compile
-checks, not security validation.
+Approvals bind a random ID to client/session/scope/mode, exact input digest and
+resolved lexical path/cwd. Descriptor validation occurs again on actual access.
+No operation executes before approval. Approval timeout is 120s. Headless gated
+operations deny. HTTP returns pending IDs promptly; only the originating client
+session can poll results. Durable request_key receipts prevent automatic redispatch.
+Ambiguous crashes report unknown; this is not exactly-once execution. Pending
+prompts alone do not keep idle lifetime alive; dispatched work does. Revocation and
+grant expiry are rechecked after prompts and immediately before process launch.
 
-Do not grant roots that include the config/state directory or credentials.
-Environment allowlists must exclude secrets. No encryption-at-rest is supplied.
-Protect task logs, OAuth database, local consent terminal, and backups with OS
-permissions and disk encryption. A tunnel trusts its provider's TLS termination.
+Linux uses pinned roots/parents and openat2 beneath/no symlink/no magic-link/no
+nested-mount resolution. It does not rely on EvalSymlinks for per-call safety.
+Restricted writes reject hard links and atomically replace a fresh inode under a
+pinned parent. Regular-file checks, sizes and permissions apply. Darwin uses Go
+os.Root descriptor-relative traversal, final no-follow checks and device checks;
+native concurrent-race/mount behavior remains a manual verification gate. Dangerous
+mode deliberately removes normal root and command policy, including symlink/mount
+path restrictions, while retaining regular-file correctness and audit checks.
+Special-file I/O is explicitly unsupported by file tools; unrestricted argv can
+use native tools when deliberately authorized. Atomic replacements preserve normal
+permission bits, not ownership/ACLs/xattrs or inode identity.
 
-## OAuth limitations
+Commands are literal argv with explicit cwd, environment allowlisting, deadlines,
+output bounds and owned process groups. No implicit shell exists; dangerous --shell
+is explicit. sudo -v attaches directly to the controlling TTY; Bridge never reads
+a password. Actual commands use sudo -n. Detached/headless workers must never wait
+for a password and cannot assume a terminal's sudo cache. Privileged task launch
+uses sudo -n systemd-run; its worker runs as the original user and needs separate
+noninteractive sudo authorization, commonly explicitly scoped NOPASSWD. Do not
+place broad shells/wildcards into default sudoers rules. Preview/confirmed install
+checks an immutable digest, validates the same bytes with visudo, refuses overwrite
+and installs atomically. Tests use PATH shims only, never real sudo or sudoers.
 
-OAuth 2.1 remains an Internet-Draft; implementation follows the authorization
-code/PKCE profile and referenced RFCs, not a certification. Current clients must
-support RFC 7591 registration (public none or confidential client_secret_basic)
-or be adapted. Client ID metadata documents are not implemented. There is no external
-identity provider, multi-user account system, admin UI, registration CAPTCHA, or
-per-user filesystem authority. Registration/pending/token counts are bounded;
-Internet-facing abuse resistance still needs operational review. Restart with
-changed issuer/mode fails closed. Rotate state deliberately for Quick Tunnel
-hostname changes. Normal OAuth authorization codes appear in callback query
-parameters as required by the flow; access and refresh tokens never do.
+Durable workers outlive transport/server exit. Final results are independently
+persisted before unit collection. Stale PIDs are never blindly signalled; stop
+requests target task control metadata and owned process groups. Grant expiry does
+not kill running jobs. Forced worker death/reboot can lose an uncaptured result.
+Storage failure fails safely before sensitive dispatch and can leave a completion
+finalizer retrying until storage is restored. Protect active task state from deletion.
 
-## Failure handling
+Private XDG state contains hashed OAuth credentials, request results, task argv
+and logs; it can still contain sensitive task data. Keep it private and encrypted
+at rest when needed. JSONL audit intentionally records paths, clients, mode,
+transitions, reason codes, timing, exit/task IDs and sudo involvement. It omits
+contents, full argv, environments, headers, passwords, tokens and consent codes.
+It rotates locally; same-user tampering is not cryptographically prevented.
+No aggregate task/receipt disk guarantee exists: retain deduplication tombstones,
+forget completed tasks deliberately, and monitor free disk. Technical bounds are
+configurable resource/abuse controls, not usage billing or monthly quotas.
 
-An audit-intent append must succeed before tool work starts. A completion-audit
-failure can occur after a side effect: the client receives an error and must
-inspect the result before retrying. Storage failures, OS reboot, forced worker
-kill or power loss before final status persistence can produce `lost`; do not
-interpret it as success or retry destructive argv blindly. Initial task launch
-is not a transaction with systemd; a `starting` record older than ten seconds
-without a running record is reported lost. Completed tasks do not auto-prune;
-log bytes are bounded per task but total retained task storage is user-managed.
-
-## Phase 2 M10 changes
-
-Default runtime consent is terminal-only with a six-digit browser match code;
-the browser cannot approve itself. Pairing-code consent remains an explicit
-compatibility option. Client/session revocation is rechecked per authorization
-use, including previously captured principals. Old-scope credentials invalidate
-on configured mode change, with private recoverable state backups. A public
-origin's credentials are not transferred to another origin. Client names are
-self-reported labels, never cryptographic provider identities.
-
-Bridge has no operated accounts, hosted infrastructure, telemetry or relay.
-Cloudflare Tunnel is an optional third-party hosted transport. Cloudflare and
-AI vendors are separate trust boundaries and can observe traffic passing through
-their services. OAuth does not make either provider trustworthy. Prompt injection
-remains a serious risk when reads of untrusted content precede writes/execution.
-Earlier Phase 1 statements above are historical where superseded explicitly by
-docs/SUPERSEDED_RESTRICTIONS.md; remote privilege is still awaiting M12 here.
-
-Phase 2 privileged sessions supersede Phase 1's categorical remote ban. sudo and
-dangerous require OAuth remotely and current startup authorization. A manually
-edited ack_privileged=true is an intentional startup opt-out; wizard preferences
-never create it. approve=none means automatic authorized operations, including
-root actions under the current effective grant. Class-session approval cannot
-elevate mode. Expiry revokes future dispatch, including already-queued approvals;
-running jobs continue. Dangerous remote access can compromise the entire computer.
-
-Privileged background workers use system units running as the original user and
-must authorize sudo -n in that context, independently of the foreground terminal.
-Do not assume a successful terminal sudo -v proves a systemd worker can run root
-commands. Scoped NOPASSWD may be necessary. sudoers installation requires explicit
-terminal confirmation; only a preview-matching, visudo-validated immutable snapshot
-is installed. No passwords cross MCP or Bridge's input parsing.
+Older restrictions intentionally replaced are listed in
+[SUPERSEDED_RESTRICTIONS.md](docs/SUPERSEDED_RESTRICTIONS.md). See TEST_REPORT.md
+and MANUAL_TEST.md for verified checks and remaining external evidence.

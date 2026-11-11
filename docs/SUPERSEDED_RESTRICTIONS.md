@@ -6,6 +6,9 @@ not permission to skip authorization or regression tests.
 
 | Previous restriction/behavior | Replacement and reason | Activation milestone |
 | --- | --- | --- |
+| Fresh confirmation for every future privileged command; no privileged session-class approvals | Latest policy semantics permit automatic authorized calls under approve=none and class-session a; startup/session/scope/expiry still bind privilege | M11/M12 |
+| CIMD mandatory in an older Phase 2 addendum | Latest section 14 makes CIMD optional; DCR is required and implemented, CIMD is not advertised | M10/M15 |
+| Disconnect automatically revokes pending application authorization | Stateless sockets are transient; explicit application sessions expire/revoke independently, while origin changes invalidate credentials | M10/M14 |
 | No commits | Verified local milestone commits authorized; no remote/push/publication | M8 |
 | example.com module / separate display branding | github.com/kmanisk/bridge-dev; one temporary product-name constant | M8 |
 | Configuration assumes selected privilege is immediately usable | Saved mode is a preference; effective privilege requires startup authorization | M8/M12 |
@@ -22,5 +25,5 @@ not permission to skip authorization or regression tests.
 | Web account testing implied by local OAuth | Real account results separate; ChatGPT best-effort, never a release blocker | All |
 
 A row describes the requested final replacement; REQUIREMENTS.md records whether
-it is currently implemented and tested. Until that milestone passes, the prior
-fail-closed behavior is retained rather than silently weakened.
+it is currently implemented and tested. All listed local milestones have now passed. External account/platform evidence
+is still explicitly pending; no restriction is silently weakened.

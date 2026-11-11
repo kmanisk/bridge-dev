@@ -33,5 +33,5 @@ func CopyURL(ctx context.Context, url string) bool {
 	return false
 }
 func Instructions(w io.Writer, url string) {
-	_, _ = io.WriteString(w, "Web apps cannot be registered automatically.\nClaude web: Settings / Connectors / Add custom connector (or Customize / Connectors).\n  Use "+url+"; select OAuth and Register automatically, then authorize.\nChatGPT web, where available: Settings / Apps / Advanced settings / Developer mode / Create app.\n  Use "+url+" and complete OAuth. Account/workspace support and labels vary.\nOAuth success does not prove write-tool availability.\n")
+	_, _ = io.WriteString(w, "Web apps cannot be registered automatically.\nClaude web: Settings / Connectors / Add custom connector (or Customize / Connectors).\n  Use "+url+"; select OAuth and Register automatically, then authorize.\nChatGPT web: Plugins / + / Add custom MCP server (current documentation).\n  Older/account-specific UI: Settings / Apps / Advanced settings / Developer mode / Create app.\n  Use "+url+" and complete OAuth; select DCR/automatic registration rather than CIMD. Account/workspace support and labels vary.\nOAuth success does not prove write-tool availability.\n")
 }

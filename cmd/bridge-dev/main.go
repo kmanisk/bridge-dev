@@ -36,7 +36,7 @@ func main() {
 func printJSON(v any) error { return json.NewEncoder(os.Stdout).Encode(v) }
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: " + identity.Binary + " stdio|up|down|status|tasks|config check|doctor")
+		return errors.New("usage: " + identity.Binary + " connect|stdio|up|down|status|watch|clients|tasks|install|uninstall|tunnel setup|sudoers|config check|doctor")
 	}
 	if args[0] == "_sudoers-install" {
 		if len(args) != 4 || os.Geteuid() != 0 {
@@ -59,7 +59,7 @@ func run(args []string) error {
 		return nil
 	}
 	if args[0] == "--help" || args[0] == "help" || args[0] == "-h" {
-		fmt.Println("Usage: " + identity.Binary + " stdio|up|down|status|tasks|config check|doctor|sudoers preview")
+		fmt.Println("Usage: " + identity.Binary + " connect|stdio|up|down|status|watch|clients|tasks|install|uninstall|tunnel setup|sudoers preview|install|config check|doctor")
 		return nil
 	}
 	cmd := args[0]

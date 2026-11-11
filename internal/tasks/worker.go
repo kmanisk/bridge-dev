@@ -115,7 +115,7 @@ func Worker(state, id string) error {
 	if s.Config.Mode == policy.Dangerous {
 		j.Unrestricted()
 	}
-	if s.Sudo {
+	if s.Config.Mode.Privileged() {
 		if !s.Config.GrantUntil.IsZero() && !time.Now().Before(s.Config.GrantUntil) {
 			finish(-1, "")
 			return errors.New("privileged grant expired before worker dispatch")
@@ -174,7 +174,7 @@ func Worker(state, id string) error {
 		finish(-1, "")
 		return errors.New("task audit unavailable; command refused")
 	}
-	if s.Sudo && !s.Config.GrantUntil.IsZero() && !time.Now().Before(s.Config.GrantUntil) {
+	if s.Config.Mode.Privileged() && !s.Config.GrantUntil.IsZero() && !time.Now().Before(s.Config.GrantUntil) {
 		finish(-1, "")
 		return errors.New("privileged grant expired before command dispatch")
 	}

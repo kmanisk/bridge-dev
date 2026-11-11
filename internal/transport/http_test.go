@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -149,5 +150,32 @@ func TestOlderProtocolRequests(t *testing.T) {
 		if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
 			t.Fatal(version, resp.StatusCode, resp.Header)
 		}
+	}
+}
+
+func TestAuthAndHostDenialAudit(t *testing.T) {
+	h, s := handlerTest(t)
+	for i := 0; i < 4; i++ {
+		req, _ := http.NewRequest("GET", s.URL+"/mcp", nil)
+		req.Host = "untrusted.example"
+		resp, e := http.DefaultClient.Do(req)
+		if e != nil {
+			t.Fatal(e)
+		}
+		resp.Body.Close()
+	}
+	req, _ := http.NewRequest("POST", s.URL+"/mcp", strings.NewReader("{}"))
+	req.Host = h.Host
+	resp, e := http.DefaultClient.Do(req)
+	if e != nil {
+		t.Fatal(e)
+	}
+	resp.Body.Close()
+	b, e := os.ReadFile(filepath.Join(h.App.Config.StateDir, "audit", "audit.jsonl"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if strings.Count(string(b), `"operation":"http_host"`) != 1 || !strings.Contains(string(b), `"denial_reason":"auth"`) {
+		t.Fatal(string(b))
 	}
 }
