@@ -28,7 +28,7 @@ func TestBuiltOAuthHTTP(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer notice.Close()
-	cmd := exec.Command(binary, "up", "--state-dir", state, "--roots", root, "--port", "0", "--oauth", "--mode", "user", "--allow-commands", "/bin/echo", "--idle-timeout", "1m")
+	cmd := exec.Command(binary, "up", "--state-dir", state, "--roots", root, "--port", "0", "--oauth", "--auth", "code", "--redirect-hosts", "127.0.0.1", "--mode", "user", "--allow-commands", "/bin/echo", "--idle-timeout", "1m")
 	cmd.Stderr = notice
 	cmd.Env = isolatedEnv(t)
 	if e = cmd.Start(); e != nil {

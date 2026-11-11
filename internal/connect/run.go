@@ -15,6 +15,7 @@ func Run(ctx context.Context, args []string, getenv func(string) string, p *prom
 	if e != nil {
 		return e
 	}
+	opt.Prompts = p
 	opt.Connect = true
 	opt.Out = out
 	ready := opt.Ready

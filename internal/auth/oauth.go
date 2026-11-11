@@ -4,11 +4,13 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/kmanisk/bridge-dev/internal/identity"
 	"github.com/kmanisk/bridge-dev/internal/platform"
+	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"html/template"
 	"io"
 	"net"
@@ -26,13 +28,18 @@ const accessLifetime = 15 * time.Minute
 const refreshLifetime = 7 * 24 * time.Hour
 
 type client struct {
-	SecretHash string   `json:"secret_hash,omitempty"`
-	ID         string   `json:"client_id"`
-	Redirects  []string `json:"redirect_uris"`
-	Name       string   `json:"client_name"`
-	Method     string   `json:"token_endpoint_auth_method"`
+	Created      time.Time `json:"created"`
+	Expires      time.Time `json:"expires"`
+	LastActivity time.Time `json:"last_activity"`
+	Scopes       []string  `json:"scopes"`
+	SecretHash   string    `json:"secret_hash,omitempty"`
+	ID           string    `json:"client_id"`
+	Redirects    []string  `json:"redirect_uris"`
+	Name         string    `json:"client_name"`
+	Method       string    `json:"token_endpoint_auth_method"`
 }
 type pending struct {
+	Status      string
 	Client      string
 	Redirect    string
 	State       string
@@ -54,12 +61,13 @@ type grant struct {
 	Expires   time.Time
 }
 type credential struct {
-	Client   string
-	Resource string
-	Scope    string
-	Family   string
-	Expires  time.Time
-	Used     bool
+	SessionExpires time.Time
+	Client         string
+	Resource       string
+	Scope          string
+	Family         string
+	Expires        time.Time
+	Used           bool
 }
 type database struct {
 	Issuer  string
@@ -72,6 +80,21 @@ type database struct {
 	Revoked map[string]bool
 }
 type OAuth struct {
+	OnConsent     func(client, status string) error
+	terminal      bool
+	prompt        *prompt.Coordinator
+	redirectHosts []string
+	codes         map[string]string
+	rates         map[string]rateWindow
+	consentGate   chan struct{}
+	consentTTL    time.Duration
+	rateLimit     int
+	ratePeriod    time.Duration
+	ctx           context.Context
+	cancel        context.CancelFunc
+	workers       sync.WaitGroup
+	closed        bool
+
 	mu     sync.Mutex
 	state  string
 	issuer string
@@ -103,9 +126,27 @@ func NewOAuth(state, issuer, mode string, notice io.Writer) (*OAuth, error) {
 	}
 	if e != nil {
 		o.db = database{Issuer: issuer, Mode: mode, Clients: map[string]client{}, Pending: map[string]pending{}, Codes: map[string]grant{}, Access: map[string]credential{}, Refresh: map[string]credential{}, Revoked: map[string]bool{}}
-	} else if o.db.Issuer != issuer || o.db.Mode != mode {
-		return nil, errors.New("stored OAuth issuer/mode mismatch; use a fresh state directory or explicitly archive old OAuth state")
+	} else if o.db.Issuer != issuer {
+		return nil, errors.New("stored OAuth issuer mismatch; use origin-scoped state")
+	} else if o.db.Mode != mode {
+		old, e := os.ReadFile(filepath.Join(dir, "store.json"))
+		if e != nil {
+			return nil, e
+		}
+		if e = platform.Atomic(filepath.Join(dir, "store.json.pre-mode-"+time.Now().UTC().Format("20060102T150405.000000000")), old); e != nil {
+			return nil, e
+		}
+		o.db.Mode = mode
+		o.db.Pending = map[string]pending{}
+		o.db.Codes = map[string]grant{}
+		o.db.Access = map[string]credential{}
+		o.db.Refresh = map[string]credential{}
+		o.db.Revoked = map[string]bool{}
 	}
+	// Incomplete authorization ceremonies never survive a process restart.
+	o.db.Pending = map[string]pending{}
+	o.db.Codes = map[string]grant{}
+
 	return o, o.save()
 }
 func loopback(h string) bool {
@@ -127,6 +168,10 @@ func oauthError(w http.ResponseWriter, status int, code string) {
 func (o *OAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.closed {
+		oauthError(w, 503, "temporarily_unavailable")
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Referrer-Policy", "no-referrer")
@@ -201,7 +246,7 @@ func (o *OAuth) register(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, s := range v.Redirects {
-		if len(s) > 2048 || !validRedirect(s) {
+		if len(s) > 2048 || !validRedirect(s) || !o.allowedRedirect(s) {
 			oauthError(w, 400, "invalid_redirect_uri")
 			return
 		}
@@ -212,7 +257,7 @@ func (o *OAuth) register(w http.ResponseWriter, r *http.Request) {
 		method = "none"
 	}
 	secret := ""
-	c := client{ID: id, Redirects: v.Redirects, Name: v.Name, Method: method}
+	c := client{ID: id, Redirects: v.Redirects, Name: v.Name, Method: method, Created: o.now().UTC()}
 	if method == "client_secret_basic" {
 		secret = Random()
 		c.SecretHash = Hash(secret)
@@ -246,7 +291,7 @@ func (o *OAuth) authorize(w http.ResponseWriter, r *http.Request) {
 	c, ok := o.db.Clients[q.Get("client_id")]
 	redirect := q.Get("redirect_uri")
 	challenge := q.Get("code_challenge")
-	if !ok || !slices.Contains(c.Redirects, redirect) {
+	if !ok || o.clientRevoked(c.ID) || !o.allowedRedirect(redirect) || !slices.Contains(c.Redirects, redirect) {
 		oauthError(w, 400, "invalid_request")
 		return
 	}
@@ -263,6 +308,11 @@ func (o *OAuth) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	o.prune()
+	if o.terminal {
+		csrf, cookie := Random(), Random()
+		o.beginTerminal(w, r, pending{Client: c.ID, Redirect: redirect, State: q.Get("state"), Challenge: challenge, Resource: q.Get("resource"), Scope: scope, CSRFHash: Hash(csrf), CookieHash: Hash(cookie)}, csrf, cookie)
+		return
+	}
 	if len(o.db.Pending) >= 32 {
 		oauthError(w, 429, "slow_down")
 		return
@@ -289,29 +339,44 @@ func (o *OAuth) consent(w http.ResponseWriter, r *http.Request) {
 	id := r.PostForm.Get("request_id")
 	p, ok := o.db.Pending[id]
 	cookie, e := r.Cookie(identity.Binary + "-consent-" + id)
-	if !ok || !o.now().Before(p.Expires) || e != nil || !Equal(Hash(cookie.Value), p.CookieHash) || !Equal(Hash(r.PostForm.Get("csrf")), p.CSRFHash) {
+	if !ok || !o.terminal && !o.now().Before(p.Expires) || e != nil || !Equal(Hash(cookie.Value), p.CookieHash) || !Equal(Hash(r.PostForm.Get("csrf")), p.CSRFHash) {
 		oauthError(w, 400, "invalid_request")
 		return
 	}
-	p.Attempts++
-	if p.Attempts > 5 {
-		delete(o.db.Pending, id)
-		_ = o.save()
-		oauthError(w, 400, "access_denied")
-		return
-	}
-	if !Equal(Hash(r.PostForm.Get("consent_code")), p.ConsentHash) {
-		o.db.Pending[id] = p
-		_ = o.save()
-		oauthError(w, 400, "access_denied")
-		return
+	if o.terminal {
+		if p.Status == "pending" && o.now().Before(p.Expires) && !o.clientRevoked(p.Client) {
+			o.terminalPage(w, id, r.PostForm.Get("csrf"), p)
+			return
+		}
+		if p.Status != "approved" || !o.now().Before(p.Expires) || o.clientRevoked(p.Client) {
+			delete(o.db.Pending, id)
+			delete(o.codes, id)
+			_ = o.save()
+			oauthError(w, 403, "access_denied")
+			return
+		}
+		delete(o.codes, id)
+	} else {
+		p.Attempts++
+		if p.Attempts > 5 {
+			delete(o.db.Pending, id)
+			_ = o.save()
+			oauthError(w, 400, "access_denied")
+			return
+		}
+		if !Equal(Hash(r.PostForm.Get("consent_code")), p.ConsentHash) {
+			o.db.Pending[id] = p
+			_ = o.save()
+			oauthError(w, 400, "access_denied")
+			return
+		}
 	}
 	delete(o.db.Pending, id)
 	u, _ := url.Parse(p.Redirect)
 	q := u.Query()
 	q.Set("state", p.State)
 	q.Set("iss", o.issuer)
-	if r.PostForm.Get("decision") != "approve" {
+	if !o.terminal && r.PostForm.Get("decision") != "approve" {
 		q.Set("error", "access_denied")
 	} else {
 		code := Random()
@@ -347,7 +412,7 @@ func (o *OAuth) token(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.PostForm
 	clientID, authenticated := o.authenticateClient(r)
-	if !authenticated {
+	if !authenticated || o.clientRevoked(clientID) {
 		oauthError(w, 401, "invalid_client")
 		return
 	}
@@ -361,11 +426,16 @@ func (o *OAuth) token(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		delete(o.db.Codes, key)
-		cr = credential{Client: clientID, Resource: g.Resource, Scope: g.Scope, Family: Random()}
+		cr = credential{Client: clientID, Resource: g.Resource, Scope: g.Scope, Family: Random(), SessionExpires: o.now().Add(refreshLifetime)}
+		c := o.db.Clients[clientID]
+		c.Scopes = []string{g.Scope}
+		c.Expires = cr.SessionExpires
+		c.LastActivity = o.now().UTC()
+		o.db.Clients[clientID] = c
 	case "refresh_token":
 		key := Hash(q.Get("refresh_token"))
 		g, ok := o.db.Refresh[key]
-		if !ok || g.Client != clientID || g.Resource != q.Get("resource") || !o.now().Before(g.Expires) || o.db.Revoked[g.Family] {
+		if !ok || g.Client != clientID || g.Resource != q.Get("resource") || !o.now().Before(g.Expires) || o.db.Revoked[g.Family] || !g.SessionExpires.IsZero() && !o.now().Before(g.SessionExpires) {
 			oauthError(w, 400, "invalid_grant")
 			return
 		}
@@ -382,6 +452,9 @@ func (o *OAuth) token(w http.ResponseWriter, r *http.Request) {
 		g.Used = true
 		o.db.Refresh[key] = g
 		cr = g
+		if cr.SessionExpires.IsZero() {
+			cr.SessionExpires = g.Expires
+		}
 		cr.Used = false
 	default:
 		oauthError(w, 400, "unsupported_grant_type")
@@ -393,9 +466,9 @@ func (o *OAuth) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	access, refresh := Random(), Random()
-	cr.Expires = o.now().Add(accessLifetime)
+	cr.Expires = minTime(o.now().Add(accessLifetime), cr.SessionExpires)
 	o.db.Access[Hash(access)] = cr
-	cr.Expires = o.now().Add(refreshLifetime)
+	cr.Expires = minTime(o.now().Add(refreshLifetime), cr.SessionExpires)
 	o.db.Refresh[Hash(refresh)] = cr
 	if e := o.save(); e != nil {
 		delete(o.db.Access, Hash(access))
@@ -406,10 +479,14 @@ func (o *OAuth) token(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"access_token": access, "token_type": "Bearer", "expires_in": int(accessLifetime.Seconds()), "refresh_token": refresh, "scope": cr.Scope})
 }
 func (o *OAuth) Validate(token string) (string, bool) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	g, ok := o.db.Access[Hash(token)]
-	return g.Client, ok && !o.db.Revoked[g.Family] && o.now().Before(g.Expires) && g.Resource == o.issuer+"/mcp" && g.Scope == o.scope
+	p, e := o.Authenticate(token)
+	return p.ID, e == nil
+}
+func minTime(a, b time.Time) time.Time {
+	if b.IsZero() || a.Before(b) {
+		return a
+	}
+	return b
 }
 func (o *OAuth) revoke(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -440,7 +517,7 @@ func (o *OAuth) revoke(w http.ResponseWriter, r *http.Request) {
 func (o *OAuth) prune() {
 	now := o.now()
 	for k, v := range o.db.Pending {
-		if !now.Before(v.Expires) {
+		if !now.Before(v.Expires.Add(time.Minute)) {
 			delete(o.db.Pending, k)
 		}
 	}

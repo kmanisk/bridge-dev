@@ -10,7 +10,7 @@ remain explicitly separate from local implementation.
 | M8 pinned Desktop Commander implementation research | Reviewed | Static source/license review | No | docs/DESKTOP_COMMANDER_COMPARISON.md |
 | M8 module, identity and reversible config migration | Yes | make check, fuzz, four builds passed | No | internal/config, internal/identity |
 | M9 wizard, connect, verified startup, clipboard, instructions | Yes | Scripted wizard/reuse/reconfigure/precedence, fake tunnel public metadata, clipboard, full regression | No | internal/connect/connect_test.go; test-output/m9-* |
-| M10 serialized prompts, OAuth terminal consent, sessions/revocation | No | No | No | Planned |
+| M10 serialized prompts, OAuth terminal consent, sessions/revocation | Yes | Approve/deny/timeout/rate, redirect/queue/revoke/origin tests; full regression | No | internal/auth/terminal_test.go; test-output/m10-* |
 | M11 approval queues, polling, durable request deduplication | No | No | No | Planned |
 | M12 effective privileges, sudo, dangerous, grants, detach | No | No | No | Planned |
 | M13 local-client install/print/uninstall | No | No | No | Planned |
@@ -23,3 +23,7 @@ remain explicitly separate from local implementation.
 No Bridge telemetry/accounts/relay infrastructure, usage quota, permanent service,
 remote, push or publication may be introduced at any milestone. Automated tests
 use fake sudo/tunnel/client binaries and temporary isolated directories only.
+
+CIMD is optional under the current specification and is not implemented. Dynamic
+registration remains required and tested; do not claim published-identity client
+registration works. Explicit client registration metadata is self-reported.

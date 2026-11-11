@@ -11,6 +11,7 @@ import (
 	"github.com/kmanisk/bridge-dev/internal/events"
 	"github.com/kmanisk/bridge-dev/internal/mcpserver"
 	"github.com/kmanisk/bridge-dev/internal/platform"
+	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"github.com/kmanisk/bridge-dev/internal/tunnel"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"io"
@@ -112,12 +113,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	id := ""
+	var principal auth.Principal
 	valid := false
 	if r.URL.Path == "/_shutdown" || oauth == nil {
 		valid = strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") && auth.Equal(bearer, h.Token)
 		id = "local-bearer"
 	} else if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
-		id, valid = oauth.Validate(bearer)
+		var e error
+		principal, e = oauth.Authenticate(bearer)
+		id = principal.ID
+		valid = e == nil
 	}
 	if !valid {
 		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s/.well-known/oauth-protected-resource"`, h.BaseURL())+fmt.Sprintf(`, scope="mcp:%s"`, h.App.Config.Mode))
@@ -142,9 +147,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "origin verification pending", http.StatusServiceUnavailable)
 		return
 	}
+	if principal.ID == "" {
+		principal = auth.Principal{ID: id, Session: "local-bearer", Scope: "mcp:" + string(h.App.Config.Mode), Origin: h.BaseURL(), Authenticated: true, Check: func() error { return nil }}
+	}
 	h.Active.Add(1)
 	defer func() { h.Last.Store(time.Now().UnixNano()); h.Active.Add(-1) }()
-	h.MCP().ServeHTTP(w, r.WithContext(auth.WithClient(r.Context(), id)))
+	h.MCP().ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), principal)))
 }
 func (h *Handler) snapshot() binding {
 	if b := h.binding.Load(); b != nil {
@@ -182,6 +190,7 @@ func (h *Handler) Idle(ctx context.Context, d time.Duration) {
 }
 
 type Options struct {
+	Prompts        *prompt.Coordinator
 	Out            io.Writer
 	Connect        bool
 	ClientFactory  func(local string) *http.Client
@@ -278,6 +287,16 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 		if e != nil {
 			return e
 		}
+		if c.Auth == "oauth" {
+			o.ConfigureTerminal(ctx, opt.Prompts, c.RedirectHosts)
+		} else {
+			o.ConfigureCode(c.RedirectHosts)
+		}
+		o.OnConsent = func(client, status string) error {
+			a.Events.Emit("OAuth consent " + status + " for " + client)
+			return a.Audit.Write(audit.Record{Client: client, Operation: "oauth_consent", Mode: string(c.Mode), Phase: status, Allowed: status == "approved"})
+		}
+		defer o.Close()
 		if opt.ConfigureOAuth != nil {
 			opt.ConfigureOAuth(o)
 		}

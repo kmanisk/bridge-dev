@@ -1,5 +1,14 @@
 # Phase 2 verification progress
 
+M10: make check, fuzz and four release builds PASS (test-output/m10-*).
+New scripted terminal tests exercise approval/denial/timeouts, independent queued
+consents, rate limits, headless refusal, redirect-host and exact-URI checks,
+client revocation, resource/session identity, origin invalidation and mode-change
+credential invalidation. Existing built OAuth integration explicitly selects the
+retained --auth code compatibility flow. Real web-account compatibility is not
+implied by these local checks.
+
+
 M9: full make check, fuzz and four release builds PASS (test-output/m9-*).
 New tests cover scripted wizard reuse/reconfigure/override, missing-provider
 doctor guidance, clipboard fallback/stdin, prompt serialization/timeout and

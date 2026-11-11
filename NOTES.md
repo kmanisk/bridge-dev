@@ -127,3 +127,27 @@ Tests use scripted answers, fake clipboard/cloudflared and a loopback-only proxy
 that verifies public advertised metadata never contains 127.0.0.1/localhost.
 make check, fuzz (1,090,142 cases) and all four release builds passed. No public
 tunnel or real clipboard/client change was made during tests.
+
+## M10 - verified terminal consent and application sessions
+
+Default runtime OAuth now requires terminal confirmation through the shared
+coordinator. Browser pages show a cryptographically generated six-digit match
+code and poll without granting approval themselves. One active consent prompt,
+independent queued requests, 60-second expiry, repeated-request rate limits,
+CSRF/cookie protection and exact redirect URI plus configurable host checks are
+implemented. --auth code preserves the original pairing flow; its integration
+fixture explicitly selects that mode and a temporary loopback redirect host.
+
+Added private persistent client metadata, fixed application-session expiry,
+refresh rotation and CLI clients list/revoke/revoke-all. Revocation markers are
+independent atomic files so the running server observes CLI revocation on every
+authorization use without overwriting concurrent token state. Principals include
+resource/scope/session/expiry and a revalidation callback. Origin invalidation
+revokes cached principals and credentials; mode changes preserve registrations,
+back up state and clear stale credentials instead of promoting old tokens.
+
+M10 make check, path fuzz and four release builds passed. Scripted tests cover
+consent approval/denial/timeout/rate-limit, queued HTTP responses, serialization,
+headless refusal, redirects, client revocation, session identity, mode/origin
+invalidation and retained legacy PKCE/refresh/revocation. No real web account,
+TTY password or public tunnel was involved. CIMD is optional and deferred.

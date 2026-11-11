@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kmanisk/bridge-dev/internal/auth"
 	"github.com/kmanisk/bridge-dev/internal/config"
 	"github.com/kmanisk/bridge-dev/internal/connect"
 	"github.com/kmanisk/bridge-dev/internal/fsjail"
@@ -65,6 +66,19 @@ func run(args []string) error {
 		}
 		args = args[1:]
 	}
+	if cmd == "clients" {
+		if len(args) > 0 {
+			action = args[0]
+			args = args[1:]
+		}
+		if action == "revoke" {
+			if len(args) == 0 {
+				return errors.New("clients revoke requires ID")
+			}
+			id = args[0]
+			args = args[1:]
+		}
+	}
 	if cmd == "tasks" {
 		if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 			action = args[0]
@@ -111,7 +125,25 @@ func run(args []string) error {
 		fmt.Print(text)
 		return nil
 	case "up":
-		return transport.Run(ctx, c)
+		tty := prompt.Open()
+		defer tty.Close()
+		return transport.RunWithOptions(ctx, c, transport.Options{Prompts: prompt.New(tty)})
+	case "clients":
+		switch action {
+		case "list":
+			v, e := auth.ListClients(c.StateDir)
+			if e != nil {
+				return e
+			}
+			return printJSON(v)
+		case "revoke", "revoke-all":
+			if e := auth.RevokeClients(c.StateDir, id, action == "revoke-all"); e != nil {
+				return e
+			}
+			return printJSON(map[string]any{"revoked": true})
+		default:
+			return errors.New("usage: clients list|revoke ID|revoke-all")
+		}
 	case "down":
 		return transport.Down(ctx, c)
 	case "status":

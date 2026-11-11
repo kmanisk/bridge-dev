@@ -288,3 +288,23 @@ Cloudflare is an optional third-party hosted relay; Bridge operates no relay,
 account infrastructure or telemetry. Provider/account compatibility remains
 unverified until separately tested. Subsequent Phase 2 features are tracked in
 REQUIREMENTS.md rather than implied complete by this startup command.
+
+### Phase 2 terminal OAuth and clients
+
+The default consent flow shows a six-digit code in the browser and matching
+client/redirect/scope details in your terminal. Only typing y in that terminal
+authorizes the request. Requests expire after 60 seconds; terminal prompts are
+serialized, and unrelated clients can queue without holding HTTP requests open.
+A headless default-consent server refuses new authorization requests. The old
+pairing-code flow is explicitly available with --auth code. Callback hosts are
+configurable with redirect_hosts / --redirect-hosts; exact registered URI
+matching is always required. With current Claude setup choose automatic client
+registration, since CIMD/published identities are not implemented.
+
+`bridge-dev clients list`, `clients revoke ID`, and `clients revoke-all` inspect
+and revoke private authorization state without printing tokens. Stateless HTTP
+socket closure does not revoke an application authorization session. Sessions
+have fixed expiry, access tokens expire, and refresh tokens rotate. Mode or
+canonical-origin changes invalidate incompatible credentials, not running tasks.
+OAuth establishes Bridge authorization; it does not make Cloudflare or an AI
+vendor trustworthy, nor prove that the vendor supports write tools.

@@ -123,10 +123,11 @@ func load(args []string, getenv func(string) string, c Config, allowMissing bool
 	allow := strings.Join(c.Allow, ",")
 	deny := strings.Join(c.Deny, ",")
 	sudo := strings.Join(c.SudoAllow, ",")
+	redirectHosts := strings.Join(c.RedirectHosts, ",")
 	for _, e := range []struct {
 		k string
 		p *string
-	}{{"MODE", &mode}, {"ROOTS", &roots}, {"ALLOW_COMMANDS", &allow}, {"DENY_COMMANDS", &deny}, {"SUDO_COMMANDS", &sudo}, {"IDLE_TIMEOUT", &c.Idle}, {"TUNNEL", &c.Tunnel}, {"STATE_DIR", &c.StateDir}, {"ISSUER", &c.Issuer}, {"TASK_BACKEND", &c.Backend}, {"APPROVE", &c.Approve}, {"AUTH", &c.Auth}, {"SUDO_FOR", &c.SudoFor}, {"PUBLIC_ORIGIN", &c.PublicOrigin}, {"EXEC_TIMEOUT", &c.ExecTimeout}} {
+	}{{"REDIRECT_HOSTS", &redirectHosts}, {"MODE", &mode}, {"ROOTS", &roots}, {"ALLOW_COMMANDS", &allow}, {"DENY_COMMANDS", &deny}, {"SUDO_COMMANDS", &sudo}, {"IDLE_TIMEOUT", &c.Idle}, {"TUNNEL", &c.Tunnel}, {"STATE_DIR", &c.StateDir}, {"ISSUER", &c.Issuer}, {"TASK_BACKEND", &c.Backend}, {"APPROVE", &c.Approve}, {"AUTH", &c.Auth}, {"SUDO_FOR", &c.SudoFor}, {"PUBLIC_ORIGIN", &c.PublicOrigin}, {"EXEC_TIMEOUT", &c.ExecTimeout}} {
 		if v := getenv(identity.EnvPrefix + e.k); v != "" {
 			*e.p = v
 		}
@@ -153,6 +154,7 @@ func load(args []string, getenv func(string) string, c Config, allowMissing bool
 			}
 		}
 	}
+	fs.StringVar(&redirectHosts, "redirect-hosts", redirectHosts, "exact OAuth callback hosts")
 	fs.StringVar(&c.Approve, "approve", c.Approve, "none, sudo, write, all")
 	fs.StringVar(&c.Auth, "auth", c.Auth, "oauth or code consent")
 	fs.StringVar(&c.SudoFor, "sudo-for", c.SudoFor, "temporary privilege duration")
@@ -201,6 +203,7 @@ func load(args []string, getenv func(string) string, c Config, allowMissing bool
 	c.Allow = split(allow)
 	c.Deny = split(deny)
 	c.SudoAllow = split(sudo)
+	c.RedirectHosts = split(redirectHosts)
 	for i, p := range c.Roots {
 		v, e := filepath.Abs(p)
 		if e != nil {

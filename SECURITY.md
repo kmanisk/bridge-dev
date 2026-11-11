@@ -78,3 +78,21 @@ interpret it as success or retry destructive argv blindly. Initial task launch
 is not a transaction with systemd; a `starting` record older than ten seconds
 without a running record is reported lost. Completed tasks do not auto-prune;
 log bytes are bounded per task but total retained task storage is user-managed.
+
+## Phase 2 M10 changes
+
+Default runtime consent is terminal-only with a six-digit browser match code;
+the browser cannot approve itself. Pairing-code consent remains an explicit
+compatibility option. Client/session revocation is rechecked per authorization
+use, including previously captured principals. Old-scope credentials invalidate
+on configured mode change, with private recoverable state backups. A public
+origin's credentials are not transferred to another origin. Client names are
+self-reported labels, never cryptographic provider identities.
+
+Bridge has no operated accounts, hosted infrastructure, telemetry or relay.
+Cloudflare Tunnel is an optional third-party hosted transport. Cloudflare and
+AI vendors are separate trust boundaries and can observe traffic passing through
+their services. OAuth does not make either provider trustworthy. Prompt injection
+remains a serious risk when reads of untrusted content precede writes/execution.
+Earlier Phase 1 statements above are historical where superseded explicitly by
+docs/SUPERSEDED_RESTRICTIONS.md; remote privilege is still awaiting M12 here.

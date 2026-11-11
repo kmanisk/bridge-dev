@@ -41,6 +41,7 @@ type Input struct {
 	Ack      string   `json:"ack,omitempty" jsonschema:"Acknowledge a previously returned task completion cursor"`
 }
 type App struct {
+	Remote bool
 	Events *events.Hub
 	Config config.Config
 	Jail   *fsjail.Jail
@@ -87,7 +88,7 @@ func New(c config.Config, remote bool) (*App, error) {
 		return nil, e
 	}
 	s := mcp.NewServer(&mcp.Implementation{Name: identity.Name, Version: identity.Version}, nil)
-	a := &App{Config: c, Jail: j, Tasks: tm, Audit: al, Server: s, Events: events.New(string(c.Mode), nil)}
+	a := &App{Config: c, Jail: j, Tasks: tm, Audit: al, Server: s, Events: events.New(string(c.Mode), nil), Remote: remote}
 	s.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			result, e := next(ctx, method, req)
@@ -141,7 +142,17 @@ func (a *App) add(name, desc string, read bool) {
 		if e := a.Audit.Write(record); e != nil {
 			return nil, nil, errors.New("audit unavailable; operation refused")
 		}
-		data, e := a.call(ctx, name, in)
+		principal := auth.Identity(ctx)
+		var data any
+		var e error
+		if a.Remote && !principal.Authenticated {
+			e = auth.ErrUnauthorized
+		} else if principal.Check != nil {
+			e = principal.Check()
+		}
+		if e == nil {
+			data, e = a.call(ctx, name, in)
+		}
 		record.Phase = "result"
 		record.DurationMS = time.Since(start).Milliseconds()
 		record.Allowed = e == nil
