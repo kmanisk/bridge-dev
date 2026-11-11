@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kmanisk/bridge-dev/internal/auth"
+	"github.com/kmanisk/bridge-dev/internal/clientinstall"
 	"github.com/kmanisk/bridge-dev/internal/config"
 	"github.com/kmanisk/bridge-dev/internal/connect"
 	"github.com/kmanisk/bridge-dev/internal/fsjail"
@@ -77,6 +78,13 @@ func run(args []string) error {
 		}
 		args = args[1:]
 	}
+	if cmd == "install" || cmd == "uninstall" {
+		if len(args) == 0 {
+			return errors.New("install/uninstall requires a client")
+		}
+		action = args[0]
+		args = args[1:]
+	}
 	if cmd == "clients" {
 		if len(args) > 0 {
 			action = args[0]
@@ -117,6 +125,10 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	switch cmd {
+	case "install", "uninstall":
+		tty := prompt.Open()
+		defer tty.Close()
+		return clientinstall.Run(ctx, c, action, cmd == "uninstall", prompt.New(tty), os.Stdout)
 	case "sudoers":
 		u, e := user.Current()
 		if e != nil {

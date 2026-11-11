@@ -211,3 +211,19 @@ calls remain usable. Pairing-code mode is refused detached to avoid journal secr
 exposure. Tests cover phrases/manual ack, OAuth gating, timed/queued expiry,
 registry changes, cold sudo contexts, system-unit argv, detached launch and rule
 snapshot validation using temporary fake executables only.
+
+## M13 - safe local client registration
+
+Added install/uninstall codex and claude-code using documented native user-scope
+commands, absolute Bridge paths, explicit roots/mode and private policy snapshots.
+A terminal confirmation precedes configuration mutation. Ownership receipts bind
+the complete installed entry; changed or unrelated registrations are never removed.
+Print-only previews do not write snapshots, receipts or client files. Desktop
+prints a mergeable documented JSON snippet rather than guessing Linux GUI paths;
+its manual entries require manual removal. Existing stdio and the four-tool web
+probe remain intact. docs/LOCAL_CLIENTS.md records source/API verification.
+
+Tests use temporary fake Codex/Claude executables and configuration files, cover
+denial/yes/idempotency/modified-entry refusal/uninstall and clipboard-independent
+print behavior. Installed Codex 0.167.1 was also exercised with isolated temporary
+CODEX_HOME for actual add/get/remove. No real workstation client config changed.
