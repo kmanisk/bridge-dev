@@ -33,5 +33,20 @@ Dangerous remote access can compromise the machine. There is no Bridge-operated
 telemetry, account or hosted relay and no monthly/tool-call billing quota. There
 are technical abuse/resource bounds. Aggregate task and deduplication metadata
 storage still requires operator care; deleting tombstones weakens retry safety.
-Native macOS, real web accounts, real Cloudflare and real sudo contexts are manual
-gates. Local passing tests do not prove Internet-facing security or provider access.
+Native macOS, full real web-account handshakes, named Cloudflare tunnels and real
+sudo contexts remain manual gates. Public readonly Quick Tunnel reachability was
+verified separately during the final sprint. Local passing tests do not prove Internet-facing security or provider access.
+
+## Browser-origin distinction
+
+Host identifies the validated Bridge endpoint; Origin describes a browser request
+initiator; redirect_uri identifies the exact registered client callback; issuer and
+resource bind authorization to the canonical verified public origin. They are not
+interchangeable. A safe top-level GET /authorize does not require Origin, while
+consent POST retains Origin checks plus cookie/CSRF and terminal approval. A
+no-referrer consent document can force Origin:null on a browser form POST; use
+same-origin referrer policy instead of accepting null. Explicit denial/expiry
+returns access_denied with state/iss only after callback and CSRF validation.
+A failed or uncompleted real browser handshake remains an interoperability gate,
+not evidence of access. The local dashboard remains unimplemented and exposes no
+additional endpoint.

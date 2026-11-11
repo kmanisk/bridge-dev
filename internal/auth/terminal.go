@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-var terminalTemplate = template.Must(template.New("terminal").Parse(`<!doctype html><html><head><title>{{.Name}} authorization</title></head><body><h1>Confirm in the local Bridge terminal</h1><p>Client: {{.Client}}</p><p>Verification code: <strong>{{.Code}}</strong></p><p>Status: {{.Status}}</p><p>Only the computer owner can approve this request in the terminal. This page cannot grant access.</p><form method="POST" action="/authorize"><input type="hidden" name="request_id" value="{{.ID}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button>Check authorization</button></form><script nonce="{{.Nonce}}">setTimeout(function(){document.forms[0].submit()},1500)</script></body></html>`))
+var terminalTemplate = template.Must(template.New("terminal").Parse(`<!doctype html><html><head><title>{{.Name}} authorization</title></head><body><h1>Confirm in the local Bridge terminal</h1><p>Client: {{.Client}}</p><p>Verification code: <strong>{{.Code}}</strong></p><p>Status: {{.Status}}</p><p>Approve within 60 seconds in the terminal. Expires: {{.Expires}}. If it expires, reconnect from your AI app; refreshing this page cannot extend authorization.</p><p>Only the computer owner can approve this request in the terminal. This page cannot grant access.</p><form method="POST" action="/authorize"><input type="hidden" name="request_id" value="{{.ID}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button>Check authorization</button></form><script nonce="{{.Nonce}}">setTimeout(function(){document.forms[0].submit()},1500)</script></body></html>`))
 
 type rateWindow struct {
 	start time.Time
@@ -66,7 +66,7 @@ func (o *OAuth) terminalPage(w http.ResponseWriter, id, csrf string, p pending) 
 	// referrers to external callbacks. Never relax the POST origin guard.
 	w.Header().Set("Referrer-Policy", "same-origin")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = terminalTemplate.Execute(w, struct{ Name, Client, Code, Status, ID, CSRF, Nonce string }{identity.Name, o.db.Clients[p.Client].Name, o.codes[id], p.Status, id, csrf, nonce})
+	_ = terminalTemplate.Execute(w, struct{ Name, Client, Code, Status, ID, CSRF, Nonce, Expires string }{identity.Name, o.db.Clients[p.Client].Name, o.codes[id], p.Status, id, csrf, nonce, p.Expires.UTC().Format(time.RFC3339)})
 }
 func (o *OAuth) beginTerminal(w http.ResponseWriter, r *http.Request, p pending, csrf, cookie string) {
 	if o.prompt == nil || !o.prompt.Available() {
@@ -111,7 +111,7 @@ func (o *OAuth) beginTerminal(w http.ResponseWriter, r *http.Request, p pending,
 		oauthError(w, 500, "server_error")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: identity.Binary + "-consent-" + id, Value: cookie, Path: "/authorize", HttpOnly: true, Secure: strings.HasPrefix(o.issuer, "https:"), SameSite: http.SameSiteStrictMode, MaxAge: 60})
+	http.SetCookie(w, &http.Cookie{Name: identity.Binary + "-consent-" + id, Value: cookie, Path: "/authorize", HttpOnly: true, Secure: strings.HasPrefix(o.issuer, "https:"), SameSite: http.SameSiteStrictMode, MaxAge: 120})
 	o.terminalPage(w, id, csrf, p)
 	o.workers.Add(1)
 	go func() {

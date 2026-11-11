@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kmanisk/bridge-dev/internal/config"
+	"github.com/kmanisk/bridge-dev/internal/platform"
 	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"github.com/kmanisk/bridge-dev/internal/tasks"
 	"github.com/kmanisk/bridge-dev/internal/transport"
@@ -430,5 +431,48 @@ exec /bin/sleep 30
 	lines := strings.Split(strings.TrimSpace(string(pidsData)), "\n")
 	if len(lines) != 1 {
 		t.Fatalf("expected exactly 1 tunnel child launched, got %d: %v", len(lines), lines)
+	}
+}
+
+func TestWizardRetriesOnlyInvalidField(t *testing.T) {
+	dir := private(t)
+	root := t.TempDir()
+	cfg := filepath.Join(dir, "config.toml")
+	p := &answers{values: []string{root + "/missing", root, "yes", "readonly", "maybe", "write", "forever", "2m", "bad", "none"}}
+	var out bytes.Buffer
+	c, e := Prepare(context.Background(), []string{"--config", cfg, "--tunnel", "none"}, func(string) string { return "" }, prompt.New(p), &out)
+	if e != nil || p.asked != 10 || c.Roots[0] != root || c.Mode != "readonly" || c.Idle != "2m" || c.Approve != "write" {
+		t.Fatal(c, e, out.String())
+	}
+	for _, message := range []string{"invalid roots", "invalid mode", "invalid approval", "invalid idle", "invalid tunnel"} {
+		if !strings.Contains(out.String(), message) {
+			t.Fatal("missing field guidance", message)
+		}
+	}
+}
+
+func TestConnectPreservesExistingPartialInstance(t *testing.T) {
+	dir := private(t)
+	c := config.Defaults()
+	c.ConfigFile = filepath.Join(dir, "config.toml")
+	c.StateDir = filepath.Join(dir, "state")
+	c.Roots = []string{t.TempDir()}
+	c.Tunnel = "none"
+	if e := config.Save(c); e != nil {
+		t.Fatal(e)
+	}
+	if e := platform.PrivateDir(c.StateDir); e != nil {
+		t.Fatal(e)
+	}
+	unlock, e := platform.TryLock(filepath.Join(c.StateDir, "http.lock"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer unlock()
+	p := &answers{}
+	var out bytes.Buffer
+	e = Run(context.Background(), []string{"--config", c.ConfigFile, "--reconfigure"}, func(string) string { return "" }, prompt.New(p), &out, transport.Options{})
+	if e == nil || p.asked != 0 || !strings.Contains(e.Error(), "existing session preserved") || !strings.Contains(out.String(), "partial") {
+		t.Fatal(e, p.asked, out.String())
 	}
 }

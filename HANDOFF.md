@@ -1,39 +1,43 @@
-# Phase 2 handoff
+# Final integration handoff
 
-M8-M15 local implementation and regression are complete. Read REQUIREMENTS.md,
-TEST_REPORT.md and NOTES.md for evidence, exact remaining human gates and intentional
-replacements of Phase 1 restrictions. This is a continuation, not a rewrite.
+Continue in /home/onyx/Projects/bridge-dev. M8-M15 are retained. Final sprint A
+commit 54ae0e2 fixes consent browser Origins; Sprint C adds wizard/prompt/idle
+reliability. Read TEST_REPORT.md and REQUIREMENTS.md for current evidence rather
+than treating historical M15 tables as the latest state.
 
-Binary: /home/onyx/Projects/bridge-dev/bin/bridge-dev. Start with bridge-dev connect;
-stop with bridge-dev down. First run asks preferences; later runs reuse private
-TOML. No live configuration or permanent service was installed during automation.
-Local verified milestone commits are authorized; no remote/push/publication.
+User now authorizes local verified commits and creation/push only to PRIVATE
+kmanisk/bridge-dev, plus one controlled readonly public Quick Tunnel. Never change
+visibility to public, push unrelated repositories, enable a permanent service, run
+real sudo/dangerous tests or alter unrelated workstation/client configuration.
+The project module/name remain github.com/kmanisk/bridge-dev and bridge-dev.
 
-Final make check/fuzz/cross/build/coverage passed. Unit coverage 64.7%, actual
-instrumented subprocess coverage 43.6%. Final fuzz run: 979,426 executions. Go MCP
-SDK v1.8.0; module github.com/kmanisk/bridge-dev; temporary name remains unchanged.
-The built artifact predates the final milestone commit and records its parent
-plus modified=true in VCS metadata; its tested source is the final M15 code.
+Binary: /home/onyx/Projects/bridge-dev/bin/bridge-dev. Start bridge-dev connect;
+stop bridge-dev down. A dedicated bridge-connect tmux session may already own the
+readonly server. Inspect status/process identity before replacing it. Keep existing
+stdio clients and background tasks intact. Saved TOML/preferences and prior OAuth
+registrations were preserved; private origin/config backups are in XDG state.
 
-Tests use temporary state, fake sudo/cloudflared/client executables, and loopback
-HTTP proxies. Never run real sudo or public relays in automated tests, alter the
-user's MCP configs, kill unrelated processes or delete active task state. No
-Bridge process/loaded user unit remained after validation. Native client/account,
-Cloudflare, macOS/ARM64, actual sudo cache and deliberate dangerous-mode checks are
-still manual. Do not call them verified because local OAuth/SDK tests pass.
+The old no-referrer consent document made browser form POST Origin:null. Retain
+same-origin document policy and strict unsafe-Origin checks, safe GET navigation,
+canonical Host, exact DCR redirects, PKCE, CSRF/cookie, state/iss and terminal human
+consent. Denied/expired validated requests redirect access_denied with state/iss.
+Never approve real OAuth on behalf of the user. Discovery self-probes must not
+extend idle lifetime. Terminal event presentation is bounded while prompts run;
+durable auditing continues. The optional dashboard is unimplemented/deferred.
 
-Desktop Commander was reviewed at 9d5afdf5da6bdee4d4c52caf9a78128235a1b0d4 using
-actual source/tests and MIT license. See docs/DESKTOP_COMMANDER_COMPARISON.md. No
-Node/npm dependency or copied code was added. Ignored .research, .tools, bin,
-coverage and test-output are local artifacts; do not commit credentials or build
-outputs. Current source includes canonical origin recovery, terminal OAuth,
-client revocation, exact-operation approvals, durable at-most-once dispatch with
-unknown crash outcomes, timed privileges, sudo context safeguards, safe client
-registration, status/watch/down recovery and paginated file operations. Keep the
-jail, audit, per-call authorization and independent durable workers intact.
+Current public hostname is ephemeral: obtain it from bridge-dev status, not old
+reports. ChatGPT custom connector creation/OAuth initiation was observed by the
+user, but final callback/read is pending human reconnect/approval. Real Claude web
+is untested. Actual active local Codex MCP reads passed with a harmless new fixture;
+actual built SDK subprocess tests cover stdio/HTTP/OAuth/tasks. Native macOS/ARM64,
+provider write support, named tunnels and actual sudo contexts remain manual.
 
-Final integration sprint is active: current user now authorizes PRIVATE
-kmanisk/bridge-dev creation/push and one controlled readonly public tunnel. Earlier
-no-push/no-public-exposure instructions are superseded only in that scope. Preserve
-current user jobs, configuration and OAuth records. Never approve real consent on
-the user's behalf. Sprint evidence follows TEST_REPORT.md/NOTES.md.
+Tests use temporary roots/XDG, PATH fake sudo/cloudflared/client binaries and
+loopback proxies. No public tunnel or actual privilege operation belongs in the
+automated suite. Keep unknown crash outcomes unknown; do not rerun dispatched
+operations under a new key. See pinned Desktop Commander comparison for adopted
+pagination/search/install/event lessons; no Node dependency/source was imported.
+
+Final gate and private GitHub publication results follow TEST_REPORT.md. Audit the
+actual gh remote visibility/HEAD before claiming a push passed. Ignored build,
+coverage and test-output artifacts remain local; no secrets belong in commits.

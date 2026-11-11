@@ -2,7 +2,9 @@ package connect
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/kmanisk/bridge-dev/internal/config"
 	"github.com/kmanisk/bridge-dev/internal/events"
 	"github.com/kmanisk/bridge-dev/internal/privilege"
 	"github.com/kmanisk/bridge-dev/internal/prompt"
@@ -11,7 +13,15 @@ import (
 )
 
 func Run(ctx context.Context, args []string, getenv func(string) string, p *prompt.Coordinator, out io.Writer, opt transport.Options) error {
-	out = &events.Writer{Out: out}
+	out = p.Output(&events.Writer{Out: out})
+	preliminary, e := config.LoadConnect(args, getenv)
+	if e != nil {
+		return e
+	}
+	if running, e := transport.Status(preliminary); e == nil && running.State != "stopped" {
+		fmt.Fprintf(out, "Existing Bridge instance: %s, mode=%s, URL=%s. Use status; use down only if you intend to replace it.\n", running.State, running.Mode, running.PublicURL)
+		return errors.New("an instance already owns this state directory; existing session preserved")
+	}
 	c, e := Prepare(ctx, args, getenv, p, out)
 	if e != nil {
 		return e

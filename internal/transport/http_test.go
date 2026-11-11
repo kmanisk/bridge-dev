@@ -3,9 +3,11 @@ package transport
 import (
 	"context"
 	"fmt"
+	"github.com/kmanisk/bridge-dev/internal/auth"
 	"github.com/kmanisk/bridge-dev/internal/config"
 	"github.com/kmanisk/bridge-dev/internal/mcpserver"
 	"github.com/kmanisk/bridge-dev/internal/policy"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -251,5 +253,33 @@ func TestTrustedPublicHost(t *testing.T) {
 	authHeader := resp.Header.Get("WWW-Authenticate")
 	if !strings.Contains(authHeader, origin+"/.well-known/oauth-protected-resource") {
 		t.Fatalf("expected public origin in WWW-Authenticate header, got: %s", authHeader)
+	}
+}
+
+func TestDiscoveryDoesNotExtendIdleLifetime(t *testing.T) {
+	h, s := handlerTest(t)
+	state := t.TempDir()
+	os.Chmod(state, 0700)
+	o, e := auth.NewOAuth(state, "http://"+h.Host, "readonly", io.Discard)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer o.Close()
+	h.Bind("http://"+h.Host, o, true)
+	before := h.Last.Load()
+	for _, path := range []string{"/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource/mcp"} {
+		req, _ := http.NewRequest("GET", s.URL+path, nil)
+		req.Host = h.Host
+		resp, e := http.DefaultClient.Do(req)
+		if e != nil {
+			t.Fatal(e)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatal(resp.StatusCode)
+		}
+	}
+	if h.Last.Load() != before {
+		t.Fatal("self verification kept server alive")
 	}
 }

@@ -368,7 +368,7 @@ func (o *OAuth) consent(w http.ResponseWriter, r *http.Request) {
 			delete(o.db.Pending, id)
 			delete(o.codes, id)
 			_ = o.save()
-			oauthError(w, 403, "access_denied")
+			o.authorizationResponse(w, r, p, false)
 			return
 		}
 		delete(o.codes, id)
@@ -388,24 +388,34 @@ func (o *OAuth) consent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	delete(o.db.Pending, id)
+	o.authorizationResponse(w, r, p, o.terminal || r.PostForm.Get("decision") == "approve")
+}
+
+// Only call after exact redirect registration and browser CSRF/cookie validation.
+// RFC 9207 issuer and the original state accompany successful and denied responses.
+func (o *OAuth) authorizationResponse(w http.ResponseWriter, r *http.Request, p pending, approved bool) {
 	u, _ := url.Parse(p.Redirect)
 	q := u.Query()
+	for _, key := range []string{"code", "error", "error_description", "error_uri", "state", "iss"} {
+		q.Del(key)
+	}
 	q.Set("state", p.State)
 	q.Set("iss", o.issuer)
-	if !o.terminal && r.PostForm.Get("decision") != "approve" {
+	if !approved {
 		q.Set("error", "access_denied")
 	} else {
 		code := Random()
 		o.db.Codes[Hash(code)] = grant{p.Client, p.Redirect, p.Challenge, p.Resource, p.Scope, o.now().Add(time.Minute)}
 		q.Set("code", code)
 	}
-	if e = o.save(); e != nil {
+	if e := o.save(); e != nil {
 		oauthError(w, 500, "server_error")
 		return
 	}
 	u.RawQuery = q.Encode()
 	http.Redirect(w, r, u.String(), http.StatusSeeOther)
 }
+
 func validVerifier(s string, minLen, maxLen int) bool {
 	if len(s) < minLen || len(s) > maxLen {
 		return false

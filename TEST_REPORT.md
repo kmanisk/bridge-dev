@@ -1,10 +1,15 @@
-# Phase 2 verification report
+# Verification report
 
 Verified 2026-11-11 on CachyOS Linux amd64, Go 1.27.3-X:nodwarf5, official MCP Go
 SDK v1.8.0. Phase 1 regression behavior is retained. This is local implementation
 and test evidence, not an independent security audit or proof of external AI access.
 
-| Gate on final code | Result | Evidence |
+## Historical M15 baseline
+
+The following M15 results and artifact fingerprints predate the final integration
+sprint. Current sprint gates/results are in the final section below.
+
+| Gate on M15 code | Result | Evidence |
 | --- | --- | --- |
 | go fmt ./... | Pass | test-output/m15-check.log |
 | go vet ./... | Pass | same log |
@@ -117,7 +122,7 @@ tests were added. Watch rotation and public up URL output have regression tests.
 
 ## Remaining limitations and manual gates
 
-No known failing automated check remains. No claim is made for real Claude Code,
+At M15, no failing automated check remained. No claim was made for real Claude Code,
 Claude Desktop/web, ChatGPT/Plus write access, actual public Cloudflare/named DNS,
 user sudo cache behavior or native macOS/ARM64 execution. Follow MANUAL_TEST.md and
 record actual account/workspace/version/date/results. OAuth success is not proof
@@ -153,7 +158,7 @@ was installed/changed by automation. No public tunnel, real sudo, Git remote,
 push, publication or deployment occurred. Generated builds/reports/research stay
 ignored; committed files contain source, tests and documentation only.
 
-## Final sprint A (current)
+## Final sprint A
 
 Baseline make check at 575f3a2 passed. OAuth guard-to-consent/PKCE/token/SDK tests
 pass with the real ChatGPT stable callback shape and temporary state. Browser
@@ -165,3 +170,73 @@ pending. Final sprint results and private GitHub state will be recorded below.
 Sprint A complete local gate: make check/race/staticcheck, 952,638 bounded fuzz
 executions and four cross-builds passed (test-output/sprint-a-*). Headless Brave
 could not load the isolated fixture here; real browser approval is still pending.
+
+## Final integration sprint (2026-11-11)
+
+Source baseline was 575f3a2 (with DNS/readiness fixes 7678c20 and 575f3a2).
+Sprint A commit 54ae0e2 corrected browser consent origin handling. GET without
+Origin was already accepted. The consent document's no-referrer policy causes
+navigation form POST Origin:null under Fetch; the guard correctly rejected null.
+Same-origin referrer policy fixes the form while retaining strict unsafe-Origin
+validation. This source/standard diagnosis matches the observed pending/expiry
+sequence; the real browser's request headers were not captured. The new regression
+covers canonical/invalid Host, exact observed ChatGPT DCR callback, redirects,
+CSRF, PKCE, state/iss, consent, token exchange, SDK initialize/tools/list and 401.
+
+Additional fixes: immediate per-field wizard retries; preserve existing/partial
+runtime; terminal events buffered during prompts with a 64 KiB presentation bound;
+clear consent expiry instructions and validated access_denied callbacks; discovery
+self-probes excluded from idle activity. No privilege checks were relaxed.
+
+| Feature | Implemented | Tested | Manual check | Evidence |
+| --- | --- | --- | --- | --- |
+| Browser OAuth navigation/form/PKCE/CSRF/token/MCP | Yes | Passing direct guard/SDK and built-binary tests | Real ChatGPT completion pending | transport/oauth_browser_test.go; auth/terminal_test.go; integration/oauth_test.go |
+| Wizard/reuse/typos/duplicate-start protection | Yes | Scripted, fake tunnel, partial-lock tests | Normal interactive review | connect tests |
+| Prompt serialization/event output | Yes | Scripted concurrency/timeout/bounded buffer | Real terminal consent pending | prompt tests; auth tests |
+| Strict privilege/audience/revoke/dedup/filesystem controls | Retained | Existing security/race/crash regressions | Real sudo/dangerous deliberately not run | approval, mcpserver, fsjail, execrun, tasks tests |
+| Local Codex MCP | Yes | Actual active fs_list/fs_read/search/fetch against new harmless fixture; isolated registration | GUI clients separate | local MCP tool results; clientinstall tests |
+| Built stdio/HTTP/OAuth and durable tasks | Yes | Actual built SDK clients; short task and crash/collection recovery | Native alternate OS remains pending | integration tests |
+| Real Cloudflare readonly transport | Yes | Public DNS/TLS/health, public AS/PR discovery and 401 challenge | Connector re-entry after rotated URL | Controlled manual runtime, separate from tests |
+| ChatGPT account | Connector creation/OAuth initiation observed by user | Callback/tools not yet proven | User reconnect, terminal y, read call | Preserved registered client; no authorized activity yet |
+| Claude web account | Protocol/DCR implemented | Automated protocol only | Real account authorization/read pending | No actual account access available |
+| Optional dashboard | No; deferred | No | Explicitly incomplete | No new listener/authentication surface |
+| Private GitHub | Authorized | Publication verification pending | No human login needed so far | Existing gh identity kmanisk |
+
+Final gate results are recorded after command completion below. Native macOS/ARM64,
+real Claude/ChatGPT write availability, named tunnels and user sudo contexts remain
+manual. No real sudo, dangerous user-data operation or public tunnel is part of
+make check/coverage/fuzz. The separately controlled public runtime is readonly and
+uses only a new temporary hello.txt root. Original saved config, registrations,
+existing stdio processes and tasks are preserved. No permanent service installed.
+
+Independent source review checked per-call scope/mode/grant revalidation,
+origin-bound tokens and refresh revocation, exact approval digests/session binding,
+durable dispatch/unknown outcomes, pinned Linux filesystem operations, literal argv,
+pre-side-effect audit persistence and local admin separation. These tests/source
+checks are not a formal security audit. Allowlisting is not an OS sandbox; prompt
+injection and external-provider observation remain material risks.
+
+Gitleaks full Git history and tracked worktree scans reported only the inert
+Bearer deliberately-invalid documentation example (two history findings, one
+current-source finding). Each exact literal was reviewed; zero actual credentials
+found. Historical filenames were reviewed for state/config/credential/binary paths;
+none found. Private machine configuration/data were not added. Build artifacts,
+private runtime/auth state, .env, logs and native tunnel credentials are ignored.
+The optional isolated headless browser attempt could not load its fixture; it was
+stopped and its uncommitted harness removed. It is not browser compatibility proof.
+
+### Final source gates
+
+| Gate | Result | Local evidence |
+| --- | --- | --- |
+| go fmt/vet/uncached tests/race/staticcheck; make check | Pass | test-output/sprint-final-check.log |
+| Actual built stdio/HTTP/OAuth/task subprocesses | Pass, normal and race instrumentation | integration suite in same log |
+| Bounded filesystem fuzz | Pass; 932,295 executions, 10 seconds, 2 workers | test-output/sprint-final-fuzz.log |
+| Four CGO_ENABLED=0 release cross-builds and host build | Pass | test-output/sprint-final-build.log |
+| Fish completions and all 22 manual Fish blocks | Syntax pass, no fixture commands executed | test-output/sprint-final-fish.log |
+| Unit / actual subprocess coverage | 65.6% / 40.1%, separate profiles | coverage/unit-functions.txt; subprocess-functions.txt |
+| Diff whitespace / secret review | Pass with reviewed inert negative-test literals | git diff --check; redacted sprint-*-secrets reports |
+
+The previous M15 artifact hashes/coverage above are historical, not fingerprints
+for these changed sources. Current artifacts are ignored under bin/. Native
+macOS/ARM64 execution and actual provider handshakes remain separate manual gates.

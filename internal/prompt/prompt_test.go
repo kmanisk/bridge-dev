@@ -1,7 +1,10 @@
 package prompt
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -58,5 +61,57 @@ func TestSerializationAndTimeout(t *testing.T) {
 	}
 	if Safe("a\x1b\nb") != "ab" {
 		t.Fatal("unsafe output")
+	}
+}
+
+type heldPrompt struct{ entered, release chan struct{} }
+
+func (p *heldPrompt) Available() bool { return true }
+func (p *heldPrompt) Ask(ctx context.Context, _ string) (string, error) {
+	close(p.entered)
+	select {
+	case <-p.release:
+		return "y", nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+func (p *heldPrompt) Run(ctx context.Context, _ []string) error { _, e := p.Ask(ctx, ""); return e }
+func TestEventsWaitForPromptAndStayBounded(t *testing.T) {
+	p := &heldPrompt{make(chan struct{}), make(chan struct{})}
+	c := New(p)
+	var out bytes.Buffer
+	w := c.Output(&out)
+	done := make(chan struct{})
+	go func() { defer close(done); _, _ = c.Ask(context.Background(), "Approve?") }()
+	<-p.entered
+	_, _ = io.WriteString(w, "task completed\n")
+	_, _ = io.WriteString(w, strings.Repeat("x", 64<<10))
+	if out.Len() != 0 {
+		t.Fatal("event interrupted prompt")
+	}
+	close(p.release)
+	<-done
+	if !strings.Contains(out.String(), "task completed") || !strings.Contains(out.String(), "buffer full") || out.Len() > 1024 {
+		t.Fatal("incorrect bounded flush")
+	}
+	_, _ = io.WriteString(w, "ready")
+	if !strings.HasSuffix(out.String(), "ready") {
+		t.Fatal("output remained blocked")
+	}
+}
+func TestCancelledPromptFlushesEvents(t *testing.T) {
+	p := &heldPrompt{make(chan struct{}), make(chan struct{})}
+	c := New(p)
+	var out bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); _, _ = c.Ask(ctx, "Approve?") }()
+	<-p.entered
+	_, _ = io.WriteString(c.Output(&out), "expired\n")
+	cancel()
+	<-done
+	if !strings.Contains(out.String(), "expired") {
+		t.Fatal("output lost after timeout")
 	}
 }

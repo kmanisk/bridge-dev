@@ -39,7 +39,14 @@ OAuth registrations, not verified Claude/ChatGPT provider identities. Stateless
 connection close does not revoke the application authorization session.
 
 Public issuer/resource URLs come from the configured/verified canonical HTTPS
-origin, never Host or forwarded headers. Exact Host/Origin checks wrap the SDK.
+origin, never Host or forwarded headers. Canonical Host checks wrap the SDK. GET /authorize allows ordinary browser
+navigation without an Origin and may carry the initiating app Origin. Unsafe
+requests reject foreign/null/malformed Origins; consent POST additionally requires
+the matching private cookie and CSRF value. Consent documents use same-origin
+referrer policy so form navigation does not turn Origin into null. State and iss
+return to the exact registered callback, including validated denial/expiry. No
+invalid redirect or CSRF failure is redirected. Discovery self-probes cannot extend
+idle lifetime. The optional dashboard is unimplemented; no management UI is exposed.
 Token headers are mandatory on MCP; health is minimal and exposes only mode.
 Local development bearer tokens contain 256 random bits, live in 0600 files and
 are never accepted in URL query/path tokens. HTTP has bounded bodies/concurrency,

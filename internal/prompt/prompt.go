@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -23,8 +25,13 @@ type Prompter interface {
 	Run(context.Context, []string) error
 }
 type Coordinator struct {
-	p    Prompter
-	slot chan struct{}
+	p        Prompter
+	slot     chan struct{}
+	mu       sync.Mutex
+	busy     bool
+	queued   []queuedOutput
+	buffered int
+	dropped  io.Writer
 }
 
 func New(p Prompter) *Coordinator      { return &Coordinator{p: p, slot: make(chan struct{}, 1)} }
@@ -35,6 +42,13 @@ func (c *Coordinator) enter(ctx context.Context) error {
 	}
 	select {
 	case c.slot <- struct{}{}:
+		if e := ctx.Err(); e != nil {
+			<-c.slot
+			return e
+		}
+		c.mu.Lock()
+		c.busy = true
+		c.mu.Unlock()
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -44,15 +58,67 @@ func (c *Coordinator) Ask(ctx context.Context, text string) (string, error) {
 	if e := c.enter(ctx); e != nil {
 		return "", e
 	}
-	defer func() { <-c.slot }()
+	defer c.leave()
 	return c.p.Ask(ctx, text)
 }
 func (c *Coordinator) Run(ctx context.Context, argv []string) error {
 	if e := c.enter(ctx); e != nil {
 		return e
 	}
-	defer func() { <-c.slot }()
+	defer c.leave()
 	return c.p.Run(ctx, argv)
+}
+
+// Output keeps live events off an active terminal prompt. Audits remain durable;
+// only terminal presentation is buffered, with a fixed 64 KiB bound.
+func (c *Coordinator) Output(w io.Writer) io.Writer {
+	if c == nil {
+		return w
+	}
+	return coordinatedOutput{c, w}
+}
+
+type queuedOutput struct {
+	w    io.Writer
+	data []byte
+}
+type coordinatedOutput struct {
+	c *Coordinator
+	w io.Writer
+}
+
+func (w coordinatedOutput) Write(b []byte) (int, error) {
+	c := w.c
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.busy {
+		return w.w.Write(b)
+	}
+	if len(b) <= (64<<10)-c.buffered {
+		c.queued = append(c.queued, queuedOutput{w.w, append([]byte(nil), b...)})
+		c.buffered += len(b)
+	} else {
+		c.dropped = w.w
+	}
+	return len(b), nil
+}
+func (c *Coordinator) leave() {
+	c.mu.Lock()
+	if len(c.queued) > 0 {
+		_, _ = io.WriteString(c.queued[0].w, "\n")
+	}
+	for _, v := range c.queued {
+		_, _ = v.w.Write(v.data)
+	}
+	if c.dropped != nil {
+		_, _ = io.WriteString(c.dropped, "\nTerminal event buffer full; use bridge-dev watch for durable audit entries.\n")
+	}
+	c.queued = nil
+	c.buffered = 0
+	c.dropped = nil
+	c.busy = false
+	c.mu.Unlock()
+	<-c.slot
 }
 func (c *Coordinator) Confirm(ctx context.Context, text string) bool {
 	a, e := c.Ask(ctx, text+" [y/N] ")
@@ -85,6 +151,11 @@ func (t *Terminal) Ask(ctx context.Context, text string) (string, error) {
 		return "", e
 	}
 	defer flushInput(int(t.f.Fd()))
+	defer func() {
+		if ctx.Err() != nil {
+			_, _ = fmt.Fprintln(t.f)
+		}
+	}()
 	var out strings.Builder
 	for {
 		if e := ctx.Err(); e != nil {

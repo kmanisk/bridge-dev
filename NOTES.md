@@ -435,3 +435,30 @@ and SDK rather than weakening the unsafe Origin rule.
 Sprint A gates passed: make check (normal/race/vet/staticcheck/Fish), bounded fuzz
 952,638 executions and all four CGO-free cross-builds. Real account completion is
 not inferred. The tested fix is ready for one inspected readonly-session restart.
+
+## Final sprint C: connection UX and hardening
+
+Implemented immediate wizard field validation/retry, explicit command-list clearing,
+dangerous-mode omission of the ordinary allowlist prompt, preservation of existing
+partial/active instances, prompt-safe bounded event output, and OAuth denied/expired
+callbacks carrying state/iss. Consent deadline is shown; the CSRF-only cookie can
+retrieve a failed outcome after authorization expiry and never extends that expiry.
+Found and fixed idle starvation: tunnel metadata self-probes previously updated
+last activity. Focused race tests pass; complete final gates recorded in TEST_REPORT.
+
+One controlled readonly public tunnel was restarted only after verifying Bridge
+ownership, preserving config and private OAuth backups. Public health/TLS passed;
+unauthenticated MCP remains 401. The user must reconnect and personally approve
+real ChatGPT OAuth; no browser-control surface is available. Active local Codex MCP
+fs_list/fs_read/search/fetch read a newly created harmless fixture successfully.
+No real Claude account result is claimed. Dashboard explicitly deferred; no stub
+or management listener is exposed. gitleaks finds only the deliberately-invalid
+Bearer example in current docs and its historical predecessor; reviewed as inert
+negative-test literals, not credentials. Source/history scans continue at release.
+
+Final source gates passed: make check (uncached normal/race, vet, staticcheck),
+four CGO-free cross-builds/host build, 932,295 bounded filesystem fuzz executions,
+22 Fish blocks/completions syntax, and actual subprocess coverage. Unit/subprocess
+profiles are 65.6%/40.1%; native terminal/browser/provider paths remain manual.
+All source changes reviewed; no credentials/runtime/build files staged. Next step
+is private repository publication and final readonly session refresh.

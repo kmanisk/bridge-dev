@@ -335,3 +335,43 @@ No public relay, actual sudo or permanent service is used by make check.
 
 Do not mark these complete based on compilation, an OAuth unit test or a
 self-reported client name. Bridge cannot independently wake a web AI conversation.
+
+## Final sprint browser OAuth regression (2026-11-11)
+
+Automated guard-to-OAuth tests use scripted consent and a local HTTPS-origin proxy;
+they do not approve the running public server. For an actual account test:
+
+```fish
+bridge-dev connect
+```
+
+Use the newly printed /mcp URL in the ChatGPT custom connector or Claude connector,
+select automatic/DCR registration and click Connect. Web app registration is manual.
+If Bridge is already running in the dedicated session, attach instead of starting
+a second instance:
+
+```fish
+tmux attach -t bridge-connect
+```
+
+Expected: GET /authorize with the canonical public Host reaches the six-digit
+consent page without requiring an Origin header. Its response has
+Referrer-Policy: same-origin. Compare browser/terminal code and client/redirect/scope;
+type y yourself within 60 seconds. Auto-polling POST /authorize keeps the same-origin
+Origin. The validated callback carries code, original state and iss; the client
+exchanges with S256 PKCE and initializes MCP. Request fs_list, fs_read hello.txt,
+search and fetch in an isolated harmless directory. Record actual client/account,
+date, consent, callback, initialize, tools/list and read outcomes separately.
+
+Deny with n or wait past 60 seconds: access_denied returns to the validated callback
+with original state and iss and no code. Reconnect for a new consent request.
+A wrong Host is 403, a present foreign/null unsafe Origin is 403, invalid callback
+or CSRF is 400, missing MCP authorization is 401. Direct browser /mcp unauthorized
+is expected and is not the OAuth navigation failure. Never paste callback URLs,
+codes, cookies or tokens into reports or an AI conversation.
+
+Try a wizard typo such as yes at Mode: it explains the four choices and repeats
+Mode without discarding valid roots. Discovery/health probes must not keep the
+server alive past idle timeout. Existing/partial instances must be reported and
+preserved. During consent/approvals, task events must wait until the prompt ends.
+The optional dashboard has no command/UI implementation and is not a passed test.

@@ -80,6 +80,12 @@ func pollCeremony(t *testing.T, c *http.Client, srv *httptest.Server, v ceremony
 			t.Fatal(e)
 		}
 		r.Body.Close()
+		if r.StatusCode == 303 {
+			u, e := url.Parse(r.Header.Get("Location"))
+			if e != nil || u.Query().Get("state") != "state" || u.Query().Get("iss") == "" || (u.Query().Get("code") == "") == (u.Query().Get("error") == "") {
+				t.Fatal("invalid authorization response")
+			}
+		}
 		if r.StatusCode != 200 {
 			return r.StatusCode
 		}
@@ -94,7 +100,7 @@ func TestTerminalConsentApproveDenyTimeout(t *testing.T) {
 		name, answer string
 		wait         bool
 		status       int
-	}{{"approve", "y", false, 303}, {"deny", "n", false, 403}, {"timeout", "", true, 403}} {
+	}{{"approve", "y", false, 303}, {"deny", "n", false, 303}, {"timeout", "", true, 303}} {
 		t.Run(tc.name, func(t *testing.T) {
 			o, srv, c, notice := newOAuthTest(t)
 			p := &terminalAnswers{answer: tc.answer, wait: tc.wait}
@@ -108,6 +114,12 @@ func TestTerminalConsentApproveDenyTimeout(t *testing.T) {
 			v := startCeremony(t, o, srv, c, id)
 			if got := pollCeremony(t, c, srv, v); got != tc.status {
 				t.Fatal(got)
+			}
+			o.mu.Lock()
+			codes := len(o.db.Codes)
+			o.mu.Unlock()
+			if (tc.name == "approve") != (codes == 1) {
+				t.Fatal("incorrect authorization-code issuance")
 			}
 			p.mu.Lock()
 			text := strings.Join(p.texts, "\n")
@@ -135,7 +147,7 @@ func TestConsentRateLimitAndHeadless(t *testing.T) {
 	o.rateLimit = 1
 	id := registerTest(t, c, srv.URL)
 	v := startCeremony(t, o, srv, c, id)
-	if got := pollCeremony(t, c, srv, v); got != 403 {
+	if got := pollCeremony(t, c, srv, v); got != 303 {
 		t.Fatal(got)
 	}
 	q := url.Values{"response_type": {"code"}, "client_id": {id}, "redirect_uri": {"http://127.0.0.1:9999/callback"}, "state": {"state"}, "code_challenge": {Hash(Random())}, "code_challenge_method": {"S256"}, "resource": {o.issuer + "/mcp"}}
@@ -173,7 +185,7 @@ func TestIndependentConsentQueueAndRedirects(t *testing.T) {
 	if time.Since(start) > time.Second {
 		t.Fatal("HTTP blocked for terminal")
 	}
-	if pollCeremony(t, c, srv, v1) != 403 || pollCeremony(t, c, srv, v2) != 403 {
+	if pollCeremony(t, c, srv, v1) != 303 || pollCeremony(t, c, srv, v2) != 303 {
 		t.Fatal("queued timeout")
 	}
 	p.mu.Lock()

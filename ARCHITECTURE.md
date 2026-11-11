@@ -80,4 +80,25 @@ Config/schema migration backs up v1 before private atomic replacement. Restore i
 explicit; invalid config never becomes permission to broaden defaults. Runtime
 acknowledgment is not saved by normal wizard paths. Native client registration
 uses snapshots so a later config edit cannot silently promote an installed client.
-Local Git milestone commits are authorized; remotes/publication are prohibited.
+Local commits and verified pushes to private kmanisk/bridge-dev are now authorized;
+public visibility and permanent deployment remain prohibited.
+
+## Final integration changes
+
+GET /authorize is safe browser navigation: an absent or initiating-app Origin is
+accepted after canonical Host validation; OAuth client/redirect/PKCE/resource/state
+checks still apply. Consent documents use Referrer-Policy: same-origin so browser
+form POSTs retain their origin; foreign/null unsafe Origins remain rejected. Both
+success and validated terminal denial/expiry callbacks include original state and
+RFC 9207 iss. Invalid requests/CSRF never trigger callback redirects. The CSRF-only
+cookie lasts up to 120 seconds so the browser can retrieve a failed outcome after
+the 60-second authorization deadline; it cannot extend the approval grant.
+
+The prompt coordinator buffers up to 64 KiB of terminal event output while a
+human prompt or delegated sudo TTY interaction is active. Durable audits continue;
+overflow is reported with instructions to use watch. Wizard validation repeats only
+the invalid field. connect detects existing/partial owned runtime before starting
+another wizard; the final transport lock still resolves concurrent startup races.
+Tunnel health/discovery self-probes do not reset client inactivity. Authenticated
+MCP operations and authorization activity still do; active work is protected.
+The optional dashboard is deferred, with no new listener or authentication surface.

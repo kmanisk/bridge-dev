@@ -62,14 +62,24 @@ func Prepare(ctx context.Context, args []string, getenv func(string) string, p *
 		fmt.Fprintln(out, "readonly: inspect files, processes and task records.\nuser: also write files and run authorized user commands/tasks.\nsudo: also run root commands and explicitly privileged tasks.\ndangerous: unrestricted paths and commands, optional shell and sudo.")
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
-		ask := func(text, current string) (string, error) {
-			a, e := p.Ask(ctx, text+" ["+current+"]: ")
-			if a == "" {
-				a = current
+		ask := func(text, current string, validate func(string) error) (string, error) {
+			for {
+				a, e := p.Ask(ctx, text+" ["+current+"]: ")
+				if a == "" {
+					a = current
+				}
+				if e != nil {
+					return "", e
+				}
+				a = strings.TrimSpace(a)
+				if e = validate(a); e != nil {
+					fmt.Fprintln(out, e)
+					continue
+				}
+				return a, nil
 			}
-			return a, e
 		}
-		roots, e := ask("Allowed roots (comma separated)", strings.Join(c.Roots, ","))
+		roots, e := ask("Allowed roots (comma separated)", strings.Join(c.Roots, ","), validateRoots)
 		if e != nil {
 			return c, e
 		}
@@ -80,31 +90,60 @@ func Prepare(ctx context.Context, args []string, getenv func(string) string, p *
 				return c, e
 			}
 		}
-		mode, e := ask("Mode", string(c.Mode))
+		mode, e := ask("Mode", string(c.Mode), func(v string) error {
+			if policy.Mode(v).Validate(false) != nil {
+				return errors.New("invalid mode. Choose readonly, user, sudo or dangerous")
+			}
+			return nil
+		})
 		if e != nil {
 			return c, e
 		}
 		c.Mode = policy.Mode(mode)
-		approve, e := ask("Approval policy: none, sudo, write, all", defaultApproval(c))
+		approve, e := ask("Approval policy: none, sudo, write, all", defaultApproval(c), func(v string) error {
+			switch v {
+			case "none", "sudo", "write", "all":
+				return nil
+			}
+			return errors.New("invalid approval policy. Choose none, sudo, write or all")
+		})
 		if e != nil {
 			return c, e
 		}
 		c.Approve = approve
-		c.Idle, e = ask("Idle timeout", c.Idle)
+		c.Idle, e = ask("Idle timeout", c.Idle, func(v string) error {
+			d, e := time.ParseDuration(v)
+			if e != nil || d <= 0 {
+				return errors.New("invalid idle timeout. Enter a positive duration such as 30m")
+			}
+			return nil
+		})
 		if e != nil {
 			return c, e
 		}
-		c.Tunnel, e = ask("Tunnel: cloudflared, none, custom:executable", c.Tunnel)
+		c.Tunnel, e = ask("Tunnel: cloudflared, none, custom:executable", c.Tunnel, func(v string) error {
+			copy := c
+			copy.Tunnel = v
+			if v != "cloudflared" && v != "none" && (!strings.HasPrefix(v, "custom:") || strings.TrimPrefix(v, "custom:") == "") {
+				return errors.New("invalid tunnel. Choose cloudflared, none or custom:executable")
+			}
+			return Doctor(copy, exec.LookPath)
+		})
 		if e != nil {
 			return c, e
 		}
-		if c.Mode.Write() {
-			a, e := ask("Allowed user executables (comma separated; empty denies ordinary exec)", strings.Join(c.Allow, ","))
+		if c.Mode.Write() && c.Mode != policy.Dangerous {
+			a, e := ask("Allowed user executables (comma separated; none clears)", strings.Join(c.Allow, ","), validateCommands)
 			if e != nil {
 				return c, e
 			}
-			if a != "" {
+			if a == "none" || a == "" {
+				c.Allow = nil
+			} else {
 				c.Allow = strings.Split(a, ",")
+				for i := range c.Allow {
+					c.Allow[i] = strings.TrimSpace(c.Allow[i])
+				}
 			}
 		}
 		c.OAuth = true
@@ -140,4 +179,36 @@ func defaultApproval(c config.Config) string {
 		return "write"
 	}
 	return c.Approve
+}
+
+func validateRoots(value string) error {
+	var paths []string
+	for _, v := range strings.Split(value, ",") {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return errors.New("invalid roots: enter one or more directory paths")
+		}
+		paths = append(paths, v)
+	}
+	j, e := fsjail.New(paths)
+	if e != nil {
+		return fmt.Errorf("invalid roots: %w", e)
+	}
+	defer j.Close()
+	if e = j.Check(); e != nil {
+		return fmt.Errorf("roots cannot be safely opened: %w", e)
+	}
+	return nil
+}
+func validateCommands(value string) error {
+	if value == "none" || value == "" {
+		return nil
+	}
+	for _, v := range strings.Split(value, ",") {
+		v = strings.TrimSpace(v)
+		if !filepath.IsAbs(v) || filepath.Clean(v) != v || strings.ContainsRune(v, 0) {
+			return errors.New("invalid command: use clean absolute executable paths or none")
+		}
+	}
+	return nil
 }

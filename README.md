@@ -1,9 +1,9 @@
-# Bridge Development
+# bridge-dev
 
-`bridge-dev` is a temporary name for a free, self-hosted Go MCP server. It gives
+`bridge-dev` is a free, self-hosted Go MCP server. It gives
 agents explicit file, command and durable-task capabilities. Codex stdio is the
-primary local target; Claude web is the primary remote target. There is no final
-product name, Bridge account, hosted infrastructure, telemetry, analytics,
+primary local target; Claude web is the primary remote target. There is no
+Bridge-operated account, hosted infrastructure, telemetry, analytics,
 subscription, billing counter or Bridge-imposed tool-call quota.
 
 Build with Go 1.25+ and Make. Runtime is one CGO-free binary, with optional native
@@ -22,6 +22,7 @@ tunnel and, for writable modes, ordinary executable permissions. It explains
 missing software and stops without installing it. Preferences save privately in
 ~/.config/bridge-dev/config.toml. Later runs reuse them; --reconfigure asks again.
 CLI flags override BRIDGE_DEV_* environment values, then TOML, then safe defaults.
+Each wizard answer is validated immediately; a typo repeats only that question.
 Invalid configuration fails closed. Runtime state belongs in XDG_STATE_HOME or
 ~/.local/state/bridge-dev; release/setup never enables a permanent service.
 
@@ -133,13 +134,28 @@ recoverable-task requirements; interactive PTYs/fuzzy edits/document conversion
 were deliberately excluded from this phase.
 
 ChatGPT compatibility depends on account/workspace and may be read-only. On
-2026-11-11, official documentation was reviewed, but **no real ChatGPT account,
-Plus write access, Claude account or public tunnel was tested**. OAuth success is
-not proof of write-tool support. Use the four-tool compatibility probe and record
+2026-11-11 the user's ChatGPT app accepted a custom connector and initiated OAuth;
+full callback/tool completion is still awaiting a human reconnect. A real readonly
+Cloudflare endpoint passed public HTTPS health/discovery/challenge checks. No
+completed ChatGPT read/write call or Claude web authorization is claimed. OAuth
+success is not proof of write-tool support. Use the four-tool compatibility probe and record
 actual results in MANUAL_TEST.md; ChatGPT is not a release blocker. Current
 [OpenAI instructions](https://developers.openai.com/api/docs/guides/custom-mcp-server)
 use Plugins / Add custom MCP server; account-specific older Apps/Developer mode
 labels may differ. Select DCR, not CIMD.
+
+For ChatGPT, edit/create the connector using the current printed HTTPS /mcp URL,
+choose automatic/DCR registration, and click Connect. For Claude web, use Settings /
+Connectors / Add custom connector (labels may differ), enter that URL and authorize.
+Keep the Bridge terminal visible: compare the six-digit browser/terminal code,
+client ID, requested scope and registered redirect host, then type y only if you
+initiated the request. Consent expires in 60 seconds; reconnect for a new request.
+No Origin header is required for GET /authorize. A normal unauthenticated browser
+visit to /mcp returns unauthorized; that is expected. See MANUAL_TEST.md for the
+browser-origin regression and account test checklist.
+
+The optional local management dashboard is **not implemented**. Use status, watch,
+clients and tasks; there is no dashboard listener or management web session.
 
 Run make check, make fuzz, make cross and make coverage. TEST_REPORT.md separates
 local proof from remaining human checks. MANUAL_TEST.md contains exact Fish
@@ -156,4 +172,5 @@ mechanically together; review binary/completion/Makefile labels and migration pa
 Keep old XDG state intact and migrate deliberately. Schema-v1 changes create a
 private .pre-v2-* backup; restore that backup explicitly and run config check.
 Never treat an invalid file as permission to load a more privileged default.
-MIT licensed; source remains local with no Git remote or publication.
+MIT licensed. This sprint authorizes only the private kmanisk/bridge-dev GitHub
+repository; repository creation/push evidence is recorded in TEST_REPORT.md.

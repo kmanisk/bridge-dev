@@ -45,7 +45,7 @@ type Input struct {
 	Cwd           string   `json:"cwd,omitempty" jsonschema:"Explicit working directory within roots"`
 	Timeout       int      `json:"timeout_seconds,omitempty"`
 	Offset        int64    `json:"offset,omitempty" jsonschema:"Byte cursor for task logs, file slices and paginated file operations"`
-	Sudo          bool     `json:"sudo,omitempty" jsonschema:"Explicit privileged task request; local sudo mode only"`
+	Sudo          bool     `json:"sudo,omitempty" jsonschema:"Explicit privileged task request; requires effective sudo/dangerous authorization"`
 	ClientID      string   `json:"client_id,omitempty" jsonschema:"Stable client-selected completion cursor identity"`
 	Ack           string   `json:"ack,omitempty" jsonschema:"Acknowledge a previously returned task completion cursor"`
 }

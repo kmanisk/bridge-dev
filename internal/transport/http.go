@@ -125,7 +125,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if oauth != nil && oauth.IsEndpoint(r.URL.Path) {
 		h.Active.Add(1)
-		defer func() { h.Last.Store(time.Now().UnixNano()); h.Active.Add(-1) }()
+		defer func() {
+			// Discovery is polled by our own tunnel verifier. It must not defeat idle exit.
+			if !strings.HasPrefix(r.URL.Path, "/.well-known/") {
+				h.Last.Store(time.Now().UnixNano())
+			}
+			h.Active.Add(-1)
+		}()
 		oauth.ServeHTTP(w, r)
 		return
 	}
@@ -251,7 +257,9 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 	if out == nil {
 		out = os.Stderr
 	}
-	out = &events.Writer{Out: out}
+	if !opt.Connect {
+		out = opt.Prompts.Output(&events.Writer{Out: out})
+	}
 	var outMu sync.Mutex
 	emit := func(format string, args ...any) {
 		outMu.Lock()

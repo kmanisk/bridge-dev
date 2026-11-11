@@ -37,3 +37,10 @@ Adopt bounded slices, content-search pages, clear continuation/error results,
 atomic configuration updates, explicit install previews and informative terminal
 events. Do not expand this phase into document converters, fuzzy edits, PTYs,
 arbitrary process control, rich widgets, telemetry or a hosted remote platform.
+
+Final integration sprint: retained the pinned source review and previous adopted
+pagination/search/preview/event lessons. Immediate wizard validation, isolated
+browser OAuth regression and prompt-safe event buffering improve the existing Go
+connect flow without importing UI/runtime code. A local dashboard is explicitly
+deferred to protect core connection/security verification; no new upstream claim
+or source copying is introduced by that decision.
