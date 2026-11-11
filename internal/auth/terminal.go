@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-var terminalTemplate = template.Must(template.New("terminal").Parse(`<!doctype html><html><head><title>{{.Name}} authorization</title></head><body><h1>Confirm in the local Bridge terminal</h1><p>Client: {{.Client}}</p><p>Verification code: <strong>{{.Code}}</strong></p><p>Status: {{.Status}}</p><p>Approve within 60 seconds in the terminal. Expires: {{.Expires}}. If it expires, reconnect from your AI app; refreshing this page cannot extend authorization.</p><p>Only the computer owner can approve this request in the terminal. This page cannot grant access.</p><form method="POST" action="/authorize"><input type="hidden" name="request_id" value="{{.ID}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button>Check authorization</button></form><script nonce="{{.Nonce}}">setTimeout(function(){document.forms[0].submit()},1500)</script></body></html>`))
+var terminalTemplate = template.Must(template.New("terminal").Parse(`<!doctype html><html><head><title>{{.Name}} authorization</title></head><body><h1>Confirm in the local Bridge terminal</h1><p>Client: {{.Client}}</p><p>Verification code: <strong>{{.Code}}</strong></p><p>Status: {{.Status}}</p><p>Approve within 60 seconds in the terminal. Expires: {{.Expires}}. If it expires, reconnect from your AI app; refreshing this page cannot extend authorization.</p><p>Only the computer owner can approve this request in the terminal. This page cannot grant access.</p><form method="POST" action="/authorize"><input type="hidden" name="request_id" value="{{.ID}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Check authorization</button></form><script nonce="{{.Nonce}}">(function(){var form=document.forms[0],sent=false;form.addEventListener("submit",function(e){if(sent){e.preventDefault();return;}sent=true;});setTimeout(function(){if(!sent){sent=true;form.submit();}},1500);})();</script></body></html>`))
 
 type rateWindow struct {
 	start time.Time
@@ -60,7 +60,10 @@ func (o *OAuth) allowedRedirect(s string) bool {
 }
 func (o *OAuth) terminalPage(w http.ResponseWriter, id, csrf string, p pending) {
 	nonce := Random()
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; form-action 'self'; frame-ancestors 'none'")
+	// Chromium applies form-action to redirects after form submission. The
+	// registered callback is the only additional form-navigation destination.
+	callback, _ := url.Parse(p.Redirect)
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; form-action 'self' "+callback.Scheme+"://"+callback.Host+"; frame-ancestors 'none'")
 	// no-referrer makes navigation form POSTs serialize Origin as null.
 	// same-origin retains a verifiable same-origin Origin while suppressing
 	// referrers to external callbacks. Never relax the POST origin guard.

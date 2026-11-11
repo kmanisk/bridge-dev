@@ -491,3 +491,27 @@ profiles: 65.6% unit / 40.2% actual subprocess. Public readonly TLS/health/disco
 401 checks pass; ordinary curl DNS/TLS succeeds after initial cache propagation.
 Final startup clipboard callback completes. Actual ChatGPT/Claude handshake/read
 and optional dashboard remain explicitly incomplete; no approval was automated.
+
+## 2026-11-11 terminal OAuth consent callback fix
+
+Source-level diagnosis: after the terminal approved a legitimate request,
+a browser POST to /authorize returned HTTP 303, but the consent page's
+CSP form-action 'self' prohibited navigation to the registered cross-origin
+client callback. Independently, a duplicate browser poll hit a deleted
+pending ceremony and returned invalid_request. The repair adds the exact
+registered callback origin as the sole additional form-action destination,
+preserves strict server-side Origin/Host/CSRF/cookie/PKCE checks, and caches
+a one-minute, browser-credential-validated copy of the original redirect
+in memory only. No new grant is minted for repeated polls. Diagnostics
+contain reason labels only, never OAuth secrets or redirect URLs.
+
+A headless Chromium end-to-end test now reaches the registered callback,
+exchanges the S256-PKCE code and confirms authorization-code replay fails.
+Concurrent repeated POST tests assert only one grant and reject missing or
+incorrect cookies and CSRF. An unrelated immediate-exit tunnel fixture
+was made race-tolerant without changing production behavior.
+Validation: GitHub Actions run 43058478581, Ubuntu 24.04, focused tests,
+auth race tests, go vet, full Go suite, staticcheck, and gofmt all passed.
+The repo was already public before this change. Live machine tests,
+make check (Fish unavailable on CI), fuzzing, cross-builds and real ChatGPT
+MCP reads remain unexecuted in this pass; no local processes were touched.

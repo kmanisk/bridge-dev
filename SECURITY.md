@@ -106,3 +106,17 @@ configurable resource/abuse controls, not usage billing or monthly quotas.
 Older restrictions intentionally replaced are listed in
 [SUPERSEDED_RESTRICTIONS.md](docs/SUPERSEDED_RESTRICTIONS.md). See TEST_REPORT.md
 and MANUAL_TEST.md for verified checks and remaining external evidence.
+
+## OAuth browser-consent redirect policy (2026-11-11)
+
+The authorization consent HTML must allow a registered OAuth client's
+callback origin in its `Content-Security-Policy: form-action` so the
+browser can follow the 303 redirect after same-origin consent POST.
+This is constructed from the already validated, exact registered
+redirect URI, not from an arbitrary query or request Origin. All other
+sources stay blocked, and the server still validates the exact callback
+URI, Origin/Host, CSRF token and Strict consent cookie. A bounded
+in-memory completed-consent cache permits same-browser duplicate polls
+to receive the original redirect without allocating a new code;
+authorization codes remain single-use and PKCE-bound. Reason-label
+diagnostics must never expose credentials or redirect URLs.

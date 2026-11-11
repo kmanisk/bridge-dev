@@ -5,10 +5,11 @@ commit 54ae0e2 fixes consent browser Origins; Sprint C adds wizard/prompt/idle
 reliability. Read TEST_REPORT.md and REQUIREMENTS.md for current evidence rather
 than treating historical M15 tables as the latest state.
 
-User now authorizes local verified commits and creation/push only to PRIVATE
-kmanisk/bridge-dev, plus one controlled readonly public Quick Tunnel. Never change
-visibility to public, push unrelated repositories, enable a permanent service, run
-real sudo/dangerous tests or alter unrelated workstation/client configuration.
+On 2026-11-11, GitHub confirmed kmanisk/bridge-dev is PUBLIC, and the user
+explicitly authorized a verified fix pushed to main for local git pull. This
+supersedes the previous private-only publication restriction. Do not change
+repository visibility, push unrelated projects, enable a permanent service,
+run real sudo/dangerous tests, or alter unrelated workstation/client configuration.
 The project module/name remain github.com/kmanisk/bridge-dev and bridge-dev.
 
 Binary: /home/onyx/Projects/bridge-dev/bin/bridge-dev. Start bridge-dev connect;
@@ -48,3 +49,31 @@ The verified old HTTP process required diagnostic SIGQUIT after graceful down ha
 stopped the owned tunnel; no tasks or other stdio processes were terminated. The
 private repository exists and initial verified source cb564c6 was pushed. Check the
 final TEST_REPORT/publication receipt and remote HEAD for the final follow-up.
+
+## 2026-11-11 OAuth browser consent recovery
+
+The approved terminal ceremony had two browser completion defects:
+the consent document's CSP `form-action 'self'` blocked the registered
+cross-origin OAuth callback after the POST's HTTP 303, and duplicate terminal
+polls returned `invalid_request` after the pending request was deleted.
+Both terminal and local consent documents now allow only the validated
+registered callback origin in `form-action`; Host/Origin, CSRF, SameSite
+cookie, exact redirect registration, state/iss, PKCE and one-use codes remain.
+Completed same-browser polls can replay the original 303 for one minute
+without generating a second code. Safe reason labels distinguish rejection
+conditions without logging cookies, states, codes or redirect URLs.
+
+Browser integration coverage uses a real headless Chromium process, cross-site
+navigation, callback receipt, PKCE token exchange and replay rejection. The
+targeted auth race tests, Go vet/full Go suite, Staticcheck and gofmt passed
+in isolated GitHub Actions run 43058478581. An unrelated instantaneous fake
+tunnel exit test was corrected to accept both valid race outcomes; no
+production tunnel logic was modified. The temporary CI workflow exists only
+on `fix/oauth-consent-replay`, not on `main`.
+
+Desktop Commander reported its monthly usage cap, so the live machine's
+running server/tunnel, startup state, and public MCP URL were not inspected
+or restarted. The user should pull main, run `make build` and follow the
+existing Bridge-owned start/stop lifecycle after checking active tasks.
+No actual ChatGPT OAuth callback, token exchange or MCP read was independently
+observed from the live connector; that acceptance check remains manual.

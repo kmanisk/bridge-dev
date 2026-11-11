@@ -276,3 +276,35 @@ matched remote refs/heads/main after push. The follow-up containing this report 
 pushed and compared as the final publication gate; its exact verified hash belongs
 in the agent's final report and local ignored publication receipt. No force-push,
 public visibility, permanent service or unrelated repository action is authorized.
+
+## 2026-11-11 OAuth consent callback regression verification
+
+Isolated GitHub Actions run:
+https://github.com/kmanisk/bridge-dev/actions/runs/43058478581
+Ubuntu 24.04 hosted runner, Go from go.mod. All of the following steps
+completed successfully on fix/oauth-consent-replay before publishing the
+tested source to main:
+
+- go test -count=1 ./internal/auth ./internal/transport: PASS; real headless Chromium cross-site OAuth navigation, 303 callback, PKCE exchange, and one-use code check.
+- go test -race -count=1 ./internal/auth ./internal/transport: PASS.
+- go vet ./...: PASS.
+- go test -count=1 ./...: PASS, including integration.
+- go install honnef.co/go/tools/cmd/staticcheck@latest && staticcheck ./...: PASS.
+- gofmt verification: PASS.
+
+A separate test-only correction in internal/tunnel/cloudflared_test.go
+handles valid competing outcomes when a mocked tunnel prints a URL and
+exits immediately; no production tunnel behavior changed. Real Chrome
+verified the exact callback allowlist of CSP form-action. Replay tests
+assert one authorization grant and strict cookie/CSRF checks. Secret-free
+rejection labels were tested.
+
+Limits: this was not a live ChatGPT MCP connector acceptance test. The
+operator must rebuild/restart only the Bridge-owned process, approve
+their own terminal prompt, and confirm a real OAuth callback/token
+exchange and MCP read. Desktop Commander calls were blocked by a monthly
+usage cap. Exact make check (requires Fish), fuzz tests, cross-builds,
+live binary replacement and tunnel restart were not run here. The
+earlier historical private-publication restriction was superseded by
+the user's 2026-11-11 statement and GitHub verification that the repo
+was already public before the fix.

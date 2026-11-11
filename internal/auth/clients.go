@@ -180,6 +180,7 @@ func (o *OAuth) Invalidate() error {
 	o.db.Refresh = map[string]credential{}
 	o.db.Pending = map[string]pending{}
 	o.db.Codes = map[string]grant{}
+	o.completed = map[string]completedConsent{}
 	for id, c := range o.db.Clients {
 		c.Expires = o.now().UTC()
 		o.db.Clients[id] = c

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"github.com/kmanisk/bridge-dev/internal/identity"
 	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"io"
 	"net/http"
@@ -131,13 +132,132 @@ func TestTerminalConsentApproveDenyTimeout(t *testing.T) {
 				t.Fatal("approval code leaked into notices")
 			}
 			if tc.status == 303 {
-				if got := pollCeremony(t, c, srv, v); got != 400 {
-					t.Fatal("consent replay", got)
+				if got := pollCeremony(t, c, srv, v); got != 303 {
+					t.Fatal("same-browser replay should retain original redirect", got)
 				}
 			}
 		})
 	}
 }
+
+func TestTerminalBrowserConcurrentPolling(t *testing.T) {
+	o, srv, c, _ := newOAuthTest(t)
+	p := &terminalAnswers{answer: "y"}
+	o.ConfigureTerminal(context.Background(), prompt.New(p), []string{"127.0.0.1"})
+	defer o.Close()
+	id := registerTest(t, c, srv.URL)
+	v := startCeremony(t, o, srv, c, id)
+
+	// The first successful browser navigation issues a single code.
+	if got := pollCeremony(t, c, srv, v); got != http.StatusSeeOther {
+		t.Fatal("first completion", got)
+	}
+	var locations [8]string
+	var status [8]int
+	var wg sync.WaitGroup
+	for i := range locations {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			req, err := http.NewRequest(http.MethodPost, srv.URL+"/authorize", strings.NewReader(v.form.Encode()))
+			if err != nil {
+				return
+			}
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Origin", srv.URL)
+			r, err := c.Do(req)
+			if err != nil {
+				return
+			}
+			defer r.Body.Close()
+			status[i] = r.StatusCode
+			locations[i] = r.Header.Get("Location")
+		}(i)
+	}
+	wg.Wait()
+	for i, code := range status {
+		if code != http.StatusSeeOther || locations[i] == "" || locations[i] != locations[0] {
+			t.Fatalf("browser poll %d: status=%d same_redirect=%v", i, code, locations[i] == locations[0])
+		}
+	}
+	o.mu.Lock()
+	issued := len(o.db.Codes)
+	o.mu.Unlock()
+	if issued != 1 {
+		t.Fatalf("duplicate browser polls minted %d codes", issued)
+	}
+
+	// Incorrect or absent browser-bound values remain rejected after completion.
+	wrong := url.Values{"request_id": {v.form.Get("request_id")}, "csrf": {"wrong"}}
+	r, err := c.PostForm(srv.URL+"/authorize", wrong)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Body.Close()
+	if r.StatusCode != http.StatusBadRequest {
+		t.Fatal("invalid CSRF accepted", r.StatusCode)
+	}
+	other := &http.Client{CheckRedirect: c.CheckRedirect}
+	r, err = other.PostForm(srv.URL+"/authorize", v.form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Body.Close()
+	if r.StatusCode != http.StatusBadRequest {
+		t.Fatal("missing cookie accepted", r.StatusCode)
+	}
+}
+
+func TestConsentRejectionDiagnosticReasons(t *testing.T) {
+	o, srv, c, notice := newOAuthTest(t)
+	p := &terminalAnswers{wait: true}
+	o.ConfigureTerminal(context.Background(), prompt.New(p), []string{"127.0.0.1"})
+	defer o.Close()
+	id := registerTest(t, c, srv.URL)
+	v := startCeremony(t, o, srv, c, id)
+
+	check := func(client *http.Client, form url.Values, reason string) {
+		t.Helper()
+		resp, err := client.PostForm(srv.URL+"/authorize", form)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(notice.String(), "oauth_consent reason="+reason) {
+			t.Fatalf("reason=%s status=%d diagnostic missing", reason, resp.StatusCode)
+		}
+	}
+	check(c, url.Values{"request_id": {"unknown"}}, "missing_pending")
+	check(&http.Client{CheckRedirect: c.CheckRedirect}, v.form, "missing_cookie")
+	wrongCookie := &http.Client{CheckRedirect: c.CheckRedirect}
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/authorize", strings.NewReader(v.form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: identity.Binary + "-consent-" + v.form.Get("request_id"), Value: "incorrect"})
+	resp, err := wrongCookie.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(notice.String(), "oauth_consent reason=cookie_mismatch") {
+		t.Fatal("cookie diagnostic missing")
+	}
+	check(c, url.Values{"request_id": {v.form.Get("request_id")}, "csrf": {"bad"}}, "csrf_mismatch")
+
+	o.mu.Lock()
+	now := time.Now().Add(time.Hour)
+	o.now = func() time.Time { return now }
+	o.mu.Unlock()
+	// An expired, valid terminal request is redirected as access_denied.
+	resp, err = c.PostForm(srv.URL+"/authorize", v.form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther || !strings.Contains(notice.String(), "oauth_consent reason=expired") {
+		t.Fatal("expired terminal consent did not deny safely", resp.StatusCode)
+	}
+}
+
 func TestConsentRateLimitAndHeadless(t *testing.T) {
 	o, srv, c, _ := newOAuthTest(t)
 	p := &terminalAnswers{wait: true}

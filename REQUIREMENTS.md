@@ -98,3 +98,14 @@ currently blocked; the manual environment rows are outstanding acceptance eviden
 Historical no-remote/no-public-exposure rows describe earlier milestone authority;
 final sprint private publication/controlled readonly testing replaces them only in
 the explicit scope recorded in docs/SUPERSEDED_RESTRICTIONS.md.
+
+## 2026-11-11 OAuth consent browser regression addendum
+
+| Requirement | State | Evidence / remaining gate |
+| --- | --- | --- |
+| Browser 303 to registered callback despite consent CSP | Implemented and real-Chromium tested | Only exact registered callback origin added to form-action on both consent pages; internal/auth/terminal_browser_test.go; GitHub Actions run 43058478581 |
+| Concurrent/polled terminal consent | Implemented and tested | Same validated browser reuses original 303 for 60 seconds, no extra grant; internal/auth/terminal_test.go |
+| Safe OAuth diagnostics | Implemented and tested | Missing request/cookie, mismatched cookie/CSRF, expiry, completion reason labels; no credentials or redirect URLs logged |
+| Existing security invariants | Retained | Origin/Host, cookies, CSRF, exact redirects, state/iss, PKCE and single-use token exchange in OAuth focused and full-suite tests |
+| Real ChatGPT connected MCP read | Not yet verified | Requires user-controlled local rebuild, terminal approval, callback and read call; no automation of user consent |
+| Live binary/server/tunnel status | Not verified in this pass | Desktop Commander quota prevented local access; no user session or tasks changed |
