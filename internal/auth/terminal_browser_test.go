@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"os/exec"
 	"strings"
 	"sync/atomic"
@@ -136,11 +137,25 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 	defer start.Close()
 	// localhost -> 127.0.0.1 is a cross-site top-level OAuth navigation.
 	startURL := strings.Replace(start.URL, "127.0.0.1", "localhost", 1) + "/start"
+	// Chrome subprocesses can still write to their profile after the parent
+	// exits; do not let t.TempDir race those child-process cleanup writes.
+	profile, err := os.MkdirTemp("", "bridge-oauth-browser-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		for i := 0; i < 15; i++ {
+			if os.RemoveAll(profile) == nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
 	command := exec.CommandContext(ctx, browser,
 		"--headless=new", "--no-sandbox", "--disable-gpu",
 		"--disable-dev-shm-usage", "--no-first-run",
 		"--disable-background-networking",
-		"--user-data-dir="+t.TempDir(), startURL)
+		"--user-data-dir="+profile, startURL)
 	if err := command.Start(); err != nil {
 		t.Fatalf("cannot launch headless Chromium: %v", err)
 	}
