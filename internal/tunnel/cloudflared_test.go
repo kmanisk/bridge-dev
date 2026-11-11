@@ -60,10 +60,16 @@ func TestTunnelProcessExitsBeforeReadiness(t *testing.T) {
 	os.WriteFile(p2, []byte("#!/bin/sh\necho 'https://exit-quick.trycloudflare.com' >&2\nexit 17\n"), 0700)
 
 	tt, err := Start(context.Background(), p2, "http://127.0.0.1:1234")
+	// The immediate exit races the asynchronous stderr URL parser. Either
+	// Start observes the exit first (error), or a tunnel object is returned
+	// and transitions to the exited state. Both must retain status 17.
 	if err != nil {
-		t.Fatalf("unexpected Start error: %v", err)
+		if !strings.Contains(err.Error(), "exited") || !strings.Contains(err.Error(), "17") {
+			t.Fatalf("unexpected early exit error: %v", err)
+		}
+		return
 	}
-	// Wait for process to exit
+	defer tt.Close()
 	select {
 	case <-tt.Done():
 	case <-time.After(time.Second):
@@ -76,7 +82,6 @@ func TestTunnelProcessExitsBeforeReadiness(t *testing.T) {
 	if !strings.Contains(state, "exited") || !strings.Contains(state, "17") {
 		t.Fatalf("expected exit status in state, got: %s", state)
 	}
-	tt.Close()
 }
 
 // Requirement M: Timeout cleanup closes only owned processes
