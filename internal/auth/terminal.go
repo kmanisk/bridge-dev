@@ -60,7 +60,10 @@ func (o *OAuth) allowedRedirect(s string) bool {
 }
 func (o *OAuth) terminalPage(w http.ResponseWriter, id, csrf string, p pending) {
 	nonce := Random()
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; form-action 'self'; frame-ancestors 'none'")
+	// Chromium applies form-action to redirects after form submission. The
+	// registered callback is the only additional form-navigation destination.
+	callback, _ := url.Parse(p.Redirect)
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; form-action 'self' "+callback.Scheme+"://"+callback.Host+"; frame-ancestors 'none'")
 	// no-referrer makes navigation form POSTs serialize Origin as null.
 	// same-origin retains a verifiable same-origin Origin while suppressing
 	// referrers to external callbacks. Never relax the POST origin guard.

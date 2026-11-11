@@ -351,6 +351,9 @@ func (o *OAuth) authorize(w http.ResponseWriter, r *http.Request) {
 	// This is a local human consent code, never an access token or log record.
 	fmt.Fprintf(o.notice, "OAuth consent request %s: client=%q redirect=%q scope=%q\nOne-time local consent code (2 minutes): %s\n", id, c.Name+" ["+c.ID+"]", redirect, scope, consent)
 	http.SetCookie(w, &http.Cookie{Name: identity.Binary + "-consent-" + id, Value: cookie, Path: "/authorize", HttpOnly: true, Secure: strings.HasPrefix(o.issuer, "https:"), SameSite: http.SameSiteStrictMode, MaxAge: 120})
+	callback, _ := url.Parse(p.Redirect)
+	// Browser CSP form-action covers the POST's 303 to the registered OAuth callback.
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; form-action 'self' "+callback.Scheme+"://"+callback.Host+"; frame-ancestors 'none'")
 	w.Header().Set("Referrer-Policy", "same-origin")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = consentTemplate.Execute(w, struct{ Name, Client, Redirect, Scope, ID, CSRF string }{identity.Name, c.Name, redirect, scope, id, csrf})
