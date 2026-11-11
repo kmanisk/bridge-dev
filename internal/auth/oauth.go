@@ -52,6 +52,13 @@ type pending struct {
 	Expires     time.Time
 	Attempts    int
 }
+type completedConsent struct {
+	CookieHash string
+	CSRFHash   string
+	Client     string
+	Location   string
+	Expires    time.Time
+}
 type grant struct {
 	Client    string
 	Redirect  string
@@ -89,6 +96,7 @@ type OAuth struct {
 	redirectHosts                     []string
 	codes                             map[string]string
 	rates                             map[string]rateWindow
+	completed                         map[string]completedConsent
 	consentGate                       chan struct{}
 	consentTTL                        time.Duration
 	rateLimit                         int
@@ -122,7 +130,7 @@ func NewOAuth(state, issuer, mode string, notice io.Writer) (*OAuth, error) {
 	if e = platform.PrivateDir(dir); e != nil {
 		return nil, e
 	}
-	o := &OAuth{MaxClients: 1024, MaxTokens: 16384, MaxPending: 64, state: dir, issuer: issuer, scope: "mcp:" + mode, notice: notice, now: time.Now}
+	o := &OAuth{MaxClients: 1024, MaxTokens: 16384, MaxPending: 64, state: dir, issuer: issuer, scope: "mcp:" + mode, notice: notice, now: time.Now, completed: map[string]completedConsent{}}
 	e = platform.ReadJSON(filepath.Join(dir, "store.json"), &o.db)
 	if e != nil && !os.IsNotExist(e) {
 		return nil, e
@@ -347,16 +355,59 @@ func (o *OAuth) authorize(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = consentTemplate.Execute(w, struct{ Name, Client, Redirect, Scope, ID, CSRF string }{identity.Name, c.Name, redirect, scope, id, csrf})
 }
+// logConsent records only a bounded reason label, never an identifier or credential.
+func (o *OAuth) logConsent(reason string) {
+	if o.notice != nil {
+		fmt.Fprintf(o.notice, "oauth_consent reason=%s\n", reason)
+	}
+}
+func (o *OAuth) rejectConsent(w http.ResponseWriter, reason string) {
+	o.logConsent(reason)
+	oauthError(w, http.StatusBadRequest, "invalid_request")
+}
 func (o *OAuth) consent(w http.ResponseWriter, r *http.Request) {
-	if e := r.ParseForm(); e != nil {
-		oauthError(w, 400, "invalid_request")
+	if err := r.ParseForm(); err != nil {
+		o.rejectConsent(w, "malformed_form")
 		return
 	}
 	id := r.PostForm.Get("request_id")
-	p, ok := o.db.Pending[id]
-	cookie, e := r.Cookie(identity.Binary + "-consent-" + id)
-	if !ok || !o.terminal && !o.now().Before(p.Expires) || e != nil || !Equal(Hash(cookie.Value), p.CookieHash) || !Equal(Hash(r.PostForm.Get("csrf")), p.CSRFHash) {
-		oauthError(w, 400, "invalid_request")
+	p, pendingFound := o.db.Pending[id]
+	done, completedFound := o.completed[id]
+	if !pendingFound && !completedFound {
+		o.rejectConsent(w, "missing_pending")
+		return
+	}
+	cookieHash, csrfHash := p.CookieHash, p.CSRFHash
+	if !pendingFound {
+		cookieHash, csrfHash = done.CookieHash, done.CSRFHash
+	}
+	cookie, err := r.Cookie(identity.Binary + "-consent-" + id)
+	if err != nil {
+		o.rejectConsent(w, "missing_cookie")
+		return
+	}
+	if !Equal(Hash(cookie.Value), cookieHash) {
+		o.rejectConsent(w, "cookie_mismatch")
+		return
+	}
+	if !Equal(Hash(r.PostForm.Get("csrf")), csrfHash) {
+		o.rejectConsent(w, "csrf_mismatch")
+		return
+	}
+	// A real browser can dispatch a manual check and its timer together.
+	// Replay only the already-issued redirect to the same validated browser;
+	// do not allocate a second authorization code or persist the raw URL.
+	if !pendingFound {
+		if !o.now().Before(done.Expires) || o.clientRevoked(done.Client) {
+			o.rejectConsent(w, "already_completed")
+			return
+		}
+		o.logConsent("already_completed")
+		http.Redirect(w, r, done.Location, http.StatusSeeOther)
+		return
+	}
+	if !o.terminal && !o.now().Before(p.Expires) {
+		o.rejectConsent(w, "expired")
 		return
 	}
 	if o.terminal {
@@ -365,9 +416,11 @@ func (o *OAuth) consent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if p.Status != "approved" || !o.now().Before(p.Expires) || o.clientRevoked(p.Client) {
+			if !o.now().Before(p.Expires) {
+				o.logConsent("expired")
+			}
 			delete(o.db.Pending, id)
 			delete(o.codes, id)
-			_ = o.save()
 			o.authorizationResponse(w, r, p, false)
 			return
 		}
@@ -413,6 +466,12 @@ func (o *OAuth) authorizationResponse(w http.ResponseWriter, r *http.Request, p 
 		return
 	}
 	u.RawQuery = q.Encode()
+	if o.terminal {
+		o.completed[r.PostForm.Get("request_id")] = completedConsent{
+			CookieHash: p.CookieHash, CSRFHash: p.CSRFHash, Client: p.Client,
+			Location: u.String(), Expires: o.now().Add(time.Minute),
+		}
+	}
 	http.Redirect(w, r, u.String(), http.StatusSeeOther)
 }
 
@@ -554,6 +613,11 @@ func (o *OAuth) revoke(w http.ResponseWriter, r *http.Request) {
 }
 func (o *OAuth) prune() {
 	now := o.now()
+	for id, result := range o.completed {
+		if !now.Before(result.Expires) {
+			delete(o.completed, id)
+		}
+	}
 	for k, v := range o.db.Pending {
 		if !now.Before(v.Expires.Add(time.Minute)) {
 			delete(o.db.Pending, k)
