@@ -1,0 +1,7 @@
+/bin/
+/.tools/
+/test-output/
+*.test
+/.research/
+/coverage/
+*.pre-v2*

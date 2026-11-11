@@ -1,0 +1,17 @@
+# Copy deliberately, then replace roots with explicit absolute directories.
+mode = "readonly"
+roots = ["/absolute/path/to/a/test-workspace"]
+port = 8765
+idle_timeout = "30m"
+tunnel = "none"
+task_backend = "auto"
+allow_commands = []
+deny_commands = []
+sudo_commands = []
+env_allow = ["LANG", "LC_ALL", "TZ"]
+oauth = false
+probe = false
+ack_dangerous = false
+# state_dir defaults to $XDG_STATE_HOME/bridge-dev or ~/.local/state/bridge-dev.
+# issuer defaults to the actual loopback HTTP origin. For stable OAuth reuse,
+# use a fixed port. Cloudflare Quick Tunnel sets issuer from its captured URL.
