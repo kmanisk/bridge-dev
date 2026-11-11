@@ -355,6 +355,7 @@ func (o *OAuth) authorize(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = consentTemplate.Execute(w, struct{ Name, Client, Redirect, Scope, ID, CSRF string }{identity.Name, c.Name, redirect, scope, id, csrf})
 }
+
 // logConsent records only a bounded reason label, never an identifier or credential.
 func (o *OAuth) logConsent(reason string) {
 	if o.notice != nil {

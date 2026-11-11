@@ -53,8 +53,8 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 
 	redirect := callback.URL + "/callback"
 	request, err := json.Marshal(map[string]any{
-		"redirect_uris": []string{redirect},
-		"client_name": "local browser regression",
+		"redirect_uris":              []string{redirect},
+		"client_name":                "local browser regression",
 		"token_endpoint_auth_method": "none",
 	})
 	if err != nil {
@@ -76,14 +76,14 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 	}
 	verifier := Random()
 	q := url.Values{
-		"response_type": {"code"},
-		"client_id": {registration.ClientID},
-		"redirect_uri": {redirect},
-		"state": {"browser-test-state"},
-		"code_challenge": {Hash(verifier)},
+		"response_type":         {"code"},
+		"client_id":             {registration.ClientID},
+		"redirect_uri":          {redirect},
+		"state":                 {"browser-test-state"},
+		"code_challenge":        {Hash(verifier)},
 		"code_challenge_method": {"S256"},
-		"resource": {o.issuer + "/mcp"},
-		"scope": {"mcp:readonly"},
+		"resource":              {o.issuer + "/mcp"},
+		"scope":                 {"mcp:readonly"},
 	}
 	target := srv.URL + "/authorize?" + q.Encode()
 	start := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -115,11 +115,11 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 	}
 	code := callbackQuery.Get("code")
 	form := url.Values{
-		"grant_type": {"authorization_code"},
-		"client_id": {registration.ClientID},
-		"redirect_uri": {redirect},
-		"resource": {o.issuer + "/mcp"},
-		"code": {code},
+		"grant_type":    {"authorization_code"},
+		"client_id":     {registration.ClientID},
+		"redirect_uri":  {redirect},
+		"resource":      {o.issuer + "/mcp"},
+		"code":          {code},
 		"code_verifier": {verifier},
 	}
 	tokens, err := http.PostForm(srv.URL+"/token", form)

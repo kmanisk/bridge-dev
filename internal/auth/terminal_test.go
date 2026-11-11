@@ -2,8 +2,8 @@ package auth
 
 import (
 	"context"
-	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"github.com/kmanisk/bridge-dev/internal/identity"
+	"github.com/kmanisk/bridge-dev/internal/prompt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -160,11 +160,15 @@ func TestTerminalBrowserConcurrentPolling(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			req, err := http.NewRequest(http.MethodPost, srv.URL+"/authorize", strings.NewReader(v.form.Encode()))
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			req.Header.Set("Origin", srv.URL)
 			r, err := c.Do(req)
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			defer r.Body.Close()
 			status[i] = r.StatusCode
 			locations[i] = r.Header.Get("Location")
@@ -186,14 +190,22 @@ func TestTerminalBrowserConcurrentPolling(t *testing.T) {
 	// Incorrect or absent browser-bound values remain rejected after completion.
 	wrong := url.Values{"request_id": {v.form.Get("request_id")}, "csrf": {"wrong"}}
 	r, err := c.PostForm(srv.URL+"/authorize", wrong)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	r.Body.Close()
-	if r.StatusCode != http.StatusBadRequest { t.Fatal("invalid CSRF accepted", r.StatusCode) }
+	if r.StatusCode != http.StatusBadRequest {
+		t.Fatal("invalid CSRF accepted", r.StatusCode)
+	}
 	other := &http.Client{CheckRedirect: c.CheckRedirect}
 	r, err = other.PostForm(srv.URL+"/authorize", v.form)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	r.Body.Close()
-	if r.StatusCode != http.StatusBadRequest { t.Fatal("missing cookie accepted", r.StatusCode) }
+	if r.StatusCode != http.StatusBadRequest {
+		t.Fatal("missing cookie accepted", r.StatusCode)
+	}
 }
 
 func TestConsentRejectionDiagnosticReasons(t *testing.T) {
@@ -207,7 +219,9 @@ func TestConsentRejectionDiagnosticReasons(t *testing.T) {
 	check := func(client *http.Client, form url.Values, reason string) {
 		t.Helper()
 		resp, err := client.PostForm(srv.URL+"/authorize", form)
-		if err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(notice.String(), "oauth_consent reason="+reason) {
 			t.Fatalf("reason=%s status=%d diagnostic missing", reason, resp.StatusCode)
@@ -218,11 +232,15 @@ func TestConsentRejectionDiagnosticReasons(t *testing.T) {
 	wrongCookie := &http.Client{CheckRedirect: c.CheckRedirect}
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/authorize", strings.NewReader(v.form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: identity.Binary+"-consent-"+v.form.Get("request_id"), Value: "incorrect"})
+	req.AddCookie(&http.Cookie{Name: identity.Binary + "-consent-" + v.form.Get("request_id"), Value: "incorrect"})
 	resp, err := wrongCookie.Do(req)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(notice.String(), "oauth_consent reason=cookie_mismatch") { t.Fatal("cookie diagnostic missing") }
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(notice.String(), "oauth_consent reason=cookie_mismatch") {
+		t.Fatal("cookie diagnostic missing")
+	}
 	check(c, url.Values{"request_id": {v.form.Get("request_id")}, "csrf": {"bad"}}, "csrf_mismatch")
 
 	o.mu.Lock()
@@ -231,7 +249,9 @@ func TestConsentRejectionDiagnosticReasons(t *testing.T) {
 	o.mu.Unlock()
 	// An expired, valid terminal request is redirected as access_denied.
 	resp, err = c.PostForm(srv.URL+"/authorize", v.form)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther || !strings.Contains(notice.String(), "oauth_consent reason=expired") {
 		t.Fatal("expired terminal consent did not deny safely", resp.StatusCode)
