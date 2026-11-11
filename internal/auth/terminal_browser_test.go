@@ -168,7 +168,7 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("headless browser did not exit after termination")
 	}
-		if callbackQuery.Get("state") != "browser-test-state" || callbackQuery.Get("iss") != o.issuer || callbackQuery.Get("code") == "" {
+	if callbackQuery.Get("state") != "browser-test-state" || callbackQuery.Get("iss") != o.issuer || callbackQuery.Get("code") == "" {
 		t.Fatal("browser callback lacks expected OAuth state/issuer/code")
 	}
 	code := callbackQuery.Get("code")
