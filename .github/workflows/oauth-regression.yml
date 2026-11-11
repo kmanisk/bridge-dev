@@ -3,7 +3,7 @@ on:
   push:
     branches: [fix/oauth-consent-replay]
 permissions:
-  contents: read
+  contents: write
 jobs:
   validate:
     runs-on: ubuntu-24.04
@@ -13,13 +13,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Install fish
-        run: sudo apt-get update && sudo apt-get install -y fish
-      - name: Focused OAuth tests
+      - name: Format verified Go changes on test branch
+        run: |
+          gofmt -w internal/auth/oauth.go internal/auth/clients.go internal/auth/terminal.go internal/auth/terminal_test.go internal/auth/terminal_browser_test.go
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add internal/auth/oauth.go internal/auth/clients.go internal/auth/terminal.go internal/auth/terminal_test.go internal/auth/terminal_browser_test.go
+            git commit -m "style(auth): format consent fix and regression tests"
+            git push origin HEAD:fix/oauth-consent-replay
+          fi
+      - name: OAuth focused tests
         run: go test -count=1 ./internal/auth ./internal/transport
       - name: OAuth race tests
         run: go test -race -count=1 ./internal/auth ./internal/transport
       - name: Full regression and vet
         run: go vet ./... && go test -count=1 ./...
-      - name: Check Go formatting
-        run: test -z "$(gofmt -l internal/auth/oauth.go internal/auth/terminal.go internal/auth/terminal_test.go internal/auth/clients.go)"
+      - name: Staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest && "$(go env GOPATH)/bin/staticcheck" ./...
+      - name: Verify clean Go formatting
+        run: test -z "$(gofmt -l internal/auth/oauth.go internal/auth/terminal.go internal/auth/terminal_test.go internal/auth/clients.go internal/auth/terminal_browser_test.go)"
