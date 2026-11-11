@@ -179,3 +179,77 @@ func TestAuthAndHostDenialAudit(t *testing.T) {
 		t.Fatal(string(b))
 	}
 }
+
+// Requirements H, I, O: Public host validation, invalid host rejection, and unauthenticated challenge
+func TestTrustedPublicHost(t *testing.T) {
+	h, s := handlerTest(t)
+	trustedHost := "random-name.trycloudflare.com"
+	origin := "https://" + trustedHost
+	h.Bind(origin, nil, true)
+
+	// Requirement H: Public hostname accepted when trusted
+	for _, hostHeader := range []string{
+		trustedHost,
+		trustedHost + ":443",
+		strings.ToUpper(trustedHost),
+		h.Host,
+	} {
+		r, _ := http.NewRequest("GET", s.URL+"/healthz", nil)
+		r.Host = hostHeader
+		resp, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatalf("expected 200 for host %q, got %d", hostHeader, resp.StatusCode)
+		}
+	}
+
+	// Requirement I: Invalid host remains rejected
+	for _, badHost := range []string{
+		"evil.com",
+		"other.trycloudflare.com",
+		"random-name.trycloudflare.com.attacker.com",
+	} {
+		r, _ := http.NewRequest("GET", s.URL+"/healthz", nil)
+		r.Host = badHost
+		resp, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 403 {
+			t.Fatalf("expected 403 for untrusted host %q, got %d", badHost, resp.StatusCode)
+		}
+	}
+
+	// Administration endpoint remains local-only even with valid local token and trusted public origin
+	r, _ := http.NewRequest("GET", s.URL+"/_status", nil)
+	r.Host = trustedHost
+	r.Header.Set("Authorization", "Bearer secret")
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 403 {
+		t.Fatalf("expected 403 for public host on local admin endpoint, got %d", resp.StatusCode)
+	}
+
+	// Requirement O: unauthenticated /mcp challenge returns 401 with canonical public origin
+	req, _ := http.NewRequest("POST", s.URL+"/mcp", strings.NewReader(`{}`))
+	req.Host = trustedHost
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("expected 401 unauthorized, got %d", resp.StatusCode)
+	}
+	authHeader := resp.Header.Get("WWW-Authenticate")
+	if !strings.Contains(authHeader, origin+"/.well-known/oauth-protected-resource") {
+		t.Fatalf("expected public origin in WWW-Authenticate header, got: %s", authHeader)
+	}
+}

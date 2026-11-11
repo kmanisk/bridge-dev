@@ -88,6 +88,11 @@ tests were added. Watch rotation and public up URL output have regression tests.
 - DCR bounds are concurrent stored-state bounds: revoked/expired registrations can
   be pruned, rather than forming a lifetime registration quota.
 - Fixed up --tunnel to print the verified public /mcp URL, not merely loopback.
+- Diagnosed and fixed Cloudflare Quick Tunnel startup verification failure (`endpoint unreachable`):
+  implemented local readiness check, exponential backoff, early child exit detection, full stdout/stderr
+  capture, accurate error classification (DNS, TLS, TCP, 1033, 502, 401/403), instance token matching,
+  and structured diagnostic error reporting. Added comprehensive regression tests across `transport`,
+  `tunnel`, and `connect`.
 
 ## Remaining limitations and manual gates
 

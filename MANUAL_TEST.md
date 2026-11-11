@@ -148,8 +148,11 @@ bridge-dev connect --roots $BRIDGE_FIXTURE/root --mode readonly --idle-timeout 1
 Expected: missing cloudflared gives an install command and exits; no automatic
 package installation. First run asks choices and saves private TOML. Choose
 readonly, write or all approvals as desired, and cloudflared. Only after verified
-health/discovery/challenge is the HTTPS /mcp URL printed/copied. Later connect uses
-saved values; --reconfigure asks again. A real tunnel requires manual evidence.
+health/discovery/challenge is the HTTPS /mcp URL printed/copied. Bounded retry with
+exponential backoff accommodates transient DNS and edge propagation delays (up to 35s).
+If verification fails, a structured diagnostic block is printed reporting stage,
+hostname, local port, elapsed duration, HTTP status, network error category, child
+tunnel state, and sanitized error. Later connect uses saved values; --reconfigure asks again. A real tunnel requires manual evidence.
 Ctrl-C stops owned HTTP/tunnel processes, preserving tasks. tunnel setup can guide
 a named tunnel (account/domain/native browser login), or select quick again. Do
 not perform named DNS/account operations merely to run automated tests.

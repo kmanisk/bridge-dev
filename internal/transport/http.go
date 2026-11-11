@@ -48,6 +48,7 @@ type binding struct {
 	Verified bool
 }
 type Handler struct {
+	InstanceID string
 	hostDenied atomic.Int64
 	binding    atomic.Pointer[binding]
 	mcpHandler http.Handler
@@ -63,7 +64,7 @@ type Handler struct {
 }
 
 func NewHandler(a *mcpserver.App, token, host, issuer string, stop context.CancelFunc) *Handler {
-	h := &Handler{App: a, Token: token, Host: host, Issuer: issuer, Stop: stop, sem: make(chan struct{}, a.Config.HTTPConcurrency)}
+	h := &Handler{InstanceID: auth.Random(), App: a, Token: token, Host: host, Issuer: issuer, Stop: stop, sem: make(chan struct{}, a.Config.HTTPConcurrency)}
 	h.Last.Store(time.Now().UnixNano())
 	h.mcpHandler = mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server { return a.Server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: bodyLimit(a.Config.HTTPBodyBytes), PropagateRequestCancellation: true, DisableLocalhostProtection: true})
 	return h
@@ -76,11 +77,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Bridge-Instance", h.InstanceID)
 	issuerHost := ""
 	if u, e := url.Parse(issuer); e == nil {
 		issuerHost = u.Host
 	}
-	if r.Host != h.Host && (issuerHost == "" || r.Host != issuerHost) {
+	if !matchHost(r.Host, h.Host) && (issuerHost == "" || !matchHost(r.Host, issuerHost)) {
 		previous := h.hostDenied.Load()
 		if time.Now().Unix()-previous >= 10 && h.hostDenied.CompareAndSwap(previous, time.Now().Unix()) {
 			_ = h.App.Audit.Write(audit.Record{Client: "unauthenticated", Operation: "http_host", Mode: string(h.App.Config.Mode), Phase: "denied", Reason: "invalid_request"})
@@ -88,9 +90,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid host", http.StatusForbidden)
 		return
 	}
-	if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+h.Host && origin != issuer {
-		http.Error(w, "invalid origin", http.StatusForbidden)
-		return
+	if origin := r.Header.Get("Origin"); origin != "" {
+		if !matchOrigin(origin, "http://"+h.Host) && (issuer == "" || !matchOrigin(origin, issuer)) {
+			http.Error(w, "invalid origin", http.StatusForbidden)
+			return
+		}
 	}
 	if r.URL.Query().Has("access_token") {
 		http.Error(w, "URL tokens forbidden", 400)
@@ -145,7 +149,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/_shutdown" || r.URL.Path == "/_status" {
-		if r.Host != h.Host {
+		if !matchHost(r.Host, h.Host) {
 			http.Error(w, "local administration only", http.StatusForbidden)
 			return
 		}
@@ -263,11 +267,16 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 	if opt.Connect {
 		a.Events = events.New(string(c.Mode), out)
 	}
+	startOverall := time.Now()
 	l, e := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", c.Port))
 	if e != nil {
 		return e
 	}
 	defer l.Close()
+	boundPort := c.Port
+	if tcpAddr, ok := l.Addr().(*net.TCPAddr); ok {
+		boundPort = tcpAddr.Port
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var background sync.WaitGroup
@@ -284,6 +293,20 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 		defer stop()
 		_ = srv.Shutdown(shutdown)
 	}()
+
+	if e = checkLocalReady(ctx, local, h.InstanceID); e != nil {
+		return &VerificationError{
+			Stage:                "local_http",
+			PublicHostname:       "",
+			LocalPort:            boundPort,
+			Elapsed:              time.Since(startOverall),
+			HTTPStatus:           0,
+			NetworkErrorCategory: "Local server failure",
+			CloudflaredState:     "not started",
+			Err:                  e,
+		}
+	}
+
 	origin := c.Issuer
 	if origin == "" {
 		origin = local
@@ -292,7 +315,16 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 	if c.Tunnel != "none" {
 		owned, e = tunnel.StartProvider(ctx, c, local)
 		if e != nil {
-			return e
+			return &VerificationError{
+				Stage:                "tunnel_start",
+				PublicHostname:       "",
+				LocalPort:            boundPort,
+				Elapsed:              time.Since(startOverall),
+				HTTPStatus:           0,
+				NetworkErrorCategory: "Tunnel process failure",
+				CloudflaredState:     "failed to start",
+				Err:                  e,
+			}
 		}
 		defer func() {
 			if owned != nil {
@@ -301,7 +333,16 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 		}()
 		origin = owned.URL
 		if e = tunnel.ValidateOrigin(origin); e != nil {
-			return e
+			return &VerificationError{
+				Stage:                "origin_setup",
+				PublicHostname:       "",
+				LocalPort:            boundPort,
+				Elapsed:              time.Since(startOverall),
+				HTTPStatus:           0,
+				NetworkErrorCategory: "Metadata/origin mismatch",
+				CloudflaredState:     owned.State(),
+				Err:                  e,
+			}
 		}
 	}
 	openOAuth := func(origin string) (*auth.OAuth, error) {
@@ -351,31 +392,78 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 		}
 	}()
 	h.Bind(origin, o, false)
-	verify := func(origin string) error {
+	verify := func(origin string, activeTunnel *tunnel.Tunnel) error {
 		if opt.Connect || origin != local {
 			client := VerificationClient()
 			if opt.ClientFactory != nil {
 				client = opt.ClientFactory(local)
 			}
-			deadline := time.NewTimer(30 * time.Second)
+			u, _ := url.Parse(origin)
+			pubHost := ""
+			if u != nil {
+				pubHost = u.Hostname()
+			}
+			deadline := time.NewTimer(35 * time.Second)
 			defer deadline.Stop()
+			delay := opt.RetryBase
+			if delay <= 0 {
+				delay = 200 * time.Millisecond
+			}
+			var lastResult *CheckResult
+			startVerify := time.Now()
 			for {
-				e = VerifyEndpoint(ctx, client, origin)
-				if e == nil {
-					break
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+				}
+				if activeTunnel != nil && activeTunnel.IsDone() {
+					state := activeTunnel.State()
+					errMsg := activeTunnel.LastError()
+					if errMsg == "" {
+						errMsg = "tunnel process exited before endpoint readiness"
+					}
+					return &VerificationError{
+						Stage:                "tunnel_process",
+						PublicHostname:       pubHost,
+						LocalPort:            boundPort,
+						Elapsed:              time.Since(startVerify),
+						HTTPStatus:           0,
+						NetworkErrorCategory: "Tunnel process failure",
+						CloudflaredState:     state,
+						Err:                  errors.New(errMsg),
+					}
+				}
+				lastResult = VerifyEndpointWithInstance(ctx, client, origin, h.InstanceID, string(a.Grant.Mode()))
+				if lastResult == nil {
+					return nil
 				}
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
 				case <-deadline.C:
-					return fmt.Errorf("endpoint verification failed: %w", e)
-				case <-time.After(200 * time.Millisecond):
+					cfState := "none"
+					if activeTunnel != nil {
+						cfState = activeTunnel.State()
+					}
+					return &VerificationError{
+						Stage:                lastResult.Stage,
+						PublicHostname:       pubHost,
+						LocalPort:            boundPort,
+						Elapsed:              time.Since(startVerify),
+						HTTPStatus:           lastResult.HTTPStatus,
+						NetworkErrorCategory: lastResult.Category,
+						CloudflaredState:     cfState,
+						Err:                  lastResult.Err,
+					}
+				case <-time.After(delay):
+					delay = min(delay*2, 2*time.Second)
 				}
 			}
 		}
 		return nil
 	}
-	if e = verify(origin); e != nil {
+	if e = verify(origin, owned); e != nil {
 		return e
 	}
 	h.Bind(origin, o, true)
@@ -478,7 +566,7 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 				if opt.ClientFactory != nil {
 					client = opt.ClientFactory(local)
 				}
-				if VerifyEndpoint(ctx, client, origin) != nil {
+				if VerifyEndpointWithInstance(ctx, client, origin, h.InstanceID, string(a.Grant.Mode())) != nil {
 					failures++
 				} else {
 					failures = 0
@@ -544,7 +632,7 @@ func RunWithOptions(ctx context.Context, c config.Config, opt Options) error {
 				}
 			}
 			h.Bind(origin, o, false)
-			if err = verify(origin); err != nil {
+			if err = verify(origin, candidate); err != nil {
 				candidate.Close()
 				a.Events.Emit("Tunnel not verified; retrying")
 				delay = min(delay*2, 30*time.Second)
@@ -594,4 +682,84 @@ func (h *Handler) runtime() Runtime {
 		}
 	}
 	return r
+}
+
+func matchHost(reqHost, expected string) bool {
+	if expected == "" {
+		return false
+	}
+	if strings.EqualFold(reqHost, expected) {
+		return true
+	}
+	rHost, rPort, rErr := net.SplitHostPort(reqHost)
+	eHost, ePort, eErr := net.SplitHostPort(expected)
+	if rErr == nil && eErr == nil {
+		if strings.EqualFold(rHost, eHost) && rPort == ePort {
+			return true
+		}
+	}
+	rNorm := stripDefaultPort(reqHost, "443")
+	eNorm := stripDefaultPort(expected, "443")
+	return strings.EqualFold(rNorm, eNorm)
+}
+
+func stripDefaultPort(hostPort, port string) string {
+	h, p, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return hostPort
+	}
+	if p == port {
+		return h
+	}
+	return hostPort
+}
+
+func matchOrigin(reqOrigin, expected string) bool {
+	if reqOrigin == "" || expected == "" {
+		return false
+	}
+	if strings.EqualFold(reqOrigin, expected) {
+		return true
+	}
+	u1, e1 := url.Parse(reqOrigin)
+	u2, e2 := url.Parse(expected)
+	if e1 != nil || e2 != nil {
+		return false
+	}
+	if !strings.EqualFold(u1.Scheme, u2.Scheme) {
+		return false
+	}
+	return matchHost(u1.Host, u2.Host)
+}
+
+func checkLocalReady(ctx context.Context, local, instanceID string) error {
+	client := &http.Client{Timeout: time.Second}
+	deadline := time.Now().Add(5 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		req, err := http.NewRequestWithContext(ctx, "GET", local+"/healthz", nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			resp.Body.Close()
+			if resp.StatusCode == 200 && strings.HasPrefix(string(body), "ok mode=") && resp.Header.Get("X-Bridge-Instance") == instanceID {
+				return nil
+			}
+			lastErr = errors.New("unexpected response from local health endpoint")
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return errors.New("local server failed to become ready")
 }

@@ -297,3 +297,71 @@ final cleanup check. All intentional supersessions and remaining human evidence
 are synchronized in REQUIREMENTS.md, TEST_REPORT.md and MANUAL_TEST.md. No mandatory
 local implementation blocker remains. No remote, push, publication or permanent
 service was created. Local M15 commit follows the verified source/doc review.
+
+## Cloudflare connection diagnosis and readiness verification fix
+
+### Root Cause
+During `bridge-dev connect`, startup failed with `endpoint verification failed: endpoint unreachable`
+after approximately 49 seconds. The failure occurred because:
+1. `internal/tunnel/cloudflared.go` unblocked immediately upon parsing the trycloudflare.com URL from
+   child output, prior to edge connection registration (`connIndex=0`) or DNS propagation.
+2. `internal/transport/http.go` immediately initiated external verification without first confirming
+   that the local HTTP listener responded to `/healthz`.
+3. The verification loop queried the external endpoint in an aggressive 200ms tight loop without
+   backoff. Early DNS queries for newly generated hostnames returned NXDOMAIN, which local resolvers
+   (including systemd-resolved) cached for up to 60 seconds (the SOA minimum TTL).
+4. `internal/transport/verify.go` discarded underlying Go errors, unconditionally returning a generic
+   `endpoint unreachable`. In Go's standard HTTP client, Cloudflare edge status 1033 is parsed as a
+   connection error (`malformed HTTP status code "1033"`), which was also collapsed into unreachable.
+5. All subsequent stdout/stderr logs from the cloudflared child were discarded (`io.Discard`),
+   hiding edge connection registration messages and exit diagnostics.
+6. The verification loop failed to check whether the child process exited (`owned.Done()`), causing it
+   to sit through the full 30-second deadline even if the child had failed.
+7. `VerifyEndpoint` verified status codes but did not verify that the `/healthz` response belonged
+   to the running Bridge instance (`X-Bridge-Instance`), allowing potential false positives from proxies.
+8. Host header validation in `Handler.ServeHTTP` was case-sensitive and did not normalize default `:443`
+   ports on incoming requests from external relays.
+
+### Implementation Changes
+1. Structured Readiness Pipeline: Implemented a 9-step readiness sequence:
+   - Start local HTTP server and confirm local `/healthz` responsiveness via `checkLocalReady`.
+   - Start cloudflared child with combined stdout/stderr capture into a thread-safe circular log buffer.
+   - Detect tunnel state (`starting`, `url announced`, `registered connIndex=...`, `exited`).
+   - Validate canonical HTTPS origin and bind handler before external checks.
+   - Verify public endpoint readiness with exponential backoff (starting at `opt.RetryBase` or 200ms,
+     doubling up to 2s) and 35-second overall deadline.
+   - Fail fast if the tunnel child process exits prematurely (`activeTunnel.IsDone()`), reporting exit
+     code and last log line without stalling for the deadline.
+   - Confirm `/healthz` response contains the instance token (`X-Bridge-Instance`), `ok mode=` prefix,
+     and expected mode.
+2. Structured Diagnostic Error Reporting: Implemented `VerificationError` implementing `error` and `Unwrap()`,
+   formatting failure reports with:
+   - `Stage`: `local_http`, `tunnel_start`, `tunnel_process`, `dns`, `connectivity`, `endpoint_health`,
+     `instance_match`, `oauth_metadata`, `resource_metadata`, `mcp_challenge`.
+   - `Public hostname`: hostname under verification.
+   - `Local port`: actual bound loopback TCP port.
+   - `Elapsed`: elapsed duration rounded to milliseconds.
+   - `HTTP status, if any`: HTTP status code or `none`.
+   - `Network error category`: `DNS failure`, `TLS failure`, `TCP failure`, `Timeout`, `HTTP 1033`,
+     `HTTP 502`, `HTTP 401/403`, `HTTP 404`, `HTTP 429`, `HTTP 5xx`, `Local server failure`,
+     `Tunnel process failure`, `Metadata/origin mismatch`.
+   - `Cloudflared state`: current runtime status and connection state.
+   - `Sanitized error`: error message with authentication tokens and secrets redacted.
+3. Host and Origin Normalization: Enhanced `matchHost` and `matchOrigin` with case-insensitivity and
+   default port `:443` stripping for public HTTPS relays, while preserving strict loopback isolation
+   for administration endpoints (`/_status`, `/_shutdown`).
+4. Fail-Closed Security and Lifecycle Cleanup: Unauthenticated `/mcp` challenge remains strictly enforced;
+   no internal IP or localhost leaks in OAuth metadata; durable tasks and client records are preserved
+   on startup failure; only owned process groups are terminated.
+
+### Verification
+- `internal/transport/verify_test.go`: Tests error classification (DNS, TLS, TCP, timeout, 1033, 502, 401/403),
+  `VerificationError` formatting, instance mismatch detection, mode mismatch detection, and local server readiness.
+- `internal/transport/http_test.go`: `TestTrustedPublicHost` tests case-insensitive host matching, default
+  port `:443` handling, untrusted host rejection, and loopback-only admin protection.
+- `internal/tunnel/cloudflared_test.go`: Tests tunnel lifecycle, log capture, immediate process exit handling,
+  and owned process group cleanup.
+- `internal/connect/connect_test.go`: `TestTransientErrorsRecover` tests transient connection refused, DNS,
+  and 502 errors; `TestRetryAfterFailureWorksWithoutStaleState` tests clean subsequent runs after failure;
+  `TestDurableTasksSurviveTunnelFailure` tests task persistence; `TestNoDuplicateTunnelProcess` tests process ownership.
+- `make check`, `make fuzz`, and staticcheck all pass.

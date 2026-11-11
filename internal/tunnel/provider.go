@@ -1,8 +1,10 @@
 package tunnel
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/kmanisk/bridge-dev/internal/config"
 	"github.com/kmanisk/bridge-dev/internal/execrun"
 	"io"
@@ -59,13 +61,38 @@ func StartProvider(ctx context.Context, c config.Config, local string) (*Tunnel,
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	stderr, e := cmd.StderrPipe()
+	if e != nil {
+		cancel()
+		return nil, e
+	}
+	stdout, e := cmd.StdoutPipe()
+	if e != nil {
+		cancel()
+		return nil, e
+	}
 	if e = cmd.Start(); e != nil {
 		cancel()
 		return nil, e
 	}
-	done := make(chan struct{})
-	go func() { _ = execrun.WaitCommand(ctx, cmd); close(done) }()
-	return &Tunnel{URL: c.PublicOrigin, cancel: cancel, done: done}, nil
+	t := &Tunnel{URL: c.PublicOrigin, cancel: cancel, done: make(chan struct{}), state: "running"}
+	go func() {
+		s := bufio.NewScanner(io.MultiReader(stderr, stdout))
+		for s.Scan() {
+			t.appendLog(s.Text())
+		}
+	}()
+	go func() {
+		err := execrun.WaitCommand(ctx, cmd)
+		t.mu.Lock()
+		t.exitErr = err
+		if err != nil {
+			t.state = fmt.Sprintf("exited (%v)", err)
+		} else {
+			t.state = "exited"
+		}
+		t.mu.Unlock()
+		close(t.done)
+	}()
+	return t, nil
 }

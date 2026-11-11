@@ -5,22 +5,89 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"github.com/kmanisk/bridge-dev/internal/execrun"
+	"fmt"
 	"io"
 	"os/exec"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/kmanisk/bridge-dev/internal/execrun"
 )
 
 var hostname = regexp.MustCompile(`https://[a-z0-9]+(?:-[a-z0-9]+)*\.trycloudflare\.com`)
 
 type Tunnel struct {
-	URL    string
-	cancel context.CancelFunc
-	done   <-chan struct{}
-	once   sync.Once
+	URL        string
+	cancel     context.CancelFunc
+	done       chan struct{}
+	once       sync.Once
+	mu         sync.RWMutex
+	state      string
+	exitErr    error
+	recentLogs []string
+}
+
+func (t *Tunnel) Done() <-chan struct{} { return t.done }
+
+func (t *Tunnel) IsDone() bool {
+	select {
+	case <-t.done:
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *Tunnel) State() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.state != "" {
+		return t.state
+	}
+	select {
+	case <-t.done:
+		if t.exitErr != nil {
+			return fmt.Sprintf("exited (%v)", t.exitErr)
+		}
+		return "exited"
+	default:
+		return "running"
+	}
+}
+
+func (t *Tunnel) RecentLogs() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return append([]string(nil), t.recentLogs...)
+}
+
+func (t *Tunnel) LastError() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.exitErr != nil {
+		return t.exitErr.Error()
+	}
+	if len(t.recentLogs) > 0 {
+		return t.recentLogs[len(t.recentLogs)-1]
+	}
+	return ""
+}
+
+func (t *Tunnel) Close() { t.once.Do(func() { t.cancel(); <-t.done }) }
+
+func (t *Tunnel) appendLog(line string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.recentLogs) >= 20 {
+		t.recentLogs = t.recentLogs[1:]
+	}
+	t.recentLogs = append(t.recentLogs, line)
+	if strings.Contains(line, "Registered tunnel connection") || strings.Contains(line, "registered connIndex=") {
+		t.state = "registered"
+	}
 }
 
 func Start(ctx context.Context, binary, local string) (*Tunnel, error) {
@@ -32,49 +99,95 @@ func Start(ctx context.Context, binary, local string) (*Tunnel, error) {
 		cancel()
 		return nil, e
 	}
-	cmd.Stdout = io.Discard
+	stdout, e := cmd.StdoutPipe()
+	if e != nil {
+		cancel()
+		return nil, e
+	}
 	if e = cmd.Start(); e != nil {
 		cancel()
 		return nil, e
 	}
-	urls := make(chan string, 1)
-	scanDone := make(chan struct{})
-	go func() {
-		defer close(scanDone)
-		s := bufio.NewScanner(stderr)
+	t := &Tunnel{cancel: cancel, done: make(chan struct{}), state: "starting"}
+	lines := make(chan string, 128)
+	var readersWg sync.WaitGroup
+	scan := func(r io.Reader) {
+		defer readersWg.Done()
+		s := bufio.NewScanner(r)
 		s.Buffer(make([]byte, 4096), 64<<10)
 		for s.Scan() {
-			if u := ParseURL(s.Text()); u != "" {
+			lines <- s.Text()
+		}
+	}
+	readersWg.Add(2)
+	go scan(stderr)
+	go scan(stdout)
+	go func() {
+		readersWg.Wait()
+		close(lines)
+	}()
+
+	urls := make(chan string, 1)
+	go func() {
+		for line := range lines {
+			t.appendLog(line)
+			if u := ParseURL(line); u != "" {
 				select {
 				case urls <- u:
 				default:
 				}
 			}
 		}
-		_, _ = io.Copy(io.Discard, stderr)
 	}()
-	done := make(chan struct{})
-	go func() { _ = execrun.WaitCommand(ctx, cmd); <-scanDone; close(done) }()
-	t := &Tunnel{cancel: cancel, done: done}
+
+	go func() {
+		err := execrun.WaitCommand(ctx, cmd)
+		t.mu.Lock()
+		t.exitErr = err
+		if err != nil {
+			t.state = fmt.Sprintf("exited (%v)", err)
+		} else {
+			t.state = "exited"
+		}
+		t.mu.Unlock()
+		close(t.done)
+	}()
+
 	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()
 	select {
 	case t.URL = <-urls:
+		t.mu.Lock()
+		if t.state == "starting" {
+			t.state = "url announced"
+		}
+		t.mu.Unlock()
 		return t, nil
-	case <-done:
+	case <-t.done:
+		select {
+		case t.URL = <-urls:
+			t.mu.Lock()
+			if t.state == "starting" {
+				t.state = "url announced"
+			}
+			t.mu.Unlock()
+			return t, nil
+		default:
+		}
 		cancel()
-		return nil, errors.New("cloudflared exited before announcing a Quick Tunnel URL")
+		state := t.State()
+		return nil, fmt.Errorf("cloudflared %s before announcing a Quick Tunnel URL", state)
 	case <-timer.C:
 		cancel()
-		<-done
+		<-t.done
 		return nil, errors.New("cloudflared URL timeout")
 	case <-ctx.Done():
 		cancel()
-		<-done
+		<-t.done
 		return nil, ctx.Err()
 	}
 }
-func (t *Tunnel) Close() { t.once.Do(func() { t.cancel(); <-t.done }) }
+
 func ParseURL(line string) string {
 	loc := hostname.FindStringIndex(line)
 	if loc == nil {
@@ -88,5 +201,3 @@ func ParseURL(line string) string {
 	}
 	return line[loc[0]:loc[1]]
 }
-
-func (t *Tunnel) Done() <-chan struct{} { return t.done }
