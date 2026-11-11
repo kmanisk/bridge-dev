@@ -137,36 +137,38 @@ func TestTerminalRealBrowserRedirect(t *testing.T) {
 	// localhost -> 127.0.0.1 is a cross-site top-level OAuth navigation.
 	startURL := strings.Replace(start.URL, "127.0.0.1", "localhost", 1) + "/start"
 	command := exec.CommandContext(ctx, browser,
-		"--headless", "--no-sandbox", "--disable-gpu",
+		"--headless=new", "--no-sandbox", "--disable-gpu",
 		"--disable-dev-shm-usage", "--no-first-run",
-		"--disable-background-networking", "--virtual-time-budget=8000",
-		"--user-data-dir="+t.TempDir(), "--dump-dom", startURL)
-	output, err := command.Output()
-	if err != nil {
-		t.Fatalf("headless browser did not finish OAuth navigation: %v", err)
+		"--disable-background-networking",
+		"--user-data-dir="+t.TempDir(), startURL)
+	if err := command.Start(); err != nil {
+		t.Fatalf("cannot launch headless Chromium: %v", err)
 	}
-	// The callback request, not --dump-dom's capture of a previous page,
-	// proves navigation: Chrome may snapshot before completing a 303.
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	// Observe the real callback request instead of Chrome's --dump-dom
+	// snapshot or process exit, neither of which proves a 303 was followed.
 	var callbackQuery url.Values
 	select {
 	case callbackQuery = <-received:
-	case <-time.After(2 * time.Second):
-		reason := "unexpected_page"
-		switch {
-		case bytes.Contains(output, []byte("invalid_request")):
-			reason = "oauth_invalid_request"
-		case bytes.Contains(output, []byte("invalid origin")):
-			reason = "origin_rejected"
-		case bytes.Contains(output, []byte("Confirm in the local Bridge terminal")):
-			reason = "consent_page_still_waiting"
-		case bytes.Contains(output, []byte("ERR_CONNECTION")):
-			reason = "browser_connection_error"
-		case bytes.Contains(output, []byte("chrome-error")):
-			reason = "browser_error_page"
+	case err := <-done:
+		select {
+		case callbackQuery = <-received:
+		default:
+			t.Fatalf("headless browser exited before callback: %v (authorize_get=%d post=%d rejected=%d redirected=%d)", err, gets.Load(), posts.Load(), postBad.Load(), postRedirect.Load())
 		}
-		t.Fatalf("headless browser callback missing category=%s authorize_get=%d authorize_post=%d rejected_post=%d redirected_post=%d", reason, gets.Load(), posts.Load(), postBad.Load(), postRedirect.Load())
+	case <-time.After(12 * time.Second):
+		_ = command.Process.Kill()
+		<-done
+		t.Fatalf("headless browser callback missing: authorize_get=%d authorize_post=%d rejected_post=%d redirected_post=%d", gets.Load(), posts.Load(), postBad.Load(), postRedirect.Load())
 	}
-	if callbackQuery.Get("state") != "browser-test-state" || callbackQuery.Get("iss") != o.issuer || callbackQuery.Get("code") == "" {
+	_ = command.Process.Kill()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("headless browser did not exit after termination")
+	}
+		if callbackQuery.Get("state") != "browser-test-state" || callbackQuery.Get("iss") != o.issuer || callbackQuery.Get("code") == "" {
 		t.Fatal("browser callback lacks expected OAuth state/issuer/code")
 	}
 	code := callbackQuery.Get("code")
