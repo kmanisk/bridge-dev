@@ -90,7 +90,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid host", http.StatusForbidden)
 		return
 	}
-	if origin := r.Header.Get("Origin"); origin != "" {
+	// Authorization navigation is a browser entry point, not an MCP RPC or
+	// consent mutation. Host, redirect/client/PKCE/state and terminal consent
+	// still authorize it; Origin may be absent or belong to the initiating app.
+	navigation := oauth != nil && r.URL.Path == "/authorize" && r.Method == http.MethodGet
+	if origin := r.Header.Get("Origin"); origin != "" && !navigation {
 		if !matchOrigin(origin, "http://"+h.Host) && (issuer == "" || !matchOrigin(origin, issuer)) {
 			http.Error(w, "invalid origin", http.StatusForbidden)
 			return
@@ -729,22 +733,25 @@ func stripDefaultPort(hostPort, port string) string {
 	return hostPort
 }
 
-func matchOrigin(reqOrigin, expected string) bool {
-	if reqOrigin == "" || expected == "" {
-		return false
+func matchOrigin(given, expected string) bool {
+	parse := func(value string) (string, string, string, bool) {
+		u, e := url.Parse(value)
+		if e != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || (u.Scheme != "http" && u.Scheme != "https") {
+			return "", "", "", false
+		}
+		port := u.Port()
+		if port == "" {
+			if u.Scheme == "https" {
+				port = "443"
+			} else {
+				port = "80"
+			}
+		}
+		return u.Scheme, strings.ToLower(u.Hostname()), port, true
 	}
-	if strings.EqualFold(reqOrigin, expected) {
-		return true
-	}
-	u1, e1 := url.Parse(reqOrigin)
-	u2, e2 := url.Parse(expected)
-	if e1 != nil || e2 != nil {
-		return false
-	}
-	if !strings.EqualFold(u1.Scheme, u2.Scheme) {
-		return false
-	}
-	return matchHost(u1.Host, u2.Host)
+	a, host, port, ok := parse(given)
+	b, eh, ep, eok := parse(expected)
+	return ok && eok && a == b && host == eh && port == ep
 }
 
 func checkLocalReady(ctx context.Context, local, instanceID string) error {

@@ -152,3 +152,16 @@ No permanent unit, live client configuration, sudoers file or workstation settin
 was installed/changed by automation. No public tunnel, real sudo, Git remote,
 push, publication or deployment occurred. Generated builds/reports/research stay
 ignored; committed files contain source, tests and documentation only.
+
+## Final sprint A (current)
+
+Baseline make check at 575f3a2 passed. OAuth guard-to-consent/PKCE/token/SDK tests
+pass with the real ChatGPT stable callback shape and temporary state. Browser
+navigation without Origin reaches consent; invalid Host/unsafe Origin/redirects
+remain rejected. Consent documents advertise same-origin referrer policy to avoid
+Origin:null on automatic form POST. Native isolated browser reproduction is an
+optional explicitly selected local test; actual ChatGPT browser completion remains
+pending. Final sprint results and private GitHub state will be recorded below.
+Sprint A complete local gate: make check/race/staticcheck, 952,638 bounded fuzz
+executions and four cross-builds passed (test-output/sprint-a-*). Headless Brave
+could not load the isolated fixture here; real browser approval is still pending.

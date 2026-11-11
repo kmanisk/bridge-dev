@@ -81,3 +81,12 @@ Task resources expose status/log representations when reads are ungated. With
 approve=all they are not advertised; use the gated task tools so a resource cannot
 bypass approval. No Phase 1 tool was removed. No mandatory local requirement is
 currently blocked; the manual environment rows are outstanding acceptance evidence.
+
+## Final integration sprint matrix
+
+| Feature | Implemented | Tested | Manual check | Evidence |
+| --- | --- | --- | --- | --- |
+| OAuth browser navigation/form Origin fix | Yes | Guard-to-OAuth/PKCE/SDK regression | Real ChatGPT pending | internal/transport/oauth_browser_test.go |
+| Previous public DNS/TLS readiness fixes | Preserved | Baseline make check | Existing readonly tunnel inspected | 7678c20, 575f3a2 |
+| Private GitHub creation and push | Authorized, pending validation | Not yet | Existing gh authentication available | Sprint E |
+| Dashboard | Not implemented | Not tested | Optional; core connection first | Sprint D decision pending |

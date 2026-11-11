@@ -61,6 +61,10 @@ func (o *OAuth) allowedRedirect(s string) bool {
 func (o *OAuth) terminalPage(w http.ResponseWriter, id, csrf string, p pending) {
 	nonce := Random()
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; form-action 'self'; frame-ancestors 'none'")
+	// no-referrer makes navigation form POSTs serialize Origin as null.
+	// same-origin retains a verifiable same-origin Origin while suppressing
+	// referrers to external callbacks. Never relax the POST origin guard.
+	w.Header().Set("Referrer-Policy", "same-origin")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = terminalTemplate.Execute(w, struct{ Name, Client, Code, Status, ID, CSRF, Nonce string }{identity.Name, o.db.Clients[p.Client].Name, o.codes[id], p.Status, id, csrf, nonce})
 }

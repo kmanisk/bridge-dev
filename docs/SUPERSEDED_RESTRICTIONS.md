@@ -27,3 +27,13 @@ not permission to skip authorization or regression tests.
 A row describes the requested final replacement; REQUIREMENTS.md records whether
 it is currently implemented and tested. All listed local milestones have now passed. External account/platform evidence
 is still explicitly pending; no restriction is silently weakened.
+
+## Final integration sprint authorization
+
+The user's final sprint supersedes the earlier no-remote/no-push rule: creating
+and pushing verified history only to PRIVATE kmanisk/bridge-dev is now authorized.
+One controlled real readonly Quick Tunnel is authorized separately from automated
+regression tests. Existing working sessions must be inspected before any necessary
+restart. No public visibility, permanent service, real sudo/dangerous test, unrelated
+repository push, credential publication or workstation configuration change is
+allowed. The product name is now bridge-dev, without a rename in this sprint.

@@ -396,3 +396,42 @@ after approximately 49 seconds. The failure occurred because:
 4. Live Verification and Clipboard Integration:
    - Verified live with real Cloudflare Quick Tunnel in foreground tmux session `bridge-connect`.
    - Public MCP URL automatically copied to Wayland clipboard using `wl-copy`.
+
+## Final integration sprint A - browser OAuth correction
+
+Baseline at 575f3a2 passed make check. The existing readonly bridge-connect tmux
+server and its owned Cloudflare child were inspected and preserved during diagnosis;
+DNS readiness fixes 7678c20/575f3a2 were retained. The observed ChatGPT DCR callback
+is the documented stable https://chatgpt.com/connector_platform_oauth_redirect.
+No OAuth codes, cookies or credentials were printed or approved by the agent.
+
+Missing Origin was already accepted. The consent document set Referrer-Policy:
+no-referrer, which the Fetch standard specifies serializes Origin as null on a
+navigation form POST. The first GET therefore queued terminal consent, then the
+page's automatic POST hit the strict Origin guard and replaced the page with
+invalid origin; the unapproved terminal request subsequently expired. Consent
+pages now use same-origin referrer policy, suppressing external callback referrers
+while preserving the same-origin POST Origin. Present foreign/null unsafe Origins
+remain rejected. Safe authorization GET navigation is endpoint-specific; trusted
+Host, exact DCR redirect, PKCE, state, CSRF, cookies and terminal approval remain.
+Origin parsing now rejects userinfo, paths and queries rather than comparing only
+scheme/host. A guard-to-OAuth-to-SDK regression covers the real callback shape,
+PKCE failure/success, state echo, invalid redirects/Host/Origin/CSRF, token exchange,
+authenticated initialize/list and unauthenticated MCP 401. Direct browser /mcp 401
+remains intentional. Real ChatGPT reconnection is pending owner interaction.
+
+The new user sprint explicitly authorizes one controlled readonly public tunnel,
+and private kmanisk/bridge-dev repository creation/push after validation and secret
+review. This replaces old no-remote/no-public-test restrictions only for this scope.
+No public repository, permanent service or real privileged test is authorized.
+
+Browser evidence boundary: the Fetch standard's append-Origin algorithm explicitly
+maps no-referrer navigation POSTs to Origin:null. An optional isolated headless
+Brave attempt could not load its fixture in this environment (startup/DBus timeout);
+it was stopped with its owned process group and the unsuccessful optional harness
+was not retained. No actual browser/client completion is claimed from that attempt.
+The retained regression exercises the real HTTP guard, cookie/CSRF/PKCE exchange
+and SDK rather than weakening the unsafe Origin rule.
+Sprint A gates passed: make check (normal/race/vet/staticcheck/Fish), bounded fuzz
+952,638 executions and all four CGO-free cross-builds. Real account completion is
+not inferred. The tested fix is ready for one inspected readonly-session restart.

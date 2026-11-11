@@ -31,3 +31,9 @@ client revocation, exact-operation approvals, durable at-most-once dispatch with
 unknown crash outcomes, timed privileges, sudo context safeguards, safe client
 registration, status/watch/down recovery and paginated file operations. Keep the
 jail, audit, per-call authorization and independent durable workers intact.
+
+Final integration sprint is active: current user now authorizes PRIVATE
+kmanisk/bridge-dev creation/push and one controlled readonly public tunnel. Earlier
+no-push/no-public-exposure instructions are superseded only in that scope. Preserve
+current user jobs, configuration and OAuth records. Never approve real consent on
+the user's behalf. Sprint evidence follows TEST_REPORT.md/NOTES.md.
