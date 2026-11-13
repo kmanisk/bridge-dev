@@ -20,6 +20,7 @@ function run(args,env={}) {
 try {
   assert.equal(formatMcpEndpoint("https://test.example/","secret"),"https://test.example/mcp/<MCP_TOKEN>");
   assert.equal(formatMcpEndpoint("https://test.example","abc",true),"https://test.example/mcp/abc");
+  const invalid=run(["unknown-command","--json"]);assert.equal(invalid.status,1);assert.equal(JSON.parse(invalid.stderr).code,"BRIDGEDEV_ERROR");
   const conn=run(["connect"]);
   assert.equal(conn.status,0,conn.stderr);
   assert.match(conn.stdout,/\/mcp\/<MCP_TOKEN>/);

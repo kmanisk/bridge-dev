@@ -5,7 +5,7 @@
  */
 
 import "dotenv/config";
-import {verifyAuditFile} from "./lib/hash-audit.js";
+import {verifyAuditFile,redactAudit} from "./lib/hash-audit.js";
 import {extensionCli,operatorApi} from "./lib/extension-cli.js";
 import { execSync, spawnSync, execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -474,7 +474,7 @@ async function main() {
   const rawArgs = process.argv.slice(2);
   const json=rawArgs.includes("--json");
   const args=rawArgs.filter(arg=>!["--json","--verbose"].includes(arg));
-  if(await extensionCli(args,json))return;
+  if(await extensionCli(args,json,rawArgs.includes("--verbose")))return;
   if(json){const log=console.log,lines:string[]=[];console.log=(...values:unknown[])=>{lines.push(values.map(String).join(" "));};process.once("beforeExit",()=>{console.log=log;log(JSON.stringify({ok:!process.exitCode,command:args[0]||"status",output:lines}));});}
   const cmd = (args[0] || "").toLowerCase();
 
@@ -519,12 +519,12 @@ async function main() {
       cmdHelp();
       break;
     default:
-      console.error(`Unknown command: ${cmd}\nRun 'bridge-dev help' for usage.`);
-      process.exit(1);
+      throw new Error(`Unknown command: ${cmd}. Run bridge-dev help for usage.`);
   }
 }
 
 main().catch((err) => {
-  console.error(`Fatal error: ${err.message}`);
+  const detail=String(redactAudit(process.argv.includes("--verbose")?(err.stack||err.message):err.message));
+  console.error(process.argv.includes("--json")?JSON.stringify({ok:false,error:detail,code:"BRIDGEDEV_ERROR"}):`Fatal error: ${detail}`);
   process.exit(1);
 });

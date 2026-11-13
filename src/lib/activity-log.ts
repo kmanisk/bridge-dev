@@ -1,3 +1,4 @@
+import {redactAudit} from "./hash-audit.js";
 import { randomUUID } from "node:crypto";
 import fs from "fs/promises";
 import { getAuditPath } from "./audit.js";
@@ -52,7 +53,7 @@ export function appendActivity(partial: Omit<ActivityEntry, "id" | "time"> & { t
   const entry: ActivityEntry = {
     id: randomUUID(),
     time: partial.time ?? new Date().toISOString(),
-    ...partial,
+    ...(redactAudit(partial) as typeof partial),
   };
 
   entries.push(entry);

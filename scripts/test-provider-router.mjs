@@ -58,6 +58,13 @@ try{
  const reloaded=new McpUpstreamManager(configPath);await reloaded.init();assert.equal(reloaded.getServerConfig('stdio').enabled,false);await reloaded.shutdown();
  await manager.removeServer('stdio');assert.equal(manager.getServerConfig('stdio'),undefined);
  await fs.writeFile(configPath,'{corrupted');const broken=new McpUpstreamManager(configPath);await broken.init();assert.ok(broken.initializationError);assert.deepEqual(broken.listServerConfigs(),[]);
+ const cleanup=new McpUpstreamManager(path.join(base,'cleanup.json'));await cleanup.init();
+ await cleanup.updateConfig({version:1,servers:[{...stdio,id:'first',env:{}},{...stdio,id:'second',env:{}}]});
+ await cleanup.listTools('first');await cleanup.listTools('second');
+ const failed=cleanup.connections.get('first'),restore=failed.transport.close.bind(failed.transport),secondPid=cleanup.listStatusesCached().find(s=>s.id==='second').pid;
+ failed.transport.close=async()=>{throw Error('fixture cleanup failure');};
+ try{await assert.rejects(cleanup.shutdown(),/cleanup failed/i);let alive=false;try{process.kill(secondPid,0);alive=true;}catch{}assert.equal(alive,false,'One cleanup failure prevented sibling provider cleanup');}
+ finally{failed.transport.close=restore;await cleanup.shutdown();}
  console.log('Provider router: two transports, client calls, default deny, schemas, SSRF, persistence, collisions, stale tools and child cleanup PASS');
 }finally{
  await client?.close();await server?.close();await manager?.shutdown();mock.kill();await new Promise(r=>mock.exitCode!==null?r():mock.once('exit',r));await fs.rm(base,{recursive:true,force:true});

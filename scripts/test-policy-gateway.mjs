@@ -325,6 +325,9 @@ try{
     git("config","diff.external",helper);
     git("config","core.fsmonitor",helper);
     process.env.GIT_EXTERNAL_DIFF=helper;
+    const {collectGitSnapshot}=await import("../dist/lib/git-snapshot.js");
+    const snapshot=await collectGitSnapshot(repoPath);assert.equal(snapshot.is_repo,true);
+    assert.equal(fs.existsSync(marker),false,"startup Git context executed an untrusted fsmonitor helper");
     const p=await pair();
     try {
       const d=await p.call("git_diff",{path:repoPath});

@@ -1,3 +1,5 @@
+import {readOnlyGitArguments,readOnlyGitEnvironment} from "../lib/read-only-git.js";
+import {childEnvironment} from "../lib/child-environment.js";
 import { spawn } from "child_process";
 import path from "path";
 import os from "node:os";
@@ -21,16 +23,8 @@ function runGit(args: string[], cwd: string, safeRead = false): Promise<GitRunRe
     // Native read tools must not execute repository-provided diff/textconv or
     // fsmonitor helpers, nor inherit attacker-controlled GIT_* environment.
     // This is defense in depth, not a replacement for a restricted service UID.
-    const env = { ...process.env };
-    if (safeRead) {
-      for (const key of Object.keys(env)) if (key.startsWith("GIT_")) delete env[key];
-      env.GIT_CONFIG_NOSYSTEM = "1";
-      env.GIT_CONFIG_GLOBAL = os.devNull;
-      env.GIT_OPTIONAL_LOCKS = "0";
-      env.GIT_TERMINAL_PROMPT = "0";
-      env.GIT_PAGER = "cat";
-      args = ["-c", "core.fsmonitor=false", "-c", "core.pager=cat", ...args];
-    }
+    const env = safeRead?readOnlyGitEnvironment():childEnvironment();
+    if(safeRead)args=readOnlyGitArguments(args);
     const child = spawn("git", args, { cwd, windowsHide: true, env });
     let stdout = "";
     let stderr = "";
@@ -82,7 +76,7 @@ export function registerGitTools(server: McpServer, defaultCwd: string): void {
 
   server.registerTool("git_log", {
     title: "Git Log", description: "Show recent commit history.",
-    inputSchema: { path: z.string().optional(), count: z.number().optional().default(10) },
+    inputSchema: { path: z.string().optional(), count: z.number().int().min(1).max(500).optional().default(10) },
 
     annotations: toolAnnotations("read"),
   }, async ({ path: repoPath, count }) => {

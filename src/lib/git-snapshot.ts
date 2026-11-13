@@ -1,3 +1,4 @@
+import {readOnlyGitArguments,readOnlyGitEnvironment} from "./read-only-git.js";
 import { spawn } from "child_process";
 import os from "os";
 
@@ -9,15 +10,17 @@ interface GitRunResult {
 
 function runGit(args: string[], cwd: string): Promise<GitRunResult> {
   return new Promise((resolve) => {
-    const child = spawn("git", args, { cwd, windowsHide: true });
+    const child = spawn("git", readOnlyGitArguments(args), { cwd, windowsHide: true,env:readOnlyGitEnvironment() });
+    const timer=setTimeout(()=>child.kill("SIGKILL"),4000);
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
-    child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+    child.stdout.on("data", (d: Buffer) => (stdout = (stdout+d.toString()).slice(0,65536)));
+    child.stderr.on("data", (d: Buffer) => (stderr = (stderr+d.toString()).slice(0,4096)));
     child.on("close", (code) => {
+      clearTimeout(timer);
       resolve({ stdout: stdout.trim(), stderr: stderr.trim(), exit_code: code ?? 1 });
     });
-    child.on("error", () => resolve({ stdout: "", stderr: "git not found", exit_code: 127 }));
+    child.on("error", () => {clearTimeout(timer);resolve({ stdout: "", stderr: "git not found", exit_code: 127 });});
   });
 }
 

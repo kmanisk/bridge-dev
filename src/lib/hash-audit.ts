@@ -11,13 +11,17 @@ function digest(record: Record<string, unknown>): string {
 export function redactAudit(value: unknown, key = ""): unknown {
   if (/(token|password|authorization|bearer|credential|private_key|api_key|secret|cookie|^(?:content|patch|code|replacement|note)$)/i.test(key))
     return "[REDACTED]";
-  if(typeof value === "string") return value
+  if(typeof value === "string") {
+    let redacted=value;
+    for(const secret of [process.env.MCP_TOKEN,process.env.ADMIN_TOKEN])if(secret&&secret.length>=8)redacted=redacted.split(secret).join("[REDACTED]");
+    return redacted
     .replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi,"$1[REDACTED]")
     .replace(/([?&](?:token|key|password|secret)=)[^&\s]+/gi,"$1[REDACTED]")
     .replace(/(\/(?:mcp\/)?)[A-Za-z0-9_-]{30,}(?=\/|\s|$)/g,"$1[REDACTED]")
     .replace(/(\b(?:MCP_TOKEN|ADMIN_TOKEN|PASSWORD|API_KEY)=)[^\s]+/gi,"$1[REDACTED]")
     .replace(/(--(?:password|token|api-key|secret)(?:=|\s+))[^\s]+/gi,"$1[REDACTED]")
     .replace(/(\b(?:password|token|secret)\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s]+)/gi,"$1[REDACTED]");
+  }
   if (Array.isArray(value)) return value.map((x)=>redactAudit(x,key));
   if (value && typeof value === "object") {
     const output: Record<string,unknown> = {};

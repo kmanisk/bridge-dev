@@ -1,104 +1,99 @@
 # BridgeDev
 
-**Run an MCP development gateway on your own device.** Connect ChatGPT, Codex, Claude Code or another MCP client to a scoped project workspace, then add skills, Markdown instructions and upstream MCP servers only when you want them.
+A scoped MCP gateway with reviewed MCP providers, skills, Markdown instructions and extension packs. Connect an MCP client to one gateway and manage extensions through the CLI or local admin interface.
 
-[Install](#install) · [Quick start](#quick-start) · [Commands](#commands) · [Extensions](#extensions) · [Platform support](#platform-support) · [Security](#security) · [Documentation](#documentation)
-
-[![Policy tests](https://github.com/kmanisk/bridge-dev/actions/workflows/policy-tests.yml/badge.svg)](https://github.com/kmanisk/bridge-dev/actions/workflows/policy-tests.yml)
-[![Portable platforms](https://github.com/kmanisk/bridge-dev/actions/workflows/portable-platforms.yml/badge.svg)](https://github.com/kmanisk/bridge-dev/actions/workflows/portable-platforms.yml)
-[![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Policy](https://github.com/kmanisk/bridge-dev/actions/workflows/policy-tests.yml/badge.svg)](https://github.com/kmanisk/bridge-dev/actions/workflows/policy-tests.yml)
+[![Platforms](https://github.com/kmanisk/bridge-dev/actions/workflows/portable-platforms.yml/badge.svg)](https://github.com/kmanisk/bridge-dev/actions/workflows/portable-platforms.yml)
+[![Linux distributions](https://github.com/kmanisk/bridge-dev/actions/workflows/linux-distributions.yml/badge.svg)](https://github.com/kmanisk/bridge-dev/actions/workflows/linux-distributions.yml)
 
 ## What it does
 
-- **Work on your files:** Read, search, edit, patch, Git, run builds/tests and inspect process output.
-- **Start portable:** Localhost-only workspace scope by default; no systemd, sudo or chezmoi dependency.
-- **Add your context:** Project \`AGENTS.md\` / \`CLAUDE.md\`, \`SKILL.md\` directories, extra Markdown, and HTTPS reference links.
-- **Connect other MCPs:** Configure HTTP or stdio providers separately, with explicit enablement and tool allowlists.
-- **Go hardened on Linux:** Optional restricted service account, operator-signed approvals, audit-chain anchor and temporary administration lease.
+- Runs with built-in files, patches, Git and command tools and no optional providers.
+- Routes approved HTTP/stdio MCP tools under deterministic provider namespaces.
+- Discovers compatible Git repositories, HTTPS files/archives, local content and reviewed package artifacts.
+- Stores provenance, versions, hashes and user/project scope; previews changes before operator approval.
+- Lets MCP clients inspect extensions and submit requests without approving their own installations.
 
-## Platform support
+## Platforms
 
-| Host | Portable source runtime | Hardened host integration |
-| --- | --- | --- |
-| Linux (Arch/CachyOS, Debian/Ubuntu, Fedora, etc.) | Supported by portable CI | Operator-installed systemd profile |
-| Windows 10/11 | CI-tested Node.js build/portable logic | Linux-specific sandbox/broker unavailable |
-| macOS | CI-tested Node.js build/portable logic | Linux-specific sandbox/broker unavailable |
-| Android / Termux | **Experimental**, manual source build | Not supported |
+Native Linux, Windows and macOS startup, authentication, CLI and extension scenarios pass GitHub Actions. Debian, Fedora and Arch container scenarios also pass. Android/Termux is **experimental and unverified on hardware**. Portable mode runs with the OS account's permissions; hardened Linux deployment is separate. [Actual coverage](docs/PLATFORM_SUPPORT.md).
 
-The same portable Node.js core is intended for all hosts; only Linux has the existing restricted-UID and systemd security model. Windows/macOS/Android are **not** equivalent to the hardened Linux deployment. See [platform details](docs/PLATFORM_SUPPORT.md).
+## Installation
 
-## Install
+Use Node.js 24, pnpm 12 and Git. Python with venv/pip is needed only for compatible wheel installation; Windows process cleanup uses PowerShell.
 
-**Requirements:** Node.js 20+ (CI uses 24), pnpm, Git. Choose your host:
-
-- **Linux:** Install Node.js, pnpm and Git using your distribution's supported package manager or version manager. [Linux notes](docs/PLATFORM_SUPPORT.md#linux)
-- **Windows:** Install Node.js, pnpm and Git, then use PowerShell.
-- **macOS:** Install Node.js, pnpm and Git (Homebrew or official installers).
-- **Android:** Use Termux with Node.js/Git, then follow the [experimental guide](docs/PLATFORM_SUPPORT.md#android--termux).
-
-In any shell with the prerequisites available:
-
-~~~sh
+```sh
 git clone https://github.com/kmanisk/bridge-dev.git
 cd bridge-dev
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm run build
-~~~
+```
+
+Run `node dist/cli.js help`. Below, `bridge-dev` means that CLI entrypoint; from this checkout, replace it with `node dist/cli.js`. No service, tunnel or integration is installed automatically.
 
 ## Quick start
 
-1. Copy \`.env.example\` to \`.env\` (\`cp .env.example .env\` on Linux/macOS/Termux, \`Copy-Item .env.example .env\` on Windows).
-2. Generate a token with \`node dist/cli.js login --generate\`, and privately place it in \`.env\` as \`MCP_TOKEN\`. Set \`WORKSPACE_PATH\` to **your own project** (default \`.\` only for trying the server).
-3. Start in the foreground: \`pnpm start\`. No service or tunnel is installed automatically.
-4. Use \`node dist/cli.js connect\` for a redacted endpoint. Configure your MCP client with \`http://127.0.0.1:3000/mcp/<MCP_TOKEN>\` locally. **The token is in the URL path**, not an Authorization header.
+1. Copy `.env.example` to `.env` (`Copy-Item .env.example .env` in PowerShell).
+2. Run `node dist/cli.js login --generate` twice. Privately set **different** generated values for `MCP_TOKEN` and `ADMIN_TOKEN` in `.env`.
+3. Set `WORKSPACE_PATH` to your project directory, then run `node dist/cli.js serve`.
+4. Open `http://127.0.0.1:3001/ui/`, enter the independent admin token and click Refresh.
 
-For remote clients, use an operator-controlled HTTPS route and do not publish the admin interface. Keep credentials out of logs and screenshots. [Connection troubleshooting](docs/TROUBLESHOOTING.md).
+CLI and server read the same `.env` in the current directory. Keep it private. The gateway binds to loopback; remote access requires an independently configured HTTPS route. Never publish the admin port.
 
-## Commands
+## Essential commands
 
-From the cloned repository, use \`node dist/cli.js\` (or \`bridge-dev\` after installing the CLI bin):
+```text
+bridge-dev status | setup | login | connect | doctor | serve | help
+bridge-dev add <source> [--select kind:name,...] [--scope user|project]
+bridge-dev approve <exact-proposal-id>
+bridge-dev mcp list|search|info|add|remove|enable|disable|update|test|tools|logs|status|import|export
+bridge-dev skills list|search|info|add|remove|enable|disable|update|validate|sources
+bridge-dev instructions list|info|add|remove|enable|disable|update
+bridge-dev pack add|info|list|update|remove
+```
 
-| Command | Purpose |
-| --- | --- |
-| \`bridge-dev\` / \`status\` | Workspace, runtime, connection and security status |
-| \`bridge-dev setup\` | Check detected platform, workspace and optional modules |
-| \`bridge-dev login --generate\` | Generate a new token (does not write it automatically) |
-| \`bridge-dev connect\` | Show MCP connection instructions with token redacted |
-| \`bridge-dev serve\` | Run a foreground gateway; Ctrl-C stops it |
-| \`bridge-dev doctor\` | Inspect health, report unverifiable security checks explicitly |
-| \`bridge-dev help\` | Show available commands |
+Use `--json` for structured output and `--verbose` for full previews/diagnostics. `approve`, portable mode changes and lifecycle stop/restart require the independent admin credential. [Command behavior](docs/EXTENSIONS.md).
 
-\`mode\`, \`project map\`, \`stop\` and \`restart\` are **operator-managed Linux installation** commands, not universal portable functions. They are unavailable or require separate authorization on other hosts.
+## Add your first MCP
 
-## Extensions
+```sh
+bridge-dev mcp add https://github.com/owner/compatible-provider
+# Review the source, resolved version, requirements and proposal ID.
+bridge-dev approve <proposal-id>
+bridge-dev mcp test <provider-name>
+bridge-dev mcp enable <provider-name> --tools <tool-name> --permission R
+bridge-dev approve <enable-proposal-id>
+```
 
-No plugin installation or account connection is required to start. Each project can contain:
+The repository must contain a compatible MCP definition, such as `bridge-dev.json` or a JSON MCP export. A manifestless repository reports the blocker; README commands are never run. `R` is your assertion of read-only behavior. Imported providers start disabled; registering one does not install its native dependencies. [Provider definitions and permissions](docs/MCP_INTEGRATIONS.md).
 
-~~~text
-my-project/
-  AGENTS.md
-  .bridge-dev/
-    extensions.json        # optional, safe Markdown references + skill roots
-    instructions.md
-    skills/
-      code-review/SKILL.md
-    mcp.json                # optional upstream MCP config (empty by default)
-~~~
+## Add a skill from GitHub
 
-Skills are also discovered from \`.agents/skills\` and \`.claude/skills\`. Use [examples/extensions.example.json](examples/extensions.example.json) as a template. Local Markdown instructions stay within the workspace; external HTTPS links are listed as references **without fetching or executing them**.
+```sh
+bridge-dev add https://github.com/owner/skills
+# Select only the desired candidates shown by discovery.
+bridge-dev add https://github.com/owner/skills --select skill:code-review
+bridge-dev approve <proposal-id>
+bridge-dev skills enable code-review
+bridge-dev approve <enable-proposal-id>
+```
 
-[Add skills and Markdown](docs/EXTENSIONS.md) · [Add MCP integrations](docs/MCP_INTEGRATIONS.md)
+Raw `SKILL.md` URLs and local directories also work. Skills and instructions are untrusted guidance and never execute embedded scripts. [Sources, packs and scope](docs/EXTENSIONS.md).
 
-## Security
+## Connect ChatGPT, Codex or another MCP client
 
-**Portable:** Localhost-only listener, approved workspace writes, secret/path checks, command policy and an application audit chain. Privileged operations cannot silently become root. This is **not an OS sandbox**; run it with an account that has only the access you intend.
+Use `/mcp` with `Authorization: Bearer <MCP_TOKEN>`, or the compatible token URL `/mcp/<MCP_TOKEN>` when the client requires URL authentication. `bridge-dev connect` prints a redacted example; `--show-token` reveals it explicitly.
 
-**Managed Linux:** Restricted service identity, root-owned policy and key material, append-only anchored ledger, independently approved privileged operations. Modes: **STRICT**, **STANDARD** (default), **YOLO** (temporary signed lease only). These protections require independent operator provisioning and are not enabled by cloning the repository.
+ChatGPT Web needs your operator-controlled public HTTPS route. Codex, Claude and other clients can use the same MCP endpoint. Local independent-client protocol tests pass; real account acceptance is **not claimed**. Clients that cache tools may require a connector refresh and a new chat after provider changes.
 
-[Security architecture](docs/POLICY_GATEWAY.md) · [Managed Linux deployment](docs/SYSTEMD_DEPLOYMENT.md)
+## Security and current limits
 
-## Documentation
+Default exposure is deny. Operator approvals bind exact proposals and provider changes; MCP clients have no approval/signing tool. Provider execution is lazy, bounded and cleaned up on disable/shutdown. STRICT refuses stdio providers; managed Linux retains signed privileged approvals and temporary YOLO leases.
 
-[Platforms](docs/PLATFORM_SUPPORT.md) · [Extensions and skills](docs/EXTENSIONS.md) · [MCP providers](docs/MCP_INTEGRATIONS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Contributing](AGENTS.md)
+Portable mode is **not an OS sandbox**. SSH/private Git access, general package dependency resolution, community registry search and referenced/regex tool schemas are currently unsupported. Automatic packages are limited to dependency-free Node executables and universal Python wheels. [Exact supported formats and limits](docs/SOURCES.md).
 
-Licensed under [MIT](LICENSE). The TypeScript project derives from the MIT-licensed [chatgpt-local-coder](https://github.com/hoangcoderr/chatgpt-local-coder) by hoangcoderr; original attribution is preserved. The earlier BridgeDev Go prototype is kept on \`archive/go-prototype\`.
+## Documentation and license
+
+[Platforms](docs/PLATFORM_SUPPORT.md) · [Sources](docs/SOURCES.md) · [Extensions](docs/EXTENSIONS.md) · [MCP integrations](docs/MCP_INTEGRATIONS.md) · [Security](docs/POLICY_GATEWAY.md) · [Managed Linux](docs/SYSTEMD_DEPLOYMENT.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Verification evidence](docs/COMPLETION_AUDIT.md)
+
+[MIT licensed](LICENSE), derived from [chatgpt-local-coder](https://github.com/hoangcoderr/chatgpt-local-coder) by hoangcoderr; original attribution is preserved. Historical Go source remains on `archive/go-prototype`.

@@ -403,9 +403,9 @@ export class McpUpstreamManager {
   async shutdown(): Promise<void> {
     this.generation++;
     await Promise.allSettled([...this.connecting.values()]);
-    for (const id of [...this.connections.keys()]) {
-      await this.disconnect(id);
-    }
+    const results=await Promise.allSettled([...this.connections.keys()].map(id=>this.disconnect(id)));
+    const errors=results.filter((result):result is PromiseRejectedResult=>result.status==="rejected").map(result=>result.reason);
+    if(errors.length)throw new AggregateError(errors,"Provider cleanup failed; all remaining transports were still closed");
   }
 
   /** Pure read: never connect to an upstream or execute a stdio provider. */

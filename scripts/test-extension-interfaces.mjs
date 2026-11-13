@@ -4,7 +4,8 @@ import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
 import {spawn,spawnSync} from 'node:child_process';
-import {randomBytes} from 'node:crypto';
+import {randomBytes,generateKeyPairSync,sign} from 'node:crypto';
+import {approvalPayload} from '../dist/lib/policy-approvals.js';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'bridge-interface-'));
@@ -14,7 +15,9 @@ const work=path.join(root,'work'),source=path.join(root,'source');await fs.mkdir
 await fs.writeFile(path.join(source,'skills','demo','SKILL.md'),'---\nname: demo\ndescription: Fixture guidance\n---\n# Safe fixture\n');
 await fs.writeFile(path.join(source,'bridge-dev.json'),JSON.stringify({version:1,servers:[{id:'fixture',name:'Generic fixture',enabled:true,transport:'stdio',command:process.execPath,args:[path.resolve('scripts/mock-stdio-mcp.mjs')],expose:'all'}]}));
 const env={...process.env,POLICYGATE_POLICY_FILE:'',BRIDGEDEV_RUNTIME_MODE:'portable',WORKSPACE_PATH:work,BRIDGEDEV_STATE_DIR:path.join(root,'state'),MCP_UPSTREAM_CONFIG:path.join(root,'providers.json'),MCP_TOKEN:token,ADMIN_TOKEN:admin,PORT:String(port),ADMIN_PORT:String(adminPort)};
+const keys=generateKeyPairSync('ed25519'),publicKey=path.join(root,'operator.pem'),approvalDir=path.join(root,'approvals');await fs.writeFile(publicKey,keys.publicKey.export({type:'spki',format:'pem'}));Object.assign(env,{POLICYGATE_APPROVAL_PUBLIC_KEY:publicKey,POLICYGATE_APPROVAL_DIR:approvalDir});
 let gateway,logs='',client;
+const init=spawnSync('git',['init','-q',work],{env,encoding:'utf8'});assert.equal(init.status,0,init.stderr);await fs.writeFile(path.join(work,'visible.txt'),'native file fixture');
 function cli(args,overrides={}){const run=spawnSync(process.execPath,['dist/cli.js',...args,'--json'],{env:{...env,...overrides},encoding:'utf8',timeout:30000});assert.equal(run.status,0,run.stderr+' '+run.stdout);return JSON.parse(run.stdout).data;}
 async function api(route,body,credential=admin){const r=await fetch(`http://127.0.0.1:${adminPort}`+route,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+credential,'Content-Type':'application/json',Connection:'close'},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,body:await r.json()};}
 async function start(){gateway=spawn(process.execPath,['dist/index.js'],{env,stdio:['ignore','pipe','pipe']});gateway.stdout.on('data',b=>logs+=b);gateway.stderr.on('data',b=>logs+=b);for(let i=0;i<100;i++){if(gateway.exitCode!==null)throw Error(logs);try{if((await fetch(`http://127.0.0.1:${port}/health`)).ok)return;}catch{}await new Promise(r=>setTimeout(r,50));}throw Error(logs);}
@@ -34,16 +37,30 @@ try{
  const enable=cli(['mcp','enable','fixture','--tools','echo','--permission','R']);assert.equal(enable.provider.command,process.execPath);cli(['approve',enable.id]);
  client=new Client({name:'independent-web-client',version:'1'},{capabilities:{}});
  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`),{requestInit:{headers:{Authorization:'Bearer '+token}}}));
+ const nativeRead=await client.callTool({name:'read_text_file',arguments:{path:'visible.txt'}});assert.equal(nativeRead.isError,undefined);assert.match(JSON.stringify(nativeRead.structuredContent.data),/native file fixture/);
+ const nativeGit=await client.callTool({name:'git_status',arguments:{}});assert.equal(nativeGit.structuredContent.ok,true);assert.match(JSON.stringify(nativeGit.structuredContent.data),/visible.txt/);
+ await client.callTool({name:'system_context',arguments:{docs:['agents','current_state']}});
+ const nativeWrite=await client.callTool({name:'write_file',arguments:{path:'created.txt',content:'native write fixture'}});assert.equal(nativeWrite.structuredContent.ok,true);assert.equal(await fs.readFile(path.join(work,'created.txt'),'utf8'),'native write fixture');
+ const commandCall={name:'run_command',arguments:{command:'echo portable-native-command'}};
+ const deniedCommand=await client.callTool(commandCall);assert.equal(deniedCommand.isError,true);assert.match(JSON.stringify(deniedCommand),/POLICYGATE_APPROVAL_REQUIRED/);
+ const requestFiles=(await fs.readdir(approvalDir)).filter(name=>name.endsWith('.request.json'));const commandRequests=await Promise.all(requestFiles.map(async name=>JSON.parse(await fs.readFile(path.join(approvalDir,name),'utf8'))));const commandRequest=commandRequests.find(request=>request.tool==='run_command'&&request.args.command===commandCall.arguments.command);assert.ok(commandRequest);
+ const signature=sign(null,Buffer.from(approvalPayload(commandRequest)),keys.privateKey).toString('base64');await fs.writeFile(path.join(approvalDir,commandRequest.id+'.approved.json'),JSON.stringify({...commandRequest,signature}));
+ const nativeCommand=await client.callTool(commandCall);assert.equal(nativeCommand.structuredContent?.ok,true,JSON.stringify(nativeCommand));assert.match(nativeCommand.structuredContent.data.stdout,/portable-native-command/);assert.equal(nativeCommand.structuredContent.data.exit_code,0);
  const tools=(await client.listTools()).tools;assert.ok(tools.some(tool=>tool.name==='fixture__echo'));assert.ok(tools.some(tool=>tool.name==='extensions_propose_add'));
  const call=await client.callTool({name:'fixture__echo',arguments:{message:'actual-gateway'}});assert.match(JSON.stringify(call),/echo:actual-gateway/);
  const request=await client.callTool({name:'extensions_propose_add',arguments:{source:'https://fixture.invalid/never-contacted.git'}});assert.match(JSON.stringify(request),/operator_review_required/);
  assert.equal((await api('/api/extensions')).body.data.requests.length,1);
  const selfApprove=await client.callTool({name:'extensions_approve',arguments:{id:enable.id}});assert.equal(selfApprove.isError,true);
- const skill=cli(['skills','add',source]);cli(['approve',skill.id]);const skillEnable=cli(['skills','enable','demo']);cli(['approve',skillEnable.id]);
+ const skillRequest=await client.callTool({name:'skills_propose_add',arguments:{source,scope:'project'}});
+ const review=await api('/api/extensions/review',{id:skillRequest.structuredContent.data.id});assert.equal(review.status,200);assert.equal(review.body.data.components.length,2);
+ const selected=await api('/api/extensions/discover',{source,scope:'project',selection:['skill:demo']});assert.equal(selected.status,200);cli(['approve',selected.body.data.id]);const skillEnable=cli(['skills','enable','demo']);cli(['approve',skillEnable.id]);
  const loaded=await client.callTool({name:'load_skill',arguments:{name:'demo'}});assert.match(JSON.stringify(loaded),/Untrusted skill guidance/);
  const manifest=JSON.parse(await fs.readFile(path.join(source,'bridge-dev.json'),'utf8'));manifest.servers[0].args.push('--new-version');await fs.writeFile(path.join(source,'bridge-dev.json'),JSON.stringify(manifest));
  const update=cli(['mcp','update','fixture']);assert.ok(update.id);assert.equal((await api('/api/extensions')).body.data.providers[0].enabled,true,'Proposed command update must not apply itself');cli(['approve',update.id]);assert.equal((await api('/api/extensions')).body.data.providers[0].enabled,false,'Changed command requires fresh enable review');
  const fresh=cli(['mcp','enable','fixture','--tools','echo','--permission','R']);assert.notEqual(fresh.id,enable.id);cli(['approve',fresh.id]);
+ const disableRequest=await client.callTool({name:'mcp_propose_disable',arguments:{name:'fixture'}});
+ const disableReview=await api('/api/extensions/review',{id:disableRequest.structuredContent.data.id});assert.equal(disableReview.status,200);assert.equal(disableReview.body.data.provider.enabled,false);cli(['approve',disableReview.body.data.id]);assert.equal((await api('/api/extensions')).body.data.providers[0].enabled,false);
+ const again=cli(['mcp','enable','fixture','--tools','echo','--permission','R']);cli(['approve',again.id]);
  const disabled=cli(['mcp','disable','fixture']);cli(['approve',disabled.id]);
  const stale=await client.callTool({name:'fixture__echo',arguments:{message:'stale'}});assert.equal(stale.isError,true);
  await client.close();client=null;await stop();await start();assert.equal((await api('/api/extensions')).body.data.providers[0].enabled,false);

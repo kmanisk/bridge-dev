@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { spawn } from "node:child_process";
+import { spawn,spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 
 const root=fs.mkdtempSync(path.join(os.tmpdir(),"bridge-dev-portable-server-"));
@@ -32,6 +32,10 @@ try{
     BRIDGEDEV_STATE_DIR:path.join(root,"state"),CHATGPT_TOOL_PROFILE:"slim"};
   delete env.POLICYGATE_POLICY_FILE;
   delete env.MCP_UPSTREAM_CONFIG;
+  for(const bad of ["too-short","REPLACE_WITH_64_HEX_CHAR_RANDOM_TOKEN","x".repeat(40)+"*"]){
+    const rejected=spawnSync(process.execPath,["dist/index.js"],{cwd:process.cwd(),env:{...env,MCP_TOKEN:bad},encoding:"utf8",timeout:5000});
+    assert.equal(rejected.status,1);assert.ok(!rejected.stderr.includes(bad));
+  }
   child=spawn(process.execPath,["dist/index.js"],{cwd:process.cwd(),env,stdio:["ignore","pipe","pipe"]});
   child.stdout?.on("data",b=>{logs=(logs+b.toString()).slice(-12000);});
   child.stderr?.on("data",b=>{logs=(logs+b.toString()).slice(-12000);});

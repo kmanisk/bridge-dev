@@ -89,7 +89,7 @@ export function discoverFiles(files:Record<string,string>):ExtensionComponent[]{
       for(const server of manifest.servers||[])members.push("mcp:"+server.id);
       if(manifest.pack){out.push({id:componentId(manifest.pack.name),kind:"pack",name:manifest.pack.name,description:String(manifest.pack.description||"Extension pack"),files:{[filename]:raw},members,requirements:manifest.requirements||[],permissions:["Review each member; executable providers remain disabled"]});}
     }
-    if((filename==="mcp.json"||filename===".mcp.json") || (/\.json$/i.test(filename) && !filename.endsWith("bridge-dev.json") && !filename.endsWith("pack.json") && raw.includes('"mcpServers"'))){
+    if((filename==="mcp.json"||filename===".mcp.json") || (/\.json$/i.test(filename) && !filename.endsWith("bridge-dev.json") && !filename.endsWith("pack.json") && (raw.includes('"mcpServers"')||raw.includes('"servers"')))){
       const rawConfig=JSON.parse(raw);
       const servers=rawConfig.mcpServers?parseMcpServersFile(rawConfig):normalizeConfig(rawConfig).servers;
       for(const server of servers)out.push({id:server.id,kind:"mcp",name:server.name,description:"Imported MCP definition",files:{},provider:{...server,enabled:false,expose:"none"},requirements:[server.command || "HTTP endpoint"],permissions:["Execution and exposure denied until operator review"]});

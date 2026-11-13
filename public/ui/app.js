@@ -560,6 +560,8 @@ document.getElementById("save-local-tools").addEventListener("click", async () =
 
 let reviewedExtensionProposal = null;
 function showExtensionPreview(result) {
+  const source=result.source||result.discovery?.source;if(source)document.getElementById("extension-source").value=source;
+  if(result.scope)document.getElementById("extension-scope").value=result.scope;
   reviewedExtensionProposal = result.id || null;
   document.getElementById("extension-preview").textContent = JSON.stringify(result, null, 2);
   document.getElementById("extension-approve").hidden = !reviewedExtensionProposal;
@@ -603,5 +605,5 @@ async function loadManagedExtensions(){
   }
   const state=document.createElement("pre");state.textContent=JSON.stringify(data.providers,null,2);list.append(state);
   const requests=document.getElementById("extension-requests");requests.replaceChildren();
-  for(const request of data.requests){const button=document.createElement("button");button.className="btn";button.textContent=`Review ${request.action}: ${request.source||request.key}`;button.addEventListener("click",async()=>{try{showExtensionPreview((await api("/api/extensions/review",{method:"POST",body:JSON.stringify({id:request.id})})).data);}catch(error){toast(error.message,true);}});requests.append(button);}
+  for(const request of data.requests){const button=document.createElement("button");button.className="btn";button.textContent=`Review ${request.action}: ${request.source||request.key}`;button.addEventListener("click",async()=>{try{document.getElementById("extension-scope").value=request.scope;showExtensionPreview((await api("/api/extensions/review",{method:"POST",body:JSON.stringify({id:request.id})})).data);}catch(error){toast(error.message,true);}});requests.append(button);}
 }

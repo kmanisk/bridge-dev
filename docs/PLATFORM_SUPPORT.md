@@ -1,69 +1,78 @@
-# Platforms and runtime profiles
+# Platform support and verification
 
-BridgeDev separates its **portable workspace gateway** from **optional host-specific operations**.
+## Verified coverage
 
-## Portable (all hosts)
+The expanded matrix passed at `4f6cf9e` on 2026-11-13:
 
-Requirements: Node.js 20+ (CI: 24), pnpm and Git. \`pnpm install --frozen-lockfile --ignore-scripts && pnpm build\`, then copy \`.env.example\` to \`.env\`, set a generated \`MCP_TOKEN\` and \`WORKSPACE_PATH\`, run \`pnpm start\`.
+- [Native Linux, Windows, macOS and Linux source fixtures](https://github.com/kmanisk/bridge-dev/actions/runs/43447654179).
+- [Debian, Fedora and Arch containers](https://github.com/kmanisk/bridge-dev/actions/runs/43447654353).
+- [Managed policy and inventory regressions](https://github.com/kmanisk/bridge-dev/actions/runs/43447654408).
 
-Portable mode is selected when no \`POLICYGATE_POLICY_FILE\` is supplied. It:
-- Binds only to loopback and refuses a non-loopback \`HOST\`.
-- Limits ordinary filesystem mutation to \`WORKSPACE_PATH\`.
-- Has no automatic root privileges, privileged approval broker or systemd dependency.
-- Uses \`~/.bridge-dev/state/audit.jsonl\` as an application audit log, not a root-owned forensic ledger.
-- Does not read workstation-wide agent files by default.
-- Loads project \`AGENTS.md\` / \`CLAUDE.md\` and opt-in \`.bridge-dev/extensions.json\`.
-- Starts with zero upstream MCP providers until the operator explicitly configures them.
+Final-head runs are available through the README workflow badges and the final
+completion report. A prior green run is evidence only for its SHA.
 
-**Important:** A process running under your regular account can still access any files that OS account can access through indirectly executed commands. This is not a container or an OS sandbox. Use a restricted OS account, container or hardened Linux installation to isolate untrusted code. A signed policy approval cannot substitute for OS-level isolation.
+| Platform | Verified | Guarantees / restrictions |
+| --- | --- | --- |
+| CachyOS/Linux host | Full isolated aggregate, policy, sources, CLI, HTTP scenarios and browser admin flow | Existing managed deployment was not changed or redeployed |
+| Ubuntu native CI | Startup/auth, CLI, provider routing/crash cleanup, scoped content, security and HTTP management | Unprivileged fixture tests; privileged host deployment is separate |
+| Debian container | Portable core and extension/security scenarios | Disposable container uses `--init` to reap orphan descendants |
+| Fedora container | Same, including distro Node 22 | Explicit stream cancellation avoids the older Node adapter race |
+| Arch container | Same, with current distro runtime | Packages installed only in the disposable CI container |
+| Windows native CI | Node 24 startup/auth, CLI, two provider transports, crash/descendant cleanup, content/security and HTTP management | PowerShell 7 cleanup path verified; no Job Object/OS sandbox equivalence claimed |
+| macOS native CI | Same portable and extension scenarios | Canonical `/var` aliases handled; no hardened launchd/sandbox deployment claimed |
+| Android/Termux | Experimental; no hardware run | No Android CI, root broker, background lifetime or device compatibility claim |
 
-## Linux
+Actual ChatGPT/Codex/Claude account acceptance was not run. Independent MCP SDK
+clients exercise the HTTP gateway and both HTTP/stdio providers. Remote access
+requires an operator-controlled HTTPS route; no tunnel or deployment is automatic.
 
-Portable mode works independently of distribution package managers. Install Node.js, Git and pnpm using the distribution's package manager or a supported version manager:
+## Portable runtime
 
-- Arch / CachyOS: \`sudo pacman -S nodejs pnpm git\`
-- Debian / Ubuntu: available distro packages may be older than the Node.js minimum; check \`node --version\` and use a supported Node.js distribution if needed
-- Fedora: \`sudo dnf install nodejs git\`, then install pnpm using Corepack or its official installation instructions
+Recommended setup: Node.js 24, pnpm 12 and Git. Fedora's packaged Node 22 and Arch's
+runtime are exercised by distribution CI. Optional Python wheel installation needs
+Python 3 with venv/pip. Optional browser QA uses an existing Chromium-compatible
+binary. No new Node runtime dependency was added by this work.
 
-These installation commands change host packages; they are **manual prerequisites**, never actions the MCP gateway runs automatically.
+Portable mode is selected without `POLICYGATE_POLICY_FILE`. It binds only to
+loopback, scopes workspace operations and protects gateway-owned state. It does not
+scan production services, read workstation-wide context by default or grant root.
+Use `BRIDGEDEV_STATE_DIR` for an explicit state location. No persistent service is
+installed or enabled. Portable strict/standard changes and stop/restart use the
+independently authenticated operator API; restart serves again in the foreground.
 
-For root-owned policy, append-only audit and systemd sandboxing, consult [SYSTEMD_DEPLOYMENT.md](SYSTEMD_DEPLOYMENT.md). This is an additional operator-managed installation, not a portable default. The current production examples retain some historical compatibility paths.
+The process still has the OS account's access. Application checks are not a kernel
+sandbox; use a restricted account/container for untrusted execution. POSIX process
+groups and Windows process snapshots provide cleanup rather than malicious-process
+containment. Windows file modes do not establish POSIX-style ACL guarantees.
 
 ## Windows
 
-The Node.js source/portable tests are validated on \`windows-latest\` GitHub Actions. Run PowerShell:
+Install Node.js, pnpm and Git, then use PowerShell and the README clone/build steps.
+The CLI loads `.env`; use `Copy-Item .env.example .env` and set two private independent
+tokens and the workspace. No systemd, Linux mounts, sudo or package manager is assumed.
 
-~~~powershell
-git clone https://github.com/kmanisk/bridge-dev.git
-cd bridge-dev
-pnpm install --frozen-lockfile --ignore-scripts
-pnpm run build
-Copy-Item .env.example .env
-# Edit MCP_TOKEN and WORKSPACE_PATH privately
-pnpm start
-~~~
+Provider env grants are explicit. `SYSTEMROOT`/`WINDIR` are visible platform
+requirements; other variables libuv would automatically inherit are blanked.
+Cleanup uses taskkill for live trees and a bounded native Toolhelp snapshot helper
+for crashed roots. PowerShell 7 is preferred. The legacy Windows PowerShell fallback
+is retained but has not passed the expanded cleanup scenario and must not be treated
+as equivalent verification. The helper changes no persistent execution policy.
 
-Windows PowerShell service management and full host isolation are separate integrations, not provided by the Linux systemd runtime. The portable core's code and tests are checked, but a complete signed-operator Windows service deployment has **not** been accepted.
+## Managed Linux
 
-## macOS
+Managed mode requires an explicit independently owned policy; a missing or invalid
+policy never silently falls back to portable. Restricted UID, root-owned approvals,
+append-only audit/anchor and temporary YOLO require separate provisioning. Existing
+legacy names/paths remain compatible. [Deployment](SYSTEMD_DEPLOYMENT.md) and
+[policy](POLICY_GATEWAY.md) describe those additional boundaries.
 
-The Node.js source/portable tests are validated on \`macos-latest\` GitHub Actions. Install Node.js, pnpm and Git via Homebrew or official installers, then follow the portable steps.
-
-macOS launchd and sandbox/entitlements are **not** equivalent to the hardened Linux host mode; no systemd, \`chattr\` or root broker is assumed.
+This task did not install services, modify live code/configuration, rotate
+credentials, touch Funnel/Tailscale or change VMs/laptop settings. Source pushes do
+not constitute deployment or privileged-host acceptance.
 
 ## Android / Termux
 
-Experimental only. Termux can install Node.js and Git:
-
-~~~sh
-pkg install nodejs-lts git
-# Install pnpm in a Termux-compatible way, then clone and build
-~~~
-
-Foreground loopback-only service access may work on supported phones. No Android CI, background service guarantee, systemd isolation, signed privileged broker or cross-app filesystem access is claimed. PRoot, if used, is **not** a substitute for kernel-enforced isolation.
-
-## Optional capabilities
-
-\`bridge-dev setup\` reports the platform and which modules are portable, optional or unsupported. System diagnostics, hardware integrations, computer-use tools and project bind mounts depend on the host and are never injected into every user's bootstrap instructions.
-
-Use [EXTENSIONS.md](EXTENSIONS.md) for local Markdown/skills and [MCP_INTEGRATIONS.md](MCP_INTEGRATIONS.md) for upstream servers.
+A Termux source build can be attempted using its Node.js/Git packages, followed by
+pnpm install/build and a foreground loopback server. It remains experimental until
+actually tested on a device. PRoot is not kernel-enforced isolation. Do not assume
+Linux systemd helpers or signed privileged host operations are available.

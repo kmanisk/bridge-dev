@@ -254,3 +254,50 @@ and GitHub release-artifact URL shapes against the disposable HTTPS fixture.
 Archive discovery preserves multiple top-level directories instead of stripping
 each root separately; SSH sources produce an explicit unsupported error.
 Source tests and required policy/CLI/portable/inventory gates pass after this fix.
+
+
+## Phase 7 final review
+
+README is product-focused; source, extension, MCP, platform and troubleshooting
+references now describe implemented behavior and explicit unsupported cases.
+MIT attribution and the dependency lockfile are unchanged. No Node dependencies
+were added. Installation from source needs the existing Node/pnpm/Git toolchain;
+optional universal wheels need Python/venv/pip. Windows cleanup uses OS APIs through
+PowerShell rather than a new service or package.
+
+Final review corrected native Git snapshot helper execution, credential scrubbing
+in Git children, token validation and arbitrary-field activity redaction. A failed
+provider cleanup no longer prevents closing sibling transports. JSON CLI errors
+and verbose previews are consistent. Provider exports are detected by structure,
+including arbitrary JSON filenames. Model-created requests now pass through real
+operator component selection and provider disable review. Proposals and requests
+are bound to their canonical workspace. User/project provider merges preserve
+reviewed runtime settings, avoid duplicate IDs and restore the user definition
+when a project override is removed.
+
+An independent HTTP MCP client now verifies native file read/write, Git status,
+signed command denial/approval/execution and external provider calls in the same
+scenario. Its operator key is generated in the disposable fixture and is never
+exposed as a gateway tool. The session regression creates unrelated approval
+requests; the new test selects the exact command request before signing it.
+
+Remaining implementation gaps: SSH/private Git credentials, general package
+dependency resolution, community registry adapters/search, OS keychain integration,
+referenced/regex provider schemas and provider prompt/resource aggregation. These
+are unsupported features, not claimed environmental test passes. Android hardware,
+real ChatGPT/Codex/Claude accounts and a new privileged managed deployment were not
+available/tested. Legacy Windows PowerShell cleanup remains unverified; PowerShell
+7 passed the native CI matrix. The product verdict is PARTIAL against the entire
+requested definition of done.
+
+Production gateway, installed code/configuration, credentials, Tailscale/Funnel,
+VMs and workstation configuration were not modified or deployed by this task.
+Only main was changed; archive/go-prototype remains f3c9319. Final publication
+requires the required local gates and exact-head Actions verification, reported
+with the published commit and workflow links in the completion response.
+
+Final local gates passed: pnpm test, test:policy, test:cli, test:portable,
+the complete test:all aggregate (including fixture sources/integration/security
+and inventory), and the isolated authenticated browser scenario. Tool inventory
+is 52 slim / 73 full. git diff --check passed. Final review found no new dependency,
+license change or plaintext credential in the change set.

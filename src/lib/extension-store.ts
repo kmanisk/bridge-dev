@@ -13,7 +13,7 @@ export interface InstalledExtension {
 }
 export interface ExtensionLock {version:1;entries:InstalledExtension[];}
 export interface Proposal {
- version:1;id:string;action:"add"|"remove"|"enable"|"disable"|"update";
+ version:1;id:string;workspace:string;action:"add"|"remove"|"enable"|"disable"|"update";
  scope:Scope;key?:string;discovery?:Discovery;selection?:string[];expected?:string;provider?:UpstreamServerConfig;provider_expected?:string;created_at:number;
 }
 export class ExtensionStore {
@@ -59,6 +59,7 @@ export class ExtensionStore {
  }
  async proposeAction(action:Proposal["action"],key:string,scope:Scope="project"):Promise<Proposal>{
   const entry=(await this.read(scope)).entries.find(item=>item.key===key);if(!entry)throw new Error("EXTENSION_NOT_FOUND_IN_SCOPE");
+  if(action==="disable"&&entry.component.kind==="mcp"&&this.manager)return this.proposeProvider(entry.component.id,{enabled:false});
   if(action==="update"){
    const discovery=await this.catalog.discover(entry.source);
    if(!discovery.components.some(c=>c.kind+":"+c.id===key))throw new Error("UPDATE_COMPONENT_MISSING");
@@ -79,21 +80,28 @@ export class ExtensionStore {
  }
  async request(value:{action:string;source?:string;key?:string;selection?:string[];scope:Scope}):Promise<{id:string;operator_review_required:true}>{
   if(!["add","remove","update","disable"].includes(value.action)||!["user","project"].includes(value.scope)||JSON.stringify(value).length>4096)throw new Error("EXTENSION_REQUEST_INVALID");
-  const data={...value,created_at:Date.now()},id=sha256(JSON.stringify(data));await atomicJson(path.join(this.root,"requests",id+".json"),data);return {id,operator_review_required:true};
+  const data={...value,workspace:await fs.realpath(this.workspace),created_at:Date.now()},id=sha256(JSON.stringify(data));await atomicJson(path.join(this.root,"requests",id+".json"),data);return {id,operator_review_required:true};
  }
  async requests():Promise<unknown[]>{
   const directory=path.join(this.root,"requests");const files=await fs.readdir(directory).catch(()=>[]);
-  return Promise.all(files.filter(file=>/^[a-f0-9]{64}\.json$/.test(file)).slice(0,100).map(async file=>({id:file.slice(0,-5),...JSON.parse(await fs.readFile(path.join(directory,file),"utf8"))})));
+  const records=await Promise.all(files.filter(file=>/^[a-f0-9]{64}\.json$/.test(file)).slice(0,100).map(async file=>({id:file.slice(0,-5),...JSON.parse(await fs.readFile(path.join(directory,file),"utf8"))})));
+  const workspace=await fs.realpath(this.workspace);return records.filter(record=>record.workspace===workspace);
  }
  async reviewRequest(id:string):Promise<Proposal|Discovery>{
   if(!/^[a-f0-9]{64}$/.test(id))throw new Error("REQUEST_ID_INVALID");
   const request=JSON.parse(await fs.readFile(path.join(this.root,"requests",id+".json"),"utf8"));
   if(sha256(JSON.stringify(request))!==id)throw new Error("REQUEST_CHANGED");
-  const result=request.action==="add"?await this.propose(request.source,request.selection,request.scope):await this.proposeAction(request.action,request.key,request.scope);
+  if(request.workspace!==await fs.realpath(this.workspace))throw new Error("REQUEST_WORKSPACE_CHANGED");
+  let result:Proposal|Discovery;
+  if(request.action==="add")result=await this.propose(request.source,request.selection,request.scope);
+  else if(request.action==="disable"&&request.key?.startsWith("mcp:"))result=await this.proposeProvider(request.key.slice(4),{enabled:false});
+  else if(request.action==="remove"&&request.key?.startsWith("mcp:")&&!(await this.read(request.scope)).entries.some(e=>e.key===request.key))result=await this.proposeProviderRemoval(request.key.slice(4));
+  else result=await this.proposeAction(request.action,request.key,request.scope);
   await fs.rm(path.join(this.root,"requests",id+".json"));return result;
  }
- private async saveProposal(value:Omit<Proposal,"id">):Promise<Proposal>{
-  const id=sha256(JSON.stringify(value));const proposal={...value,id};
+ private async saveProposal(value:Omit<Proposal,"id"|"workspace">):Promise<Proposal>{
+  const body={...value,workspace:await fs.realpath(this.workspace)};
+  const id=sha256(JSON.stringify(body));const proposal={...body,id};
   await atomicJson(path.join(this.root,"proposals",id+".json"),proposal);return proposal;
  }
  async proposal(id:string):Promise<Proposal>{
@@ -101,6 +109,7 @@ export class ExtensionStore {
   const proposal=JSON.parse(await fs.readFile(path.join(this.root,"proposals",id+".json"),"utf8")) as Proposal;
   const {id:saved,...value}=proposal;
   if(saved!==id||sha256(JSON.stringify(value))!==id||Date.now()-proposal.created_at>3600000)throw new Error("PROPOSAL_CHANGED_OR_EXPIRED");
+  if(proposal.workspace!==await fs.realpath(this.workspace))throw new Error("PROPOSAL_WORKSPACE_CHANGED: review the proposal in its original workspace");
   return proposal;
  }
  /** Operator boundary: only CLI/admin call this; MCP exposes proposals only. */
@@ -146,13 +155,15 @@ export class ExtensionStore {
    }
    if(this.manager){
     const other=await this.read(proposal.scope==="user"?"project":"user");
-    const effective=new Map<string,InstalledExtension>();
-    for(const entry of (proposal.scope==="user"?[...entries,...other.entries]:[...other.entries,...entries]))effective.set(entry.key,entry);
+    const effectiveEntries=(scopeEntries:InstalledExtension[])=>new Map((proposal.scope==="user"?[...scopeEntries,...other.entries]:[...other.entries,...scopeEntries]).map(entry=>[entry.key,entry]));
+    const effective=effectiveEntries(entries),before=effectiveEntries(current.entries);
     const providers=[...effective.values()].filter(entry=>entry.component.kind==="mcp").map(entry=>{
-      const previous=current.entries.find(old=>old.key===entry.key&&old.digest===entry.digest);
-      return previous ? this.manager!.getServerConfig(entry.component.id)||entry.component.provider! : entry.component.provider!;
+      const previous=before.get(entry.key);
+      const unchanged=previous?.scope===entry.scope&&previous?.digest===entry.digest;
+      const renewed=proposal.action==="update"&&entry.scope===proposal.scope&&proposal.selection?.includes(entry.key);
+      return unchanged&&!renewed ? this.manager!.getServerConfig(entry.component.id)||entry.component.provider! : entry.component.provider!;
     }).filter(Boolean);
-    const oldIds=new Set(current.entries.filter(entry=>entry.component.kind==="mcp").map(entry=>entry.component.id));
+    const oldIds=new Set([...current.entries,...other.entries].filter(entry=>entry.component.kind==="mcp").map(entry=>entry.component.id));
     const config=this.manager.getConfig();
     const previous=config.servers;
     const next={version:1 as const,servers:[...previous.filter(server=>!oldIds.has(server.id)),...providers]};

@@ -14,7 +14,7 @@ export async function operatorApi(route:string,body?:unknown):Promise<any>{
  const response=await fetch(new URL(route,base),{method:body===undefined?"GET":"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(30000)});
  const data=await response.json();if(!response.ok)throw new Error(data.error||"Operator API failed");return data.data??data;
 }
-export async function extensionCli(args:string[],json=false):Promise<boolean>{
+export async function extensionCli(args:string[],json=false,verbose=false):Promise<boolean>{
  const group=args[0];if(!["add","mcp","skills","instructions","pack","approve"].includes(group))return false;
  const flag=(name:string)=>{const at=args.indexOf(name);return at<0?undefined:args[at+1];};
  const scope=(flag("--scope")||"project") as Scope;if(!["user","project"].includes(scope))throw new Error("--scope must be user or project");
@@ -22,6 +22,7 @@ export async function extensionCli(args:string[],json=false):Promise<boolean>{
  const action=group==="add"?"add":group==="approve"?"approve":plain[1]||"list",target=group==="add"||group==="approve"?plain[1]:plain[2];
  const manager=new McpUpstreamManager();await manager.init();const store=new ExtensionStore(undefined,undefined,manager);
  const kind=group==="skills"?"skill":group==="instructions"?"instructions":group==="pack"?"pack":"mcp";
+ const entries=async()=>flag("--scope")?(await store.read(scope)).entries:store.list();
  const key=target?.includes(":")?target:kind+":"+target;
  let result:any;
  try{
@@ -34,8 +35,8 @@ export async function extensionCli(args:string[],json=false):Promise<boolean>{
   if(group!=="add"&&!selection){const discovery=await store.catalog.discover(target),candidates=discovery.components.filter(c=>c.kind===kind);if(candidates.length===1)selection=[kind+":"+candidates[0].id];else if(!candidates.length)throw new Error("SOURCE_KIND_MISMATCH: no "+kind+" candidates");}
   result=await store.propose(target,selection,scope);
  }else if(action==="list"||action==="sources"||action==="search"){
-  const entries=(await store.list()).filter(entry=>group==="add"||entry.component.kind===kind);
-  result=action==="sources"?[...new Set(entries.map(e=>e.source))]:entries.filter(e=>action!=="search"||JSON.stringify([e.key,e.component.description]).toLowerCase().includes((target||"").toLowerCase()));
+  const selectedEntries=(await entries()).filter(entry=>group==="add"||entry.component.kind===kind);
+  result=action==="sources"?[...new Set(selectedEntries.map(e=>e.source))]:selectedEntries.filter(e=>action!=="search"||JSON.stringify([e.key,e.component.description]).toLowerCase().includes((target||"").toLowerCase()));
   if(group==="mcp")result={registered:manager.listStatusesCached(),installed:result,registry_error:manager.initializationError,search_scope:"installed metadata; external registry search not configured"};
  }else if(action==="validate")result=await store.validate();
  else if(action==="logs")result=await operatorApi("/api/extensions/provider-logs?name="+encodeURIComponent(target||""));
@@ -45,14 +46,15 @@ export async function extensionCli(args:string[],json=false):Promise<boolean>{
  else if(action==="tools")result=await operatorApi("/api/extensions/provider-tools?name="+encodeURIComponent(target||""));
  else if(action==="info"){
   if(!target)throw new Error("Name or source required");
-  const installed=(await store.list()).find(e=>e.key===key||e.component.id===target);
+  const installed=(await entries()).find(e=>e.key===key||e.component.id===target);
   result=installed||manager.getServerConfig(target)||await new SourceCatalog().discover(target);
  }else if(action==="enable"&&group==="mcp"){
   if(!target)throw new Error("Provider name required");
+  const active=(await store.list()).find(e=>e.key===key);if(flag("--scope")&&active&&active.scope!==scope)throw new Error("MCP_SCOPE_OVERRIDDEN: provider review targets the effective scope; remove the project override to review the user definition");
   const tools=(flag("--tools")||"").split(",").filter(Boolean),permission=flag("--permission")||"X";
   if(!["R","W","X"].includes(permission))throw new Error("--permission must be R, W or X; R is an operator assertion, never inferred from descriptions");
   result=await store.proposeProvider(target,{enabled:true,expose:"allowlist",tools,tool_permissions:Object.fromEntries(tools.map(name=>[name,permission as "R"|"W"|"X"])),...(args.includes("--allow-private-network")?{allow_private_network:true}:{})});
- }else if(action==="disable"&&group==="mcp")result=await store.proposeProvider(target!,{enabled:false});
+ }else if(action==="disable"&&group==="mcp"){const active=(await store.list()).find(e=>e.key===key);if(flag("--scope")&&active&&active.scope!==scope)throw new Error("MCP_SCOPE_OVERRIDDEN");result=await store.proposeProvider(target!,{enabled:false});}
  else if(action==="remove"&&group==="mcp"&&!(await store.list()).some(e=>e.key===key))result=await store.proposeProviderRemoval(target!);
  else if(["remove","disable","enable","update"].includes(action)){
   if(args.includes("--all")&&action==="update"){
@@ -62,7 +64,12 @@ export async function extensionCli(args:string[],json=false):Promise<boolean>{
  const safe=redactAudit(result);
  if(json)console.log(JSON.stringify({ok:true,data:safe}));
  else{
-  console.log(JSON.stringify(safe,null,2));
+  const summarize=(value:any):any=>{
+    if(Array.isArray(value))return value.map(summarize);
+    if(value&&typeof value==="object")return Object.fromEntries(Object.entries(value).map(([key,child])=>[key,key==="files"&&child&&typeof child==="object"?Object.entries(child).map(([file,text])=>({path:file,bytes:Buffer.byteLength(String(text))})):summarize(child)]));
+    return value;
+  };
+  console.log(JSON.stringify(verbose?safe:summarize(safe),null,2));
   if(result?.id)console.log("Review the exact proposal, then run: bridge-dev approve "+result.id);
   if(result?.components&&!result.id)console.log("Select components with --select kind:name[,kind:name]. No component was installed.");
  }

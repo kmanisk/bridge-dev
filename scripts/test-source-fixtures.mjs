@@ -77,6 +77,7 @@ with zipfile.ZipFile(sys.argv[1],"w") as z:
  const notes=await catalog.discover('https://fixture.invalid/notes.md');assert.equal(notes.components[0].kind,'instructions');
  const npm=await catalog.discover('npm:demo');assert.equal(npm.resolved,'1.2.3');assert.equal(npm.components[0].package.integrity,npmIntegrity);
  const pypi=await catalog.discover('pypi:demo');assert.equal(pypi.components[0].package.type,'pypi');
+ const exported=path.join(base,'arbitrary-export.json');await fs.writeFile(exported,JSON.stringify({version:1,servers:[{id:'exported',name:'Exported',transport:'stdio',command:'reviewed',enabled:false,expose:'none'}]}));assert.equal((await catalog.discover(exported)).components[0].kind,'mcp');
  const manager=new McpUpstreamManager(path.join(base,'providers.json'));await manager.init();
  const store=new ExtensionStore(path.join(base,'work'),catalog,manager);await fs.mkdir(store.workspace);
  const npmProposal=await store.propose('npm:demo');await store.apply(npmProposal.id);assert.equal(manager.getServerConfig('demo').enabled,false);

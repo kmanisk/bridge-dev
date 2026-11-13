@@ -24,3 +24,22 @@ See `docs/POLICY_GATEWAY.md` for the model and `README.md` for repository layout
 - YOLO: short-lived independently operator-signed escalation lease; never persistent.
 
 A rollout of the BridgeDev **name** into live service paths or public connector names requires its own verified rollout and rollback procedure; preserve the legacy fallback until then.
+
+## Reviewed extensions and platform verification (2026-11-13)
+
+The main branch now includes bounded Git/HTTPS/local/archive/package discovery,
+operator-reviewed scoped content/packs, deny-by-default aggregation and authenticated
+CLI/admin/MCP proposal interfaces. `docs/SOURCES.md`, `docs/EXTENSIONS.md` and
+`docs/MCP_INTEGRATIONS.md` define the implemented formats and restrictions.
+
+Run `pnpm run test:all` for the complete isolated host suite; `test:extensions` and
+`test:sources` are focused portable/source suites. Native Windows/macOS and Debian,
+Fedora/Arch jobs passed at 4f6cf9e; later SHAs need their own CI verification. Windows
+crash cleanup was accepted with PowerShell 7, not the legacy-host fallback.
+
+Product completion remains partial: SSH/private Git adapters, general package
+resolver/native wheels, community registry search, OS keychain integration and
+referenced/regex provider schemas are unimplemented. Android hardware and real
+ChatGPT/Codex/Claude account acceptance are unverified. No production rollout was
+performed; installed service code, credentials, Funnel and workstation state remain
+outside this repository task. Preserve those boundaries and the Go archive.

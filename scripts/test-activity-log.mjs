@@ -46,4 +46,8 @@ const errEntry = getRecentActivity(3).find((e) => e.status === "error" && e.tool
 assert.ok(errEntry, "expected error activity entry");
 assert.equal(errEntry.summary, "Bad Request: Server not initialized");
 
+const tokenBefore=process.env.MCP_TOKEN;process.env.MCP_TOKEN="activity-private-value-not-for-clients";
+appendActivity({kind:"mcp",summary:"activity-private-value-not-for-clients",details:{arbitrary:"activity-private-value-not-for-clients",Authorization:"Bearer private-credential"}});
+assert.doesNotMatch(JSON.stringify(getRecentActivity(1)),/activity-private-value-not-for-clients|private-credential/);
+if(tokenBefore===undefined)delete process.env.MCP_TOKEN;else process.env.MCP_TOKEN=tokenBefore;
 console.log("activity-log: ok");

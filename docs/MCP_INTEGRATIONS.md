@@ -1,46 +1,121 @@
-# MCP integrations
+# MCP providers and aggregation
 
-BridgeDev is usable with only its built-in tools. Upstream MCP servers are **optional** and disabled by default.
+BridgeDev starts without external providers. HTTP and stdio providers are optional,
+independently configured, and expose no tools by default. Registering a provider is
+not proof of MCP compatibility or native dependency installation.
 
-## A project-owned registry
+## Definitions and registration
 
-For portable mode, create \`.bridge-dev/mcp.json\` inside your project:
+Use a repository manifest or import a JSON MCP export:
 
-~~~json
+```json
 {
-  "version": 1,
-  "servers": [
-    {
-      "id": "local-example",
-      "name": "Local example",
-      "enabled": false,
-      "transport": "http",
-      "url": "http://127.0.0.1:8080/mcp",
-      "tool_prefix": "example",
-      "expose": "none"
-    }
-  ]
+  "mcpServers": {
+    "example": {"command": "node", "args": ["/reviewed/path/server.mjs"]}
+  }
 }
-~~~
+```
 
-No servers are started or connected by default. Use explicit \`enabled\` and \`expose\` values only after reviewing the target and its permissions.
+```sh
+bridge-dev mcp add https://github.com/owner/compatible-provider
+bridge-dev mcp import ./reviewed-export.json
+bridge-dev approve <proposal-id>
+bridge-dev mcp test example
+```
 
-For a reviewed managed Linux deployment, set \`MCP_UPSTREAM_CONFIG\` to its independently owned registry. The repository's \`profiles/mcp-upstream.json\` is intentionally empty and contains **no developer-specific paths**.
+Imports ignore incoming enable requests and register disabled, with no exposure.
+Existing Cursor, Claude and OpenCode export parsing remains available in the admin
+interface. A provider without reliable metadata requires an explicit definition;
+BridgeDev never executes README installation commands or guessed entrypoints.
 
-## HTTP and stdio
+Portable registry is `<workspace>/.bridge-dev/mcp.json`; `MCP_UPSTREAM_CONFIG`
+overrides it. The version-1 registry accepts `servers`, including command/args/env
+for stdio or url/headers/bearer_token_env_var for HTTP. Managed registries must retain
+the independently owned deployment permissions. User/project extension locks supply
+owned definitions with project precedence. Existing explicit allowlists remain valid.
 
-- **HTTP:** Set \`transport:"http"\` with a full URL. Use TLS for remote endpoints. Tokens belong in environment variables or protected secret stores, not committed configuration.
-- **stdio:** Set \`transport:"stdio"\` with \`command\` and \`args\`. A stdio provider executes code under the service account and inherits its accessible files unless independently isolated; this is a security-sensitive change.
-- **Tool visibility:** \`expose:"none"\` hides tools, \`meta_only\` permits reviewed metadata, and \`allowlist\` permits only named tools in \`tools\`. \`all\` exposes every returned tool and should be avoided for untrusted providers.
+For local/private HTTP, review a version-1 definition with
+`allow_private_network:true`. This grants access to private targets for that provider
+only. It does not disable TLS/SSRF checks for source downloads. Missing prerequisites
+or connectivity are reported as provider errors, not installed automatically.
 
-Import tooling in the admin UI can read supported client configuration formats, but importing is **not** proof that a provider is safe. Review each command/URL, environment variable and tool allowance before enabling it. Refresh and reconnect only after deliberate operator action.
+## Lifecycle and permissions
 
-## Recommended order
+```sh
+bridge-dev mcp list
+bridge-dev mcp info example
+bridge-dev mcp test example
+bridge-dev mcp tools example
+bridge-dev mcp enable example --tools read_item,list_items --permission R
+bridge-dev approve <enable-proposal-id>
+bridge-dev mcp disable example
+bridge-dev approve <disable-proposal-id>
+bridge-dev mcp update example
+bridge-dev approve <update-proposal-id>
+bridge-dev mcp remove example
+bridge-dev approve <remove-proposal-id>
+```
 
-1. Start BridgeDev with no upstream providers.
-2. Add local Markdown/skills for your workspace.
-3. Add one provider to \`.bridge-dev/mcp.json\` with \`enabled:false\` and \`expose:"none"\`.
-4. Review credentials, transport, executable paths and tool classifications.
-5. Enable only the needed tools and verify the new MCP client session.
+`--allow-private-network` is an explicit enable-review option. Tool permissions are
+operator assertions: R read-only, W mutation, X execution. A discovered read-only
+annotation grants nothing. There is currently no automatic annotation-based grant.
+Changed commands, arguments, source versions or hashes generate a new proposal;
+updates reset enabling and require fresh review. `update --all` returns individual
+proposals. Sources installed outside BridgeDev need provenance before automatic
+updates can be computed. `search` currently searches installed metadata only.
 
-See [EXTENSIONS.md](EXTENSIONS.md) and [POLICY_GATEWAY.md](POLICY_GATEWAY.md) for security boundaries.
+States are separate: an artifact can be **installed**, a definition **registered**,
+the provider **enabled**, its transport **connected**, and approved tools **exposed**.
+A registered HTTP endpoint need not have an installed local artifact. Status and
+metadata inspection are cached and do not execute providers; live tests require an
+operator or signed MCP test approval. `logs` returns bounded, redacted diagnostics.
+
+Portable mode accepts operator-reviewed per-tool permission declarations. Managed
+Linux additionally requires its root-owned `proxy_tools` policy; an admin UI setting
+does not supersede that independent policy. Unclassified tools require signed
+per-call approval. STRICT refuses stdio; STANDARD permits reviewed processes under
+the actual OS account. Portable mode cannot grant a privileged YOLO lease.
+
+## Router behavior
+
+Enabled providers initialize lazily for actual use/discovery, enumerate tools and
+expose only approved names. Names use `<provider>__<tool>`, ASCII characters and at
+most 64 characters; normalization/truncation adds a deterministic SHA-256 suffix.
+Prefix and generated-name collisions fail closed.
+
+Every call rechecks enablement and exposure, validates the original argument schema,
+uses a timeout and validates/limits the result. Provider metadata/results are bounded
+and labeled by untrusted origin. References/regex schema constructs are currently
+unsupported; schemas that cannot be safely validated are refused. The SDK validates
+declared structured output. Tool metadata cannot change policy or approve itself.
+
+Calls are audited. Failed connections back off on demand; there is no provider poller.
+Idle providers disconnect. Disable/remove/shutdown invalidate pending connections and
+close owned process trees. POSIX uses process groups; Windows uses live-tree taskkill
+and a bounded native snapshot helper for crashed roots. Windows cleanup was verified
+with PowerShell 7 in CI; the legacy host fallback is not an equivalent isolation
+boundary. Malicious providers can escape ordinary account-level process controls;
+use independent OS isolation for untrusted execution.
+
+Stdio receives explicit env grants. Windows SYSTEMROOT/WINDIR requirements appear in
+reviewed configuration; libuv's other automatic variables are blanked. Gateway tokens
+and approval authority are scrubbed from native command children. All environment
+and header values are redacted from MCP provider inspection. HTTP credentials use
+explicit protected environment references; OAuth uses private atomic files.
+
+## MCP management tools
+
+`extensions_list`, `extensions_info`, `extensions_search`,
+`extensions_propose_add`, `extensions_propose_remove`, `mcp_list`, `mcp_info`,
+`mcp_test`, `mcp_tools`, `mcp_status`, `mcp_propose_add`, `mcp_propose_update`,
+`mcp_propose_remove`, `mcp_propose_disable`, `skills_list`, `skills_info`,
+`skills_validate`, `skills_propose_add`, `skills_propose_remove`.
+
+Proposals from clients are inert requests: no code is downloaded, installed,
+approved, signed or enabled by creating a request. Authenticated operator review
+resolves it to an exact preview. `mcp_test` additionally binds the exact provider
+fingerprint and requires signed policy approval. There is no model approval tool.
+
+Tool-list notifications are sent to active sessions. Clients may cache manifests;
+refresh/reconnect the connector and open a new chat if new tools remain absent.
+Provider prompts/resources are not aggregated; tool routing is the supported focus.

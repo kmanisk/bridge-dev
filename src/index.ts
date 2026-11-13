@@ -37,7 +37,9 @@ const MCP_TOKEN = (process.env.MCP_TOKEN || "").trim();
 if (getRuntimeMode() === "portable" && !["127.0.0.1","localhost","::1"].includes(HOST)) {
   throw new Error("Portable BridgeDev may listen only on loopback; install a managed gateway for public exposure.");
 }
-if (!MCP_TOKEN || /[\x00-\x20/\\?#]/.test(MCP_TOKEN)) throw new Error("Configure a nonempty MCP_TOKEN without whitespace or URL separators before serving");
+if (!/^[a-zA-Z0-9._-]{32,1024}$/.test(MCP_TOKEN)||/^(?:REPLACE_|CHANGE_ME|EXAMPLE_|YOUR_)/i.test(MCP_TOKEN)) throw new Error("Configure a generated URL-safe MCP_TOKEN of at least 32 characters before serving");
+const configuredAdminToken=process.env.ADMIN_TOKEN?.trim();
+if(configuredAdminToken&&(!/^[a-zA-Z0-9._-]{32,1024}$/.test(configuredAdminToken)||/^(?:REPLACE_|CHANGE_ME|EXAMPLE_|YOUR_)/i.test(configuredAdminToken)))throw new Error("Configure a generated independent ADMIN_TOKEN of at least 32 characters");
 if (process.env.ADMIN_TOKEN?.trim() === MCP_TOKEN) throw new Error("MCP_TOKEN and ADMIN_TOKEN must be independent");
 const ADMIN_PORT = parseInt(process.env.ADMIN_PORT || "3001", 10);
 const SHELL_TIMEOUT = parseInt(process.env.SHELL_TIMEOUT || "120", 10);
@@ -347,7 +349,7 @@ async function shutdown(code = 0): Promise<void> {
   stopping = true;
   sessionManager.stopCleanup();
   await sessionManager.close();
-  await upstreamManager.shutdown();
+  try{await upstreamManager.shutdown();}catch(error){console.error("Provider cleanup error during shutdown: "+String(error));code=1;}
   adminServer.closeAllConnections();
   server.closeAllConnections();
   await Promise.all([new Promise<void>(resolve => adminServer.close(() => resolve())), new Promise<void>(resolve => server.close(() => resolve()))]);
