@@ -43,8 +43,8 @@ export class ProviderTransport implements Transport {
       const cleanupEnv={SystemRoot:process.env.SystemRoot,PATH:process.env.PATH,BRIDGEDEV_CLEANUP_PID:String(pid)};
       let cleanupError="";
       const run=(executable:string,args:string[])=>new Promise<boolean>(resolve=>{
-        const killer=spawn(executable,args,{stdio:["ignore","ignore","pipe"],windowsHide:true,timeout:10000,env:cleanupEnv});
-        let detail="";killer.stderr?.on("data",chunk=>{detail=(detail+chunk.toString()).slice(-2000);});
+        const killer=spawn(executable,args,{stdio:["ignore","pipe","pipe"],windowsHide:true,timeout:30000,env:cleanupEnv});
+        let detail="";for(const stream of [killer.stdout,killer.stderr])stream?.on("data",chunk=>{detail=(detail+chunk.toString()).slice(-2000);});
         killer.on("error",error=>{cleanupError=error.message;resolve(false);});killer.on("close",(code,signal)=>{if(code!==0)cleanupError=executable+" exit="+code+" signal="+signal+" "+detail;resolve(code===0);});
       });
       let stopped=false;
@@ -52,7 +52,8 @@ export class ProviderTransport implements Transport {
       // A native local snapshot retains ancestry after a crash, unlike taskkill /T.
       if(!stopped){
         const script=fileURLToPath(new URL("../../platform/windows-provider-cleanup.ps1",import.meta.url));
-        if(!await run("powershell.exe",["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",script,"-RootProcessId",String(pid)]))throw new Error("PROVIDER_TREE_CLEANUP_FAILED: native Windows snapshot helper failed: "+cleanupError);
+        const args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",script,"-RootProcessId",String(pid)];
+        if(!await run("pwsh.exe",args)&&!await run("powershell.exe",args))throw new Error("PROVIDER_TREE_CLEANUP_FAILED: native Windows snapshot helper failed: "+cleanupError);
       }
       if(child.exitCode===null&&!child.signalCode)await new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error("PROVIDER_EXIT_TIMEOUT")),3000);child.once("exit",()=>{clearTimeout(timer);resolve();});});
     }else{

@@ -230,3 +230,9 @@ CLI reads the same optional .env as serve, with test dotenv paths forced into ea
 disposable test root. Portable status/doctor use configured ports and application
 state and do not require a Linux system service or inspect production host policy.
 The interface regression verifies portable doctor against the isolated gateway.
+
+The native snapshot helper's first Windows run also timed out while launching the
+legacy powershell.exe host (exit=null, signal=SIGTERM, no script diagnostics).
+Cleanup now prefers installed PowerShell 7, keeps a bounded legacy fallback and
+captures only trusted helper diagnostics on failure. The provider-crash/child-PID
+assertion remains required. Local required suites pass; native CI remains the gate.

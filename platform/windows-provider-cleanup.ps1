@@ -1,5 +1,6 @@
 param([Parameter(Mandatory=$true)][int]$RootProcessId)
 $ErrorActionPreference = 'Stop'
+Write-Output 'BridgeDev cleanup: starting native snapshot'
 # Toolhelp is local and does not depend on WMI, WinRM or a resident helper.
 Add-Type -TypeDefinition @'
 using System;
@@ -37,6 +38,7 @@ public static class BridgeDevProcessTree {
   }
 }
 '@
+Write-Output 'BridgeDev cleanup: native API ready'
 foreach ($ChildProcessId in [BridgeDevProcessTree]::Descendants($RootProcessId)) {
   if ($ChildProcessId -ne $PID) {
     $ChildProcess = Get-Process -Id $ChildProcessId -ErrorAction SilentlyContinue
