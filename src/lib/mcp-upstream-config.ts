@@ -33,6 +33,7 @@ export interface UpstreamServerConfig {
   idle_timeout_sec?: number;
   allow_private_network?: boolean;
   tool_permissions?: Record<string,"R"|"W"|"X">;
+  reviewed?: boolean;
 }
 
 export interface UpstreamConfigFile {
@@ -55,18 +56,25 @@ export function resolveUpstreamConfigPath(): string {
 }
 
 function normalizeServer(raw: UpstreamServerConfig): UpstreamServerConfig {
+  if(!raw || typeof raw!=="object" || Array.isArray(raw) || typeof raw.id!=="string")throw new Error("Invalid provider object or id");
+  for(const key of ["name","command","cwd","url","bearer_token_env_var","tool_prefix"] as const)if(raw[key]!==undefined&&typeof raw[key]!=="string")throw new Error("Invalid provider field: "+key);
+  for(const key of ["enabled","allow_private_network","reviewed"] as const)if(raw[key]!==undefined&&typeof raw[key]!=="boolean")throw new Error("Invalid provider field: "+key);
+  for(const key of ["tools","disabled_tools"] as const)if(raw[key]!==undefined&&(!Array.isArray(raw[key])||!raw[key]!.every(x=>typeof x==="string")))throw new Error("Invalid provider field: "+key);
+  for(const key of ["env","headers","tool_permissions"] as const)if(raw[key]!==undefined&&(!raw[key]||typeof raw[key]!=="object"||Array.isArray(raw[key])||!Object.values(raw[key]!).every(x=>typeof x==="string")))throw new Error("Invalid provider field: "+key);
+  if(raw.auth!==undefined&&(!raw.auth||typeof raw.auth!=="object"||!["auto","oauth","none"].includes(raw.auth.type)||Object.keys(raw.auth).some(k=>!["type","scope"].includes(k))||(raw.auth.scope!==undefined&&typeof raw.auth.scope!=="string")))throw new Error("Invalid provider auth");
+  if(raw.idle_timeout_sec!==undefined&&(!Number.isFinite(raw.idle_timeout_sec)||raw.idle_timeout_sec<0))throw new Error("Invalid provider idle timeout");
   const id = raw.id.trim();
   if (!/^[a-zA-Z0-9_-]{1,48}$/.test(id)) throw new Error("Upstream server id must contain 1-48 safe characters");
-  if(raw.args && (!Array.isArray(raw.args) || !raw.args.every(x=>typeof x==="string")))throw new Error("Invalid provider arguments");
-  if(raw.expose && !["none","meta_only","allowlist","all"].includes(raw.expose))throw new Error("Invalid exposure");
+  if(raw.args!==undefined && (!Array.isArray(raw.args) || !raw.args.every(x=>typeof x==="string")))throw new Error("Invalid provider arguments");
+  if(raw.expose!==undefined && !["none","meta_only","allowlist","all"].includes(raw.expose))throw new Error("Invalid exposure");
   if(raw.tool_prefix && !/^[a-zA-Z0-9_-]{1,48}$/.test(raw.tool_prefix))throw new Error("Invalid tool prefix");
 
   for(const [tool,permission]of Object.entries(raw.tool_permissions||{}))if(!tool||!["R","W","X"].includes(permission))throw new Error("Invalid per-tool permission");
-  if(raw.url){const url=new URL(raw.url);if(url.username||url.password||!["https:","http:"].includes(url.protocol))throw new Error("Invalid provider URL or embedded credentials");}
+  if(raw.url){let url:URL;try{url=new URL(raw.url);}catch{throw new Error("Invalid provider URL");}if(url.username||url.password||!["https:","http:"].includes(url.protocol))throw new Error("Invalid provider URL or embedded credentials");}
   for(const value of Object.values(raw.env||{}))if(typeof value!=="string")throw new Error("Invalid provider environment");
   const transport = raw.transport;
   if (transport !== "stdio" && transport !== "http") {
-    throw new Error(`Invalid transport for ${id}: ${String(raw.transport)}`);
+    throw new Error(`Invalid transport for provider ${id}`);
   }
 
   if (transport === "stdio" && !raw.command?.trim()) {
@@ -97,6 +105,7 @@ function normalizeServer(raw: UpstreamServerConfig): UpstreamServerConfig {
     idle_timeout_sec: raw.idle_timeout_sec ?? 600,
     allow_private_network: raw.allow_private_network === true,
     tool_permissions: raw.tool_permissions ?? {},
+    ...(raw.reviewed!==undefined?{reviewed:raw.reviewed}:{}),
   };
 }
 
@@ -111,20 +120,55 @@ export function normalizeConfig(config: UpstreamConfigFile):UpstreamConfigFile {
   return {version:1,servers};
 }
 
-export async function loadUpstreamConfig(configPath = resolveUpstreamConfigPath()): Promise<UpstreamConfigFile> {
+export interface UpstreamConfigDetails {
+  config: UpstreamConfigFile;
+  document: UpstreamConfigFile;
+  source_schema: "v1" | "legacy-unversioned" | "missing";
+  migration_required: boolean;
+}
+const PROVIDER_FIELDS=new Set(["id","name","enabled","transport","command","args","env","cwd","url","headers","bearer_token_env_var","auth","tool_prefix","expose","tools","disabled_tools","idle_timeout_sec","allow_private_network","tool_permissions","reviewed"]);
+export function parseUpstreamConfig(raw: string): UpstreamConfigDetails {
+  if(!raw.trim())throw new Error("UPSTREAM_CONFIG_EMPTY: expected a version-1 registry or an unversioned servers array");
+  if(Buffer.byteLength(raw)>4*1048576)throw new Error("UPSTREAM_CONFIG_SIZE_LIMIT");
+  let parsed:any;
+  try{parsed=JSON.parse(raw);}catch{throw new Error("UPSTREAM_CONFIG_JSON_INVALID: malformed JSON");}
+  if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw new Error("UPSTREAM_CONFIG_SCHEMA_INVALID: expected an object");
+  const legacy=!Object.hasOwn(parsed,"version");
+  if(!legacy&&parsed.version!==1)throw new Error("UPSTREAM_CONFIG_VERSION_UNSUPPORTED: expected version 1; only a missing version with servers is supported as legacy");
+  if(Object.keys(parsed).some(k=>!["version","servers"].includes(k))||!Array.isArray(parsed.servers)||parsed.servers.length>64)throw new Error("UPSTREAM_CONFIG_SCHEMA_INVALID: expected only version and a servers array");
+  const servers=parsed.servers.map((server:any,index:number)=>{
+    if(!server||typeof server!=="object"||Array.isArray(server))throw new Error("UPSTREAM_PROVIDER_INVALID: servers["+index+"] must be an object");
+    if(Object.keys(server).some(k=>!PROVIDER_FIELDS.has(k)))throw new Error("UPSTREAM_PROVIDER_INVALID: servers["+index+"] has unsupported fields; no provider was dropped");
+    if(legacy)for(const key of ["id","name","command","cwd","url","bearer_token_env_var","tool_prefix"])if(typeof server[key]==="string"&&server[key]!==server[key].trim())throw new Error("UPSTREAM_PROVIDER_INVALID: servers["+index+"]."+key+" has surrounding whitespace; operator review required");
+    try{normalizeServer(server);}catch(error){throw new Error("UPSTREAM_PROVIDER_INVALID: servers["+index+"]: "+(error as Error).message);}
+    return legacy&&server.reviewed!==true?{...server,enabled:false,expose:"none"}:{...server};
+  });
+  const document:UpstreamConfigFile={version:1,servers};
+  let config:UpstreamConfigFile;
+  try{config=normalizeConfig(document);}catch(error){throw new Error("UPSTREAM_CONFIG_PROVIDER_INVALID: "+(error as Error).message+"; no provider was dropped");}
+  return {config,document,source_schema:legacy?"legacy-unversioned":"v1",migration_required:legacy};
+}
+export async function loadUpstreamConfigDetails(configPath = resolveUpstreamConfigPath()): Promise<UpstreamConfigDetails> {
   try {
+    const st=await fs.lstat(configPath);
+    if(!st.isFile()||st.isSymbolicLink()||st.size>4*1048576)throw new Error("UPSTREAM_CONFIG_UNSAFE_PATH_OR_SIZE");
     const raw = await fs.readFile(configPath, "utf-8");
-    const parsed = JSON.parse(raw) as UpstreamConfigFile;
-    if(parsed.version !== 1)throw new Error("Unsupported upstream schema version");
-    if (!Array.isArray(parsed.servers)) throw new Error("servers must be an array");
-    return normalizeConfig(parsed);
+    return parseUpstreamConfig(raw);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       const defaults = defaultUpstreamConfig();
-      return defaults; // read-only discovery; never write configuration on startup
+      return {config:defaults,document:defaults,source_schema:"missing",migration_required:false};
     }
     throw err;
   }
+}
+export async function loadUpstreamConfig(configPath = resolveUpstreamConfigPath()): Promise<UpstreamConfigFile> {
+  return (await loadUpstreamConfigDetails(configPath)).config;
+}
+export async function requireCurrentUpstreamConfig(configPath:string):Promise<UpstreamConfigFile>{
+  const loaded=await loadUpstreamConfigDetails(configPath);
+  if(loaded.migration_required)throw new Error("UPSTREAM_MIGRATION_REQUIRED: run bridge-dev mcp migrate as an operator; legacy files are read-only at runtime");
+  return loaded.config;
 }
 
 export async function saveUpstreamConfig(
@@ -132,7 +176,7 @@ export async function saveUpstreamConfig(
   configPath = resolveUpstreamConfigPath()
 ): Promise<void> {
   const normalized = normalizeConfig(config);
-  await withFileLock(configPath,()=>atomicJson(configPath,normalized));
+  await withFileLock(configPath,async()=>{await requireCurrentUpstreamConfig(configPath);await atomicJson(configPath,normalized);});
 }
 
 export type McpImportSource = "cursor" | "claude" | "opencode" | "file";

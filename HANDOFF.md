@@ -43,3 +43,13 @@ referenced/regex provider schemas are unimplemented. Android hardware and real
 ChatGPT/Codex/Claude account acceptance are unverified. No production rollout was
 performed; installed service code, credentials, Funnel and workstation state remain
 outside this repository task. Preserve those boundaries and the Go archive.
+
+## Production integration fixes (2026-11-14, deployment pending)
+
+Isolated source work starts at d7025dd; the original checkout's local edits remain
+untouched. See docs/PRODUCTION_INTEGRATION_FIXES.md for baseline, proven legacy
+shape/session boundary, regression evidence and approval-required cutover/rollback.
+Production is unchanged. Keep per-session context authorization: a connector that
+creates a new session for each call must retain Mcp-Session-Id. Never share grants
+by bearer token, IP or client name. Registry legacy compatibility is read-only;
+only explicit operator `mcp migrate` persists a verified backup and atomic conversion.

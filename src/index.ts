@@ -105,7 +105,7 @@ const sessionManager = createSessionManager({
 });
 
 const app = express();
-app.use(cors());
+app.use(cors({exposedHeaders:["Mcp-Session-Id","Mcp-Protocol-Version"]}));
 app.use(express.json({ limit: "50mb" }));
 // ChatGPT co the goi "/" hoac "/mcp" — ho tro ca hai.
 // Neu dat MCP_TOKEN, endpoint doi thanh "/<token>" + "/mcp/<token>" va cac path

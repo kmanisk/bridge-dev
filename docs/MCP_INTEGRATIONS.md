@@ -119,3 +119,44 @@ fingerprint and requires signed policy approval. There is no model approval tool
 Tool-list notifications are sent to active sessions. Clients may cache manifests;
 refresh/reconnect the connector and open a new chat if new tools remain absent.
 Provider prompts/resources are not aggregated; tool routing is the supported focus.
+
+## Existing unversioned registries and explicit migration
+
+Current schema is `{ "version": 1, "servers": [...] }`. The only accepted legacy
+schema is the same `servers` array with **no version field** and no other root keys.
+Numeric older/future versions and other layouts are unsupported. Empty files and
+malformed JSON fail closed with sanitized errors. A missing optional file remains
+an empty default. Invalid/unknown provider fields abort the entire load/migration;
+no configured provider is silently skipped.
+
+Legacy loading is read-only and in memory. CLI, MCP inspection and the Admin UI
+report `configuration.source_schema: "legacy-unversioned"` and
+`migration_required: true`. Providers are validated individually. Only a legacy
+provider carrying explicit `reviewed:true` retains its recorded enabled/exposure
+settings. Other legacy entries retain their definitions, credential references,
+endpoint settings, allowlists and permission declarations, but load disabled with
+`expose:"none"`. Never add `reviewed:true` merely to suppress review. Existing
+version-1 enablement remains compatible. Runtime mutations refuse a legacy file
+until an independent operator explicitly migrates it.
+
+```sh
+bridge-dev mcp migrate --config /operator/selected/mcp-upstream.json --dry-run --json
+bridge-dev mcp migrate --config /operator/selected/mcp-upstream.json --json
+```
+
+This is a standalone operator file operation; it requires filesystem permission,
+not a running admin service, and is not exposed as an MCP approval tool. `--dry-run`
+performs no writes and prints the exact semantic JSON diff: adding `/version` and,
+where required, replacing/adding individual `/servers/N/enabled` and `/expose`
+fields. Unchanged provider data is never printed, keeping credential values out
+of the preview. Applying takes the same exclusive registry lock as ordinary edits,
+creates a mode-0600 sibling `mcp-upstream.json.backup-<UTC timestamp>-<random8>`,
+fsyncs it and verifies it byte-for-byte/SHA-256 before writing a replacement.
+
+The replacement uses a unique temporary file, preserves owner/group and permission
+bits on POSIX, fsyncs and atomically renames after checking the original did not
+change. Read-only directories/files produce a clear blocker and leave the original
+untouched. A valid version-1 file is a no-op: no rewrite and no extra backup. Backups
+are never loaded or restored automatically. An operator rollback restores the
+verified backup through an atomic replacement with the original owner/mode, then
+restarts only during an independently approved maintenance window.

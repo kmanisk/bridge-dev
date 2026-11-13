@@ -8,6 +8,7 @@ import { assertRegistryComplete, classifyTool, type ToolClass } from "./tool-cla
 import { enforcePolicy } from "./policy-enforcement.js";
 import { HashAudit } from "./hash-audit.js";
 import { getRuntimeMode, makePortablePolicy, portableStateDir } from "./runtime.js";
+import type { SystemDocument } from "./system-context.js";
 
 export interface PolicyLimits {
   max_payload_bytes: number;
@@ -35,6 +36,8 @@ export interface PolicyConfig {
 }
 export interface PolicySession {
   id: string;
+  transportSessionId?: string;
+  revoked?: boolean;
   contextHash: string | null;
   mutationTimestamps: number[];
   consecutiveDenials: number;
@@ -127,7 +130,7 @@ export class PolicyGate {
     const digester = createHash("sha256");
     for (const filename of this.config.context_files) {
       const content = await fsp.readFile(filename);
-      digester.update(filename).update("\0").update(content).update("\0");
+      digester.update(filename).update("\0").update(createHash("sha256").update(content).digest("hex")).update("\0");
     }
     return digester.digest("hex");
   }
@@ -172,10 +175,34 @@ export class PolicyGate {
 
     return this.config.profile;
   }
-  async contextLoaded(session: PolicySession, args: Record<string, unknown>): Promise<void> {
+  async invalidateContext(session: PolicySession, reason: string, revoke = false): Promise<void> {
+    session.contextHash = null;
+    if (revoke) session.revoked = true;
+    await this.audit.append({phase:"context_authorization",status:"invalidated",session_id:session.id,mcp_session_id:session.transportSessionId,reason});
+  }
+  async contextLoaded(session: PolicySession, args: Record<string, unknown>, data: {documents?: SystemDocument[]; configured?: boolean}): Promise<void> {
+    if (session.revoked) throw new Error("POLICYGATE_SESSION_CLOSED: initialize a new session and reload context");
+    if (!this.config.context_files.length) return;
     const docs = args.docs;
     if (Array.isArray(docs) && !(docs.includes("agents") && docs.includes("current_state"))) return;
-    session.contextHash = await this.contextHash();
+    // Bind authorization to the actual bytes returned by the native loader,
+    // including truncated documents' full-file digests, never a later reread.
+    const digest = createHash("sha256");
+    for (const filename of this.config.context_files) {
+      const document = data.documents?.find(d => ["agents","current_state"].includes(d.kind) && path.resolve(d.path) === path.resolve(filename));
+      if (data.configured === false || !document || document.error || !/^[a-f0-9]{64}$/.test(document.sha256 || "")) {
+        await this.invalidateContext(session,"required_document_unavailable");
+        throw new Error("POLICYGATE_CONTEXT_UNAVAILABLE: required policy documents were not loaded");
+      }
+      digest.update(filename).update("\0").update(document.sha256!).update("\0");
+    }
+    const loaded = digest.digest("hex");
+    if (loaded !== await this.contextHash()) {
+      await this.invalidateContext(session,"changed_during_load");
+      throw new Error("POLICYGATE_CONTEXT_REQUIRED: context changed while loading; reload in this session");
+    }
+    await this.audit.append({phase:"context_authorization",status:"granted",session_id:session.id,mcp_session_id:session.transportSessionId});
+    session.contextHash = loaded;
     session.consecutiveDenials = 0;
   }
   async authorize(session: PolicySession, tool: string, args: Record<string, unknown>): Promise<PolicyAuthorization> {

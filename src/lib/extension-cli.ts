@@ -3,6 +3,8 @@ import path from "node:path";
 import {ExtensionStore,type Scope} from "./extension-store.js";
 import {SourceCatalog} from "./extension-sources.js";
 import {McpUpstreamManager} from "./mcp-upstream-manager.js";
+import {migrateUpstreamConfig} from "./mcp-upstream-migration.js";
+import {resolveUpstreamConfigPath} from "./mcp-upstream-config.js";
 import {redactAudit} from "./hash-audit.js";
 
 export async function operatorApi(route:string,body?:unknown):Promise<any>{
@@ -18,8 +20,13 @@ export async function extensionCli(args:string[],json=false,verbose=false):Promi
  const group=args[0];if(!["add","mcp","skills","instructions","pack","approve"].includes(group))return false;
  const flag=(name:string)=>{const at=args.indexOf(name);return at<0?undefined:args[at+1];};
  const scope=(flag("--scope")||"project") as Scope;if(!["user","project"].includes(scope))throw new Error("--scope must be user or project");
- const plain=args.filter((arg,i)=>!arg.startsWith("--") && !(i>0&&["--scope","--select","--tools","--permission"].includes(args[i-1])));
+ const plain=args.filter((arg,i)=>!arg.startsWith("--") && !(i>0&&["--scope","--select","--tools","--permission","--config"].includes(args[i-1])));
  const action=group==="add"?"add":group==="approve"?"approve":plain[1]||"list",target=group==="add"||group==="approve"?plain[1]:plain[2];
+ if(group==="mcp"&&action==="migrate"){
+  if(target||(args.includes("--config")&&(!flag("--config")||flag("--config")!.startsWith("--"))))throw new Error("Usage: bridge-dev mcp migrate [--config <existing-file>] [--dry-run]");
+  const result=await migrateUpstreamConfig(flag("--config")||resolveUpstreamConfigPath(),args.includes("--dry-run"));
+  console.log(JSON.stringify(json?{ok:true,data:result}:result,null,json?undefined:2));return true;
+ }
  const manager=new McpUpstreamManager();await manager.init();const store=new ExtensionStore(undefined,undefined,manager);
  const kind=group==="skills"?"skill":group==="instructions"?"instructions":group==="pack"?"pack":"mcp";
  const entries=async()=>flag("--scope")?(await store.read(scope)).entries:store.list();
@@ -37,10 +44,10 @@ export async function extensionCli(args:string[],json=false,verbose=false):Promi
  }else if(action==="list"||action==="sources"||action==="search"){
   const selectedEntries=(await entries()).filter(entry=>group==="add"||entry.component.kind===kind);
   result=action==="sources"?[...new Set(selectedEntries.map(e=>e.source))]:selectedEntries.filter(e=>action!=="search"||JSON.stringify([e.key,e.component.description]).toLowerCase().includes((target||"").toLowerCase()));
-  if(group==="mcp")result={registered:manager.listStatusesCached(),installed:result,registry_error:manager.initializationError,search_scope:"installed metadata; external registry search not configured"};
+  if(group==="mcp")result={registered:manager.listStatusesCached(),installed:result,configuration:manager.configuration,registry_error:manager.initializationError,search_scope:"installed metadata; external registry search not configured"};
  }else if(action==="validate")result=await store.validate();
  else if(action==="logs")result=await operatorApi("/api/extensions/provider-logs?name="+encodeURIComponent(target||""));
- else if(action==="status")result={providers:manager.listStatusesCached(),registry_error:manager.initializationError};
+ else if(action==="status")result={providers:manager.listStatusesCached(),configuration:manager.configuration,registry_error:manager.initializationError};
  else if(action==="export")result=manager.getConfig();
  else if(action==="test")result=await operatorApi("/api/extensions/provider-test",{name:target});
  else if(action==="tools")result=await operatorApi("/api/extensions/provider-tools?name="+encodeURIComponent(target||""));

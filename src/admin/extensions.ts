@@ -17,7 +17,7 @@ export function extensionRouter(manager:McpUpstreamManager):Router{
   const {mode}=z.object({mode:z.enum(["strict","standard"])}).strict().parse(req.body);
   await getPolicyGate().audit.append({phase:"operator_portable_mode",mode});await atomicJson(path.join(portableStateDir(),"mode.json"),{mode});await manager.shutdown();await manager.refreshAllProxies();return {mode};
  }));
- router.get("/api/extensions",run(async()=>({entries:await store.list(),requests:await store.requests(),providers:manager.listStatusesCached(),registry_error:manager.initializationError})));
+ router.get("/api/extensions",run(async()=>({entries:await store.list(),requests:await store.requests(),providers:manager.listStatusesCached(),configuration:manager.configuration,registry_error:manager.initializationError})));
  router.post("/api/extensions/discover",run(async req=>{const body=z.object({source:z.string().min(1).max(2048),selection:z.array(z.string()).max(64).optional(),scope}).strict().parse(req.body);return store.propose(body.source,body.selection,body.scope);}));
  router.get("/api/extensions/proposal/:id",run(req=>store.proposal(req.params.id)));
  router.post("/api/extensions/review",run(req=>store.reviewRequest(z.object({id:z.string().regex(/^[a-f0-9]{64}$/)}).parse(req.body).id)));

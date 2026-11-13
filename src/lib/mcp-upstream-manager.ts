@@ -10,7 +10,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 import {
-  loadUpstreamConfig,
+  loadUpstreamConfigDetails, requireCurrentUpstreamConfig,
   saveUpstreamConfig,
   type UpstreamConfigFile,
   type UpstreamServerConfig,
@@ -68,8 +68,12 @@ export class McpUpstreamManager {
   }
 
   initializationError?: string;
+  configuration:{source_schema:string;migration_required:boolean}={source_schema:"missing",migration_required:false};
+  private async loadConfiguration():Promise<void>{
+    const loaded=await loadUpstreamConfigDetails(this.configPath);this.config=loaded.config;this.configuration={source_schema:loaded.source_schema,migration_required:loaded.migration_required};
+  }
   async init(): Promise<void> {
-    try { this.config = await loadUpstreamConfig(this.configPath); }
+    try { await this.loadConfiguration(); }
     catch (error) { this.initializationError = String(error); this.config = {version:1,servers:[]}; }
     if(!this.initializationError){
       try{
@@ -114,7 +118,8 @@ export class McpUpstreamManager {
 
   async reloadConfig(): Promise<UpstreamConfigFile> {
     await this.shutdown();
-    this.config = await loadUpstreamConfig(this.configPath);
+    await this.loadConfiguration();
+    this.initializationError=undefined;
     this.oauthProviders.clear();
     this.syncPermissions();
     await this.refreshAllProxies();
@@ -125,6 +130,7 @@ export class McpUpstreamManager {
     next=normalizeConfig(next);
     await saveUpstreamConfig(next, this.configPath);
     this.config = structuredClone(next);
+    this.configuration={source_schema:"v1",migration_required:false};
     await this.shutdown();
     this.oauthProviders.clear();
     this.syncPermissions();
@@ -134,7 +140,7 @@ export class McpUpstreamManager {
 
   async upsertServer(server: UpstreamServerConfig): Promise<void> {
     await withFileLock(this.configPath,async()=>{
-      const current=await loadUpstreamConfig(this.configPath);
+      const current=await requireCurrentUpstreamConfig(this.configPath);
       const next=normalizeConfig({version:1,servers:[...current.servers.filter(item=>item.id!==server.id),server]});
       await atomicJson(this.configPath,next);
     });
@@ -144,7 +150,7 @@ export class McpUpstreamManager {
   async removeServer(serverId: string): Promise<boolean> {
     let removed=false;
     await withFileLock(this.configPath,async()=>{
-      const current=await loadUpstreamConfig(this.configPath);
+      const current=await requireCurrentUpstreamConfig(this.configPath);
       const servers=current.servers.filter(item=>item.id!==serverId);
       removed=servers.length!==current.servers.length;
       if(removed)await atomicJson(this.configPath,{version:1,servers});

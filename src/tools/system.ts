@@ -11,7 +11,7 @@ const sections = ["resources", "gpu", "storage", "services", "sway", "audio", "b
 export function registerSystemTools(server: McpServer): void {
   server.registerTool("system_context", {
     title: "Optional Host System Context",
-    description: "Read optional operator-configured host documentation. Portable installs return not-configured; project guidance loads separately.",
+    description: "Read optional operator-configured host documentation. Portable installs return not-configured; project guidance loads separately. Context authorization belongs to this MCP session: retain Mcp-Session-Id for later calls; new or recovered sessions must load their own context.",
     inputSchema: {
       docs: z.array(z.enum(systemDocNames)).optional().default(["agents", "current_state", "philosophy", "subsystem_map"]),
       max_bytes_each: z.number().int().positive().max(100000).optional().default(12000),

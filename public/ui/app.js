@@ -603,7 +603,7 @@ async function loadManagedExtensions(){
     }
     list.append(row);
   }
-  const state=document.createElement("pre");state.textContent=JSON.stringify(data.providers,null,2);list.append(state);
+  const state=document.createElement("pre");state.textContent=JSON.stringify({configuration:data.configuration,providers:data.providers},null,2);list.append(state);
   const requests=document.getElementById("extension-requests");requests.replaceChildren();
   for(const request of data.requests){const button=document.createElement("button");button.className="btn";button.textContent=`Review ${request.action}: ${request.source||request.key}`;button.addEventListener("click",async()=>{try{document.getElementById("extension-scope").value=request.scope;showExtensionPreview((await api("/api/extensions/review",{method:"POST",body:JSON.stringify({id:request.id})})).data);}catch(error){toast(error.message,true);}});requests.append(button);}
 }

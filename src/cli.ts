@@ -457,7 +457,8 @@ function cmdHelp() {
   console.log("  stop                  Stop the running BridgeDev service");
   console.log("  serve                 Run the MCP server in foreground");
   console.log("  add <source>          Discover, select and preview an extension");
-  console.log("  mcp <action>          list/search/info/add/remove/enable/disable/update/test/tools/logs/status/import/export");
+  console.log("  mcp <action>          list/search/info/add/remove/enable/disable/update/test/tools/logs/status/import/export/migrate");
+  console.log("  mcp migrate           Operator file migration: --config <file> [--dry-run]");
   console.log("  skills <action>       list/search/info/add/remove/enable/disable/update/validate/sources");
   console.log("  instructions <action> list/add/info/remove/enable/disable/update");
   console.log("  pack <action>         add/info/list/update/remove");

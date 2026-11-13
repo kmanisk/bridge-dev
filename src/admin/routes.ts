@@ -143,7 +143,7 @@ export function createAdminRouter(manager: McpUpstreamManager, options: {
   });
 
   router.get("/api/upstream", async (_req, res) => {
-    res.json({ ok: true, config: redactAudit(manager.getConfig()), path: manager.getConfigPath() });
+    res.json({ ok: true, config: redactAudit(manager.getConfig()), configuration:manager.configuration, path: manager.getConfigPath() });
   });
 
   router.get("/api/plugins", (_req, res) => {

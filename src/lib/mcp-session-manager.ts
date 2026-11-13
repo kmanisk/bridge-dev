@@ -8,7 +8,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpServer } from "../server-factory.js";
-import { newPolicySession, type PolicySession } from "./policy-gateway.js";
+import { getPolicyGate, newPolicySession, type PolicySession } from "./policy-gateway.js";
 import { getUpstreamManager } from "./mcp-upstream-manager.js";
 import { refreshProxiedTools } from "./mcp-tool-proxy.js";
 
@@ -167,9 +167,8 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   function touch(sessionId: string): void {
-    cancelDeleteGrace(sessionId);
     const session = sessions[sessionId];
-    if (session) {
+    if (session && !session.policy.revoked) {
       session.lastAccessedAt = Date.now();
     }
   }
@@ -230,6 +229,7 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
         : () => randomUUID(),
       enableJsonResponse: true,
       onsessioninitialized: (sid) => {
+        policySession.transportSessionId = sid;
         const existing = sessions[sid];
         sessions[sid] = {
           transport,
@@ -241,8 +241,11 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
         clearPendingRecovery(sid);
         console.log(`[MCP] Session initialized: ${sid}`);
       },
-      onsessionclosed: (sid) => {
-        if (sid) scheduleDeleteGrace(sid);
+      onsessionclosed: async (sid) => {
+        if (sid && sessions[sid]?.policy === policySession) {
+          await getPolicyGate().invalidateContext(policySession,"client_delete",true);
+          scheduleDeleteGrace(sid);
+        }
       },
     });
 
@@ -326,7 +329,14 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
 
   return {
     get(sessionId: string) {
-      return sessions[sessionId];
+      const session = sessions[sessionId];
+      if (session && Date.now() - session.lastAccessedAt > SESSION_TTL_MS) {
+        void getPolicyGate().invalidateContext(session.policy,"expired",true).catch(error=>console.error("Session expiry audit failed",error));
+        removeSession(sessionId,"TTL expired");
+        void session.server.close().catch(()=>undefined);
+        return undefined;
+      }
+      return session;
     },
 
     touch,
@@ -439,6 +449,9 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
       touch(staleSessionId);
       console.log(`[MCP] Session recovered: ${staleSessionId}`);
 
+      // The adoption response must publish its session ID too. Otherwise a
+      // headerless caller cannot retain the freshly initialized policy session.
+      res.setHeader("Mcp-Session-Id",staleSessionId);
       const patchedReq = withSessionIdHeader(req, staleSessionId, protocolVersion);
       await enqueueSessionOp(staleSessionId, async () => {
         await recovered.transport.handleRequest(patchedReq, res, body);
@@ -452,6 +465,7 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
         const now = Date.now();
         for (const [sid, session] of Object.entries(sessions)) {
           if (now - session.lastAccessedAt > SESSION_TTL_MS) {
+            void getPolicyGate().invalidateContext(session.policy,"expired",true).catch(error=>console.error("Session expiry audit failed",error));
             void session.transport.close().catch(() => undefined);
             removeSession(sid, "TTL expired");
           }
@@ -466,6 +480,8 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
     async close() {
       for (const sid of Object.keys(sessions)) {
         const session = sessions[sid];
+        cancelDeleteGrace(sid);
+        if(!session.policy.revoked)await getPolicyGate().invalidateContext(session.policy,"gateway_shutdown",true).catch(error=>console.error("Session shutdown audit failed",error));
         getUpstreamManager().unregisterMcpServer(session.server);
         await session.server.close().catch(() => undefined);
         delete sessions[sid];

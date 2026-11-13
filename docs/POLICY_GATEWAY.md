@@ -37,3 +37,35 @@ The example deployment unit is a template, not an installer. Historical `LOCAL_C
 ## Provenance
 
 Derived from the MIT-licensed `chatgpt-local-coder` codebase by hoangcoderr, with subsequent security-gateway work. Keep `LICENSE` intact.
+
+## Context authorization and HTTP session continuity
+
+A transport `Mcp-Session-Id` maps to one `PolicySession`, with its own random policy
+ID and context digest. `system_context` must successfully return the configured
+agents and current-state documents in that session. Authorization hashes the actual
+loaded full-file digests and configured paths; runtime inspection output and HTTP
+request timestamps do not participate. Missing documents or a change during loading
+cannot grant authorization. A later source change clears the grant until a fresh
+load, even if the old bytes are subsequently restored.
+
+Keep the same `Mcp-Session-Id` on later calls. Ordinary SSE/HTTP reconnect to a live
+session preserves that session. Recovery of a missing/expired session creates a
+fresh policy session and requires its own context load. Headerless discovery remains
+compatible, but each headerless request creates a different session. Adoption now
+returns its session ID, exposed through CORS, so a client can retain it. A client
+that deliberately initializes a new session for every tool call cannot carry context
+authorization between those calls. Fix that client's session persistence; the server
+never guesses identity from a bearer token, IP address or User-Agent and never shares
+authorization among clients.
+
+DELETE revokes policy authorization immediately; the transport's brief cleanup grace
+period does not restore it. TTL is checked on access as well as during periodic
+cleanup. Shutdown clears grants. `context_authorization` events record `granted`,
+`invalidated` and `denied`, with policy and transport session IDs and reason codes.
+Document bodies, credentials and authorization digests are not logged in these events.
+Signed approvals, strict/standard policy, protected paths and audit integrity remain
+independent requirements after context authorization. An unallowlisted command such
+as `agent-context system` may still require signed approval after loading context.
+
+Regression: `scripts/test-managed-session-http.mjs` uses independent real HTTP MCP
+clients with synthetic managed policy, documents, credentials, audit and providers.

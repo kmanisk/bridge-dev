@@ -29,6 +29,7 @@ export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:s
   const activeProfile = gate.getActiveProfile();
   const config = activeProfile === gate.config.profile ? gate.config : { ...gate.config, profile: activeProfile };
   const cls=classifyTool(tool,args,gate.getProxyPermissions());
+  if(session.revoked)throw new Error("POLICYGATE_SESSION_CLOSED: initialize a new session and reload context");
   if(session.locked) {
     if(store(gate).consumeUnlock(session.id)){session.locked=false;session.consecutiveDenials=0;}
     else throw new Error("POLICYGATE_SESSION_LOCKED: only operator CLI may unlock session "+session.id);
@@ -38,8 +39,11 @@ export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:s
     return deny(session,gate,"POLICYGATE_PAYLOAD_LIMIT: reduce the tool arguments.");
   if(cls.kind!=="R"){
     const current=await gate.contextHash().catch(()=>"");
-    if(config.context_files.length > 0 && (!session.contextHash || session.contextHash!==current))
-      return deny(session,gate,"POLICYGATE_CONTEXT_REQUIRED: call system_context with agents and current_state in this session, then retry.",true);
+    if(config.context_files.length > 0 && (!session.contextHash || session.contextHash!==current)) {
+      if(session.contextHash)await gate.invalidateContext(session,"source_changed_or_unavailable");
+      await gate.audit.append({phase:"context_authorization",status:"denied",session_id:session.id,mcp_session_id:session.transportSessionId,reason:"context_required"});
+      return deny(session,gate,"POLICYGATE_CONTEXT_REQUIRED: call system_context with agents and current_state in this session, then retry. Retain the same Mcp-Session-Id; a new or recovered session needs its own context load.",true);
+    }
   }
   let approval=cls.requiresProxyApproval;
   const reasons:string[]=[];

@@ -53,7 +53,7 @@ function configureToolRegistration(server: McpServer, session: PolicySession): v
 
     return original(name, nextConfig as any, (async (...callArgs: unknown[]) => {
       const args = (callArgs[0] && typeof callArgs[0] === "object" ? callArgs[0] : {}) as Record<string, unknown>;
-      await gate.audit.append({phase:"request",tool:toolName,session_id:session.id,args});
+      await gate.audit.append({phase:"request",tool:toolName,session_id:session.id,mcp_session_id:session.transportSessionId,args});
       try {
         const decision=await gate.authorize(session,toolName,args);
         await gate.audit.append({phase:"decision",status:"allowed",tool:toolName,session_id:session.id,class:decision.kind});
@@ -76,7 +76,7 @@ function configureToolRegistration(server: McpServer, session: PolicySession): v
       try {
         const result=await (callback as (...a: unknown[]) => Promise<any>)(...callArgs);
         if(toolName==="system_context" && !result?.isError && result?.structuredContent?.ok!==false) {
-          await gate.contextLoaded(session,args);
+          await gate.contextLoaded(session,args,result.structuredContent?.data || {});
         }
         await gate.audit.append({phase:"result",status:result?.isError||result?.structuredContent?.ok===false?"error":"ok",tool:toolName,session_id:session.id});
         return result;
