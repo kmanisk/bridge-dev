@@ -17,6 +17,7 @@ export interface ExtensionComponent {
   id:string;kind:ComponentKind;name:string;description:string;
   files:Record<string,string>;provider?:UpstreamServerConfig;
   requirements:string[];permissions:string[];
+  members?:string[];
   package?:{type:"npm"|"pypi";name:string;version:string;url:string;integrity:string;sha256?:string;entrypoint?:string;dependencies?:string[];filename?:string};
 }
 export interface Discovery {source:string;adapter:string;resolved:string;digest:string;components:ExtensionComponent[];warnings:string[];}
@@ -46,6 +47,7 @@ export function validateSkill(text:string,files:Record<string,string>,skillPath=
   if(!name || !description)throw new Error("SKILL_METADATA_INVALID: plain name and description required");
   for(const link of text.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)){
     const target=link[1];
+    if(target.split("/").includes(".."))throw new Error("SOURCE_PATH_UNSAFE: skill references must stay within the skill directory");
     if(target.startsWith("#"))continue;
     if(/^https:\/\//.test(target)){const url=new URL(target);if(url.username||url.password)throw new Error("SKILL_LINK_UNSAFE");continue;}
     if(/^[a-z]+:/i.test(target))throw new Error("SKILL_LINK_UNSAFE");
@@ -71,7 +73,21 @@ export function discoverFiles(files:Record<string,string>):ExtensionComponent[]{
         const config=normalizeConfig({version:1,servers:manifest.servers});
         for(const server of config.servers)out.push({id:server.id,kind:"mcp",name:server.name,description:"Reviewed provider definition",files:{},provider:{...server,enabled:false,expose:"none"},requirements:manifest.requirements || [server.transport==="stdio"?server.command!:"Reachable HTTP endpoint"],permissions:["Provider execution requires separate enable and tool approval"]});
       }
-      if(manifest.pack){out.push({id:componentId(manifest.pack.name),kind:"pack",name:manifest.pack.name,description:String(manifest.pack.description||"Extension pack"),files:{[filename]:raw},requirements:manifest.requirements||[],permissions:["Components require individual approval"]});}
+      const members:string[]=[];
+      if(manifest.instructions){
+        if(!Array.isArray(manifest.instructions)||manifest.instructions.length>32)throw new Error("PACK_INSTRUCTIONS_INVALID");
+        for(const instruction of manifest.instructions){
+          safeRelative(instruction);if(!/\.md$/i.test(instruction)||!files[instruction])throw new Error("PACK_INSTRUCTION_MISSING");
+          const id=componentId(path.posix.basename(instruction,".md"));members.push("instructions:"+id);
+          out.push({id,kind:"instructions",name:id,description:"Pack Markdown instructions",files:{[path.posix.basename(instruction)]:cleanMarkdown(files[instruction])},requirements:[],permissions:["Untrusted guidance; never executed"]});
+        }
+      }
+      if(manifest.skills){
+        if(!Array.isArray(manifest.skills)||manifest.skills.length>64)throw new Error("PACK_SKILLS_INVALID");
+        for(const skill of manifest.skills){safeRelative(skill);const file=skill.endsWith("SKILL.md")?skill:skill+"/SKILL.md";if(!files[file])throw new Error("PACK_SKILL_MISSING");const info=validateSkill(files[file],files,file);members.push("skill:"+componentId(info.name));}
+      }
+      for(const server of manifest.servers||[])members.push("mcp:"+server.id);
+      if(manifest.pack){out.push({id:componentId(manifest.pack.name),kind:"pack",name:manifest.pack.name,description:String(manifest.pack.description||"Extension pack"),files:{[filename]:raw},members,requirements:manifest.requirements||[],permissions:["Review each member; executable providers remain disabled"]});}
     }
     if((filename==="mcp.json"||filename===".mcp.json") || (/\.json$/i.test(filename) && !filename.endsWith("bridge-dev.json") && !filename.endsWith("pack.json") && raw.includes('"mcpServers"'))){
       const rawConfig=JSON.parse(raw);
@@ -89,7 +105,7 @@ async function localFiles(root:string):Promise<Record<string,string>>{
   const files:Record<string,string>={};let count=0,total=0;
   async function walk(dir:string,depth:number):Promise<void>{
     if(depth>8)throw new Error("SOURCE_DEPTH_LIMIT");
-    for(const entry of await fs.readdir(dir,{withFileTypes:true})){
+    for(const entry of (await fs.readdir(dir,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))){
       if([".git","node_modules",".venv","dist"].includes(entry.name))continue;
       if(++count>512)throw new Error("SOURCE_FILE_COUNT_LIMIT");
       const name=path.join(dir,entry.name),rel=path.relative(root,name).split(path.sep).join("/");safeRelative(rel);

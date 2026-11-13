@@ -96,3 +96,22 @@ wheel installation, endpoint registration, update detection, disabled registrati
 removal and reference/symlink rejection. Node's test-only module mocks redirect
 remote transports to the fixture server; production exposes no TLS/SSRF bypass.
 Required full, policy, CLI, portable and inventory gates pass. No dependencies added.
+
+## Phase 4
+
+Managed skills, instructions and version-1 packs share reviewed proposals and
+private scope lockfiles. Project entries override the same user key explicitly,
+even when disabled. Installed content starts disabled; updates require fresh
+review and enable. Pack members retain ownership across individual updates, and
+removing a pack removes its owned members without removing user-scope overrides.
+Content snapshots are bounded and validated, relative references remain inside
+skills, and no embedded scripts execute. Native list_skills/load_skill and startup
+instruction context load enabled managed guidance with untrusted-origin labels.
+Corrupted optional content reports warnings instead of preventing core startup.
+Removal cleans owned content/package artifacts after provider shutdown.
+
+Verified: mixed pack preview, disabled provider registration, skill load through
+the existing interface, Markdown loading, validation, user/project precedence,
+update pinning, fresh enable, disable, stale-proposal denial and removal. Test
+scripts now receive separate disposable state from one another. Full, policy,
+CLI, portable, provider, source and inventory gates pass. No dependencies added.

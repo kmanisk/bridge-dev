@@ -16,6 +16,11 @@ fs.writeFileSync(path.join(base,'hooks.json'),JSON.stringify({enabled:false,hook
 const env={PATH:bin+path.delimiter+process.env.PATH,HOME:base,USERPROFILE:base,APPDATA:path.join(base,'appdata'),LOCALAPPDATA:path.join(base,'localappdata'),XDG_CONFIG_HOME:path.join(base,'config'),XDG_DATA_HOME:path.join(base,'data'),XDG_STATE_HOME:path.join(base,'state'),XDG_CACHE_HOME:path.join(base,'cache'),TMPDIR:os.tmpdir(),SystemRoot:process.env.SystemRoot,BRIDGEDEV_RUNTIME_MODE:'portable',BRIDGEDEV_STATE_DIR:path.join(base,'state'),WORKSPACE_PATH:work,MCP_UPSTREAM_CONFIG:path.join(base,'upstream.json'),MCP_OAUTH_STORE:path.join(base,'oauth'),MCP_SHELL_STATE_DIR:path.join(base,'shell'),AUDIT_LOG_PATH:path.join(base,'audit.jsonl'),POST_EDIT_HOOKS_CONFIG:path.join(base,'hooks.json'),POLICYGATE_POLICY_FILE:path.join(base,'policy.json'),POLICYGATE_MODE_FILE:path.join(base,'mode.json'),POLICYGATE_YOLO_LEASE:path.join(base,'lease.json'),POLICYGATE_APPROVAL_DIR:path.join(base,'approvals'),POLICYGATE_APPROVAL_PUBLIC_KEY:'',LOCAL_CODER_CHEZMOI_SOURCE_DIR:source,LOCAL_CODER_CHEZMOI_DESTINATION_DIR:work,CHECKPOINT_ENABLED:'false',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:path.join(base,'gitconfig')};
 const scripts=process.argv.slice(2);
 if(!scripts.length)throw Error('Supply test scripts');
+if(scripts.length>1){
+ let failed=false;
+ for(const script of scripts){const result=spawnSync(process.execPath,[process.argv[1],script],{cwd:repo,env:process.env,stdio:'inherit',timeout:150000});if(result.status!==0)failed=true;}
+ fs.rmSync(base,{recursive:true,force:true});process.exit(failed?1:0);
+}
 const results=[];
 for(const script of scripts){const r=spawnSync(process.execPath,[...(script.endsWith("test-source-fixtures.mjs")?["--experimental-test-module-mocks"]:[]),script,...(script.endsWith("sync-tool-counts.mjs")?["--check-manifest","profiles/native-tool-counts.json"]:[])],{cwd:repo,env,encoding:'utf8',timeout:120000});results.push({script,status:r.status,error:r.error?.message,output:(r.stdout||'')+(r.stderr||'')});console.log(script+' exit '+r.status);}
 fs.writeFileSync(path.join(base,'results.json'),JSON.stringify(results,null,2));

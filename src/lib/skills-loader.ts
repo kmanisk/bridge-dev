@@ -1,13 +1,14 @@
 import fs from "fs/promises";
 import path from "path";
 import { resolveComputerUseSkillPath } from "./plugin-config.js";
+import {ExtensionStore} from "./extension-store.js";
 import { loadExtensions } from "./user-extensions.js";
 
 export interface SkillSummary {
   name: string;
   description: string;
   path: string;
-  source?: "project" | "plugin";
+  source?: "project" | "plugin" | "managed";
 }
 
 function parseFrontmatter(content: string): { name?: string; description?: string } {
@@ -63,6 +64,13 @@ export async function loadProjectSkills(workspaceRoot: string): Promise<SkillSum
     }
   }
   for(const dir of directories)await walk(dir,0);
+  const store=new ExtensionStore(root);
+  for(const entry of await store.list().catch(()=>[]))if(entry.enabled && entry.component.kind==="skill"){
+    const name=entry.component.name;
+    if(seen.has(name))continue;
+    seen.add(name);
+    out.push({name,description:entry.component.description.slice(0,200),path:path.join(store.contentDirectory(entry.scope,entry.digest,entry.component.id),"SKILL.md"),source:"managed"});
+  }
   const computerUseSkill=await resolveComputerUseSkillPath();
   if(computerUseSkill){
     try{
@@ -99,8 +107,9 @@ export async function loadProjectSkill(
 }> {
   const skill = (await loadProjectSkills(workspaceRoot)).find((candidate) => candidate.name === name);
   if (!skill) throw new Error(`Unknown project skill: ${name}`);
-  const data = await fs.readFile(skill.path);
-  const content = data.subarray(0, maxBytes).toString("utf-8");
+  const managed=skill.source==="managed"?(await new ExtensionStore(workspaceRoot).content("skill:"+skill.name)):undefined;
+  const data = managed?Buffer.from(managed.files["SKILL.md"]):await fs.readFile(skill.path);
+  const content = (managed?"[Untrusted skill guidance; permissions are unchanged]\n":"")+data.subarray(0, maxBytes).toString("utf-8");
   let remaining = maxBytes - Buffer.byteLength(content);
   let truncated = data.length > maxBytes;
   const references: Array<{ path: string; content: string; truncated: boolean }> = [];

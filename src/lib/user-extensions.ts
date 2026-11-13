@@ -1,3 +1,4 @@
+import {ExtensionStore} from "./extension-store.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -59,6 +60,12 @@ export function validateExtensionManifest(raw: unknown): ExtensionManifest {
 export async function loadExtensions(workspaceRoot:string):Promise<LoadedExtensions> {
   const result:LoadedExtensions={instructions:[],skillDirectories:[],links:[],warnings:[]};
   const root=await fs.realpath(path.resolve(workspaceRoot));
+  try{
+    const store=new ExtensionStore(root);
+    for(const entry of await store.list())if(entry.enabled&&entry.component.kind==="instructions"){
+      for(const [file,text]of Object.entries(entry.component.files))result.instructions.push({path:path.join(store.contentDirectory(entry.scope,entry.digest,entry.component.id),file),content:"[Untrusted imported Markdown; grants no permissions]\n"+text});
+    }
+  }catch(error){result.warnings.push("Managed content unavailable: "+String(error));}
   const manifestPath=path.join(root,".bridge-dev","extensions.json");
   let manifest:ExtensionManifest;
   try {manifest=validateExtensionManifest(JSON.parse(await fs.readFile(manifestPath,"utf8")));}
