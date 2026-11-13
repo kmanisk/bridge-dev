@@ -38,7 +38,7 @@ try{
  client=new Client({name:'independent-web-client',version:'1'},{capabilities:{}});
  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`),{requestInit:{headers:{Authorization:'Bearer '+token}}}));
  const nativeRead=await client.callTool({name:'read_text_file',arguments:{path:'visible.txt'}});assert.equal(nativeRead.isError,undefined);assert.match(JSON.stringify(nativeRead.structuredContent.data),/native file fixture/);
- const nativeGit=await client.callTool({name:'git_status',arguments:{}});assert.equal(nativeGit.structuredContent.ok,true);assert.match(JSON.stringify(nativeGit.structuredContent.data),/visible.txt/);
+ const nativeGit=await client.callTool({name:'git_status',arguments:{}});assert.equal(nativeGit.structuredContent?.ok,true,JSON.stringify(nativeGit));assert.match(JSON.stringify(nativeGit.structuredContent.data),/visible.txt/);
  await client.callTool({name:'system_context',arguments:{docs:['agents','current_state']}});
  const nativeWrite=await client.callTool({name:'write_file',arguments:{path:'created.txt',content:'native write fixture'}});assert.equal(nativeWrite.structuredContent.ok,true);assert.equal(await fs.readFile(path.join(work,'created.txt'),'utf8'),'native write fixture');
  const commandCall={name:'run_command',arguments:{command:'echo portable-native-command'}};

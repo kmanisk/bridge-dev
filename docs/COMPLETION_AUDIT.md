@@ -301,3 +301,15 @@ the complete test:all aggregate (including fixture sources/integration/security
 and inventory), and the isolated authenticated browser scenario. Tool inventory
 is 52 slim / 73 full. git diff --check passed. Final review found no new dependency,
 license change or plaintext credential in the change set.
+
+
+### Final-head Windows native Git correction
+
+At be3e840, Ubuntu/macOS, all distribution containers, source fixtures and policy
+CI passed. The expanded native Git call failed on Windows. Read-only Git isolation
+passed Node's Windows device namespace path as GIT_CONFIG_GLOBAL; Git expects its
+portable /dev/null spelling. This is corrected while retaining config isolation and
+the required native Git assertion. Assertion diagnostics now preserve the returned
+MCP error for any further native failure. Primary Git for Windows null-device
+handling: https://github.com/git-for-windows/git/pull/6450 . Native CI is rerun for
+the corrected head; the earlier failed Windows run is not counted as a pass.
