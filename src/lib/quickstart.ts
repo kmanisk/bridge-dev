@@ -50,7 +50,7 @@ export function buildServerInstructions(
   contextBlock?: string
 ): string {
   const header = [
-    "# Codex Local Coder MCP",
+    "# BridgeDev MCP",
     `Default project: ${workspaceRoot}`,
     fullDiskAccess
       ? "Full machine & root access: ON (YOLO mode active). Tag this connector in ChatGPT before every task."
