@@ -32,7 +32,9 @@
     "test:portable:server": "node scripts/isolated-tests.mjs scripts/test-portable-server.mjs",
     "test:extensions": "tsc && node scripts/isolated-tests.mjs scripts/test-provider-router.mjs scripts/test-managed-content.mjs scripts/test-extension-security.mjs scripts/test-network-fixtures.mjs scripts/test-extension-interfaces.mjs",
     "test:sources": "tsc && node scripts/isolated-tests.mjs scripts/test-source-fixtures.mjs",
-    "test:browser": "tsc && node scripts/isolated-tests.mjs scripts/test-admin-browser.mjs"
+    "test:browser": "tsc && node scripts/isolated-tests.mjs scripts/test-admin-browser.mjs",
+    "try:local": "node scripts/try-local.mjs",
+    "test:trial": "node scripts/test-try-local.mjs"
   },
   "keywords": [
     "mcp",

@@ -31,6 +31,20 @@ pnpm run build
 
 Run `node dist/cli.js help`. Below, `bridge-dev` means that CLI entrypoint; from this checkout, replace it with `node dist/cli.js`. No service, tunnel or integration is installed automatically.
 
+## Try it locally first (no installation)
+
+After building, run this on Linux, macOS or Windows in your private terminal:
+
+~~~sh
+pnpm run try:local -- --show-secrets
+~~~
+
+BridgeDev launches a **temporary, loopback-only** gateway on unused ports, creates a disposable project, generates independent MCP/admin tokens and prints its local admin URL. Open that URL, enter the printed admin token, and inspect **MCP providers**, **skills** or **status**. Connect a **local** MCP client using the private MCP URL printed in the terminal.
+
+Type \`quit\` or press Ctrl-C to stop. The trial deletes its temporary workspace and credentials, and never changes your installed production gateway, service, Funnel or Git configuration. This trial is **not an OS sandbox** and must not run untrusted commands. To verify just the trial without opening a browser, run \`pnpm run test:trial\`.
+
+**ChatGPT Web cannot reach your laptop's localhost.** Test with a local MCP client first; use a separately approved HTTPS route for a later remote-client test, without changing an existing production Funnel. [Detailed trial steps](docs/LOCAL_TRIAL.md).
+
 ## Quick start
 
 1. Copy `.env.example` to `.env` (`Copy-Item .env.example .env` in PowerShell).

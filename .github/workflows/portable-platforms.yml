@@ -29,6 +29,7 @@ jobs:
       - run: pnpm run build
       - run: pnpm run test:portable
       - run: pnpm run test:portable:server
+      - run: pnpm run test:trial
       - run: pnpm run test:cli
       - run: pnpm run test:extensions
   sources:
