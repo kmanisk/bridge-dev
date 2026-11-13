@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { formatMcpEndpoint, inspectLocalMode, resolveProjectDirectory, validateProjectName, verifyAuditProof } from "./lib/cli-security.js";
-import { platformCapabilities, getRuntimeMode } from "./lib/runtime.js";
+import { platformCapabilities, getRuntimeMode, portableStateDir, portableWorkspace } from "./lib/runtime.js";
 
 const VERSION = "2.0.0";
 
@@ -33,6 +33,7 @@ const LEGACY_DIRS = {
 };
 
 function getActivePath(sub: "etc" | "lib" | "log" | "srv" | "opt"): string {
+  if (getRuntimeMode() === "portable") return path.join(portableStateDir(), sub);
   const canon = CANONICAL_DIRS[sub];
   const legacy = LEGACY_DIRS[sub];
   if (fs.existsSync(canon)) return canon;
@@ -41,7 +42,7 @@ function getActivePath(sub: "etc" | "lib" | "log" | "srv" | "opt"): string {
 }
 
 function getServiceUnit(): string | null {
-  if (process.platform !== "linux") return null;
+  if (process.platform !== "linux" || getRuntimeMode() === "portable") return null;
   const units = [
     "bridge-dev.service",
     "chatgpt-local-coder-policygate.service",
@@ -101,6 +102,7 @@ function getActiveMode(): { mode: string; detail: string } {
 }
 
 function getTailscaleEndpoint(): string | null {
+  if (getRuntimeMode() === "portable") return null;
   try {
     const out = execSync("tailscale funnel status 2>/dev/null", { encoding: "utf8" });
     const match = out.match(/https:\/\/[a-zA-Z0-9.-]+\.ts\.net/);
@@ -125,7 +127,7 @@ function getMappedProjects(): string[] {
 
 async function cmdStatus() {
   const unit = getServiceUnit();
-  const health = await fetchHealth(3000);
+  const health = await fetchHealth(Number(process.env.PORT || 3000));
   const modeInfo = getActiveMode();
   const funnel = getTailscaleEndpoint();
   const projects = getMappedProjects();
@@ -159,7 +161,7 @@ async function cmdStatus() {
 
 async function cmdConnect(showToken = false) {
   const funnel = getTailscaleEndpoint();
-  const baseUrl = funnel || "http://127.0.0.1:3000";
+  const baseUrl = process.env.BRIDGEDEV_PUBLIC_URL || funnel || `http://127.0.0.1:${process.env.PORT || 3000}`;
   let token = "";
   if (showToken) {
     const envFile = process.env.POLICYGATE_ENV_FILE || path.join(getActivePath("etc"), "service.env");
@@ -278,6 +280,7 @@ function cmdProject(args: string[]) {
 }
 
 function cmdStop() {
+  if (getRuntimeMode() === "portable") throw new Error("Foreground gateway: stop it with Ctrl-C; managed services require explicit managed configuration.");
   if (process.platform !== "linux") {
     console.error("Service stop is Linux systemd-only. Stop a foreground server with Ctrl-C.");
     process.exitCode = 1;
@@ -299,19 +302,21 @@ function cmdStop() {
 }
 
 async function cmdRestart() {
+  if (getRuntimeMode() === "portable") throw new Error("Foreground gateway: restart the serve command; managed services require explicit managed configuration.");
   if (process.platform !== "linux") {
     console.error("Service restart is Linux systemd-only. Restart foreground processes manually.");
     process.exitCode = 1;
     return;
   }
-  const unit = getServiceUnit() || "chatgpt-local-coder-policygate.service";
+  const unit = getServiceUnit();
+  if (!unit) throw new Error("No managed BridgeDev service is running");
   console.log(`Restarting ${unit}...`);
   try {
     execSync(`sudo systemctl restart ${unit}`);
     let recovered = false;
     for (let i = 0; i < 6; i++) {
       await new Promise((r) => setTimeout(r, 500));
-      const health = await fetchHealth(3000);
+      const health = await fetchHealth(Number(process.env.PORT || 3000));
       if (health) {
         recovered = true;
         break;
@@ -341,7 +346,7 @@ async function cmdDoctor() {
   } else {
     add("systemd","INFO","not available on "+process.platform+"; foreground source build only");
   }
-  const health=await fetchHealth(3000);
+  const health=await fetchHealth(Number(process.env.PORT || 3000));
   add("MCP endpoint",health?"OK":"UNVERIFIED",health?"HTTP 200, sessions: "+(health.activeSessions??0):"port 3000 unavailable");
   if (process.platform==="linux") {
     const admin=await new Promise<number>((resolve)=>{

@@ -60,8 +60,10 @@ export class McpUpstreamManager {
     this.config = { version: 1, servers: [] };
   }
 
+  initializationError?: string;
   async init(): Promise<void> {
-    this.config = await loadUpstreamConfig(this.configPath);
+    try { this.config = await loadUpstreamConfig(this.configPath); }
+    catch (error) { this.initializationError = String(error); this.config = {version:1,servers:[]}; }
   }
 
   registerMcpServer(server: McpServer): void {

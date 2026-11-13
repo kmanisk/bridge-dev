@@ -4,7 +4,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import path from "path";
-import { randomUUID } from "crypto";
+import { randomUUID, timingSafeEqual } from "crypto";
 
 import {
   setDefaultCwd,
@@ -37,6 +37,7 @@ const MCP_TOKEN = (process.env.MCP_TOKEN || "").trim();
 if (getRuntimeMode() === "portable" && !["127.0.0.1","localhost","::1"].includes(HOST)) {
   throw new Error("Portable BridgeDev may listen only on loopback; install a managed gateway for public exposure.");
 }
+if (!MCP_TOKEN || /[\x00-\x20/\\?#]/.test(MCP_TOKEN)) throw new Error("Configure a nonempty MCP_TOKEN without whitespace or URL separators before serving");
 const ADMIN_PORT = parseInt(process.env.ADMIN_PORT || "3001", 10);
 const SHELL_TIMEOUT = parseInt(process.env.SHELL_TIMEOUT || "120", 10);
 const SESSION_RECOVERY =
@@ -106,7 +107,7 @@ app.use(express.json({ limit: "50mb" }));
 // ChatGPT co the goi "/" hoac "/mcp" — ho tro ca hai.
 // Neu dat MCP_TOKEN, endpoint doi thanh "/<token>" + "/mcp/<token>" va cac path
 // khong co token se tra 401 (chong scan tunnel URL / trang web goi vao localhost).
-const MCP_PATHS = MCP_TOKEN ? [`/${MCP_TOKEN}`, `/mcp/${MCP_TOKEN}`] : ["/", "/mcp"];
+const MCP_PATHS = [`/${MCP_TOKEN}`, `/mcp/${MCP_TOKEN}`, "/mcp"];
 const MCP_PATHS_SET = new Set(MCP_PATHS);
 // /health is unauthenticated, and startup output may be collected in logs.
 // Keep the real token only in the route matcher, never in diagnostic output.
@@ -160,7 +161,7 @@ app.use((req, res, next) => {
 if (MCP_TOKEN) {
   // 404 chu KHONG phai 401: theo chuan MCP, 401 la tin hieu "can OAuth" — client
   // (ChatGPT) se di tim OAuth metadata, khong thay, roi treo. 404 = khong co gi o day.
-  for (const unguarded of ["/", "/mcp"]) {
+  for (const unguarded of ["/"]) {
     app.all(unguarded, (_req, res) => {
       res.status(404).json({ ok: false, error: "Not found" });
     });
@@ -295,6 +296,14 @@ async function handleMcpDelete(req: express.Request, res: express.Response): Pro
   await sessionManager.handleExisting(session, req, res, undefined);
 }
 
+app.use("/mcp", (req, res, next) => {
+  if (req.path !== "/") return next();
+  const value = req.headers.authorization?.replace(/^Bearer /, "") || "";
+  const a = Buffer.from(value), b = Buffer.from(MCP_TOKEN);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) { res.status(401).json({error:"MCP bearer token required"}); return; }
+  next();
+});
+
 for (const mcpPath of MCP_PATHS) {
   app.post(mcpPath, handleMcpPost);
   app.get(mcpPath, handleMcpGet);
@@ -330,13 +339,22 @@ server.on("error", (err: NodeJS.ErrnoException) => {
   process.exitCode = 1;
 });
 
-process.on("SIGINT", () => {
-  console.log("BridgeDev shutting down...");
+let stopping = false;
+async function shutdown(code = 0): Promise<void> {
+  if (stopping) return;
+  stopping = true;
   sessionManager.stopCleanup();
-  void upstreamManager.shutdown();
-  adminServer.close();
-  server.close(() => process.exit(0));
-});
+  await sessionManager.close();
+  await upstreamManager.shutdown();
+  adminServer.closeAllConnections();
+  server.closeAllConnections();
+  await Promise.all([new Promise<void>(resolve => adminServer.close(() => resolve())), new Promise<void>(resolve => server.close(() => resolve()))]);
+  process.exit(code);
+}
+process.on("SIGINT", () => { void shutdown(); });
+process.on("SIGTERM", () => { void shutdown(); });
+adminServer.on("error", err => { console.error("Admin listener failed: " + err.message); void shutdown(1); });
+server.on("error", () => { void shutdown(1); });
 
 // Keep an interactive foreground server alive when stdin is attached.
 if (process.stdin.isTTY) {

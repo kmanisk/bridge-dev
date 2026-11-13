@@ -14,7 +14,7 @@ const cli=path.resolve("dist/cli.js");
 function run(args,env={}) {
   return spawnSync(process.execPath,[cli,...args],{
     encoding:"utf8",timeout:9000,
-    env:{...process.env,HOME:tmp,MCP_TOKEN:"cli-regression-private-token",...env}
+    env:{...process.env,POLICYGATE_POLICY_FILE:"",BRIDGEDEV_RUNTIME_MODE:"portable",BRIDGEDEV_STATE_DIR:path.join(tmp,"state"),HOME:tmp,MCP_TOKEN:"cli-regression-private-token",...env}
   });
 }
 try {

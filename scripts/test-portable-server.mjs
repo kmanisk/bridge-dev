@@ -40,7 +40,7 @@ try{
   while(Date.now()-start<18000){
     if(child.exitCode!==null)throw new Error("Server exited "+child.exitCode+"; "+logs);
     try {
-      const response=await fetch("http://127.0.0.1:"+port+"/health",{signal:AbortSignal.timeout(1500)});
+        const response=await fetch("http://127.0.0.1:"+port+"/health",{signal:AbortSignal.timeout(1500)});
       if(response.ok){health=await response.json();break;}
     }catch{}
     await new Promise(resolve=>setTimeout(resolve,175));
@@ -54,9 +54,12 @@ try{
   assert.equal(health.activeSessions,0);
   assert.ok(!logs.includes(token),"Server must not log MCP token");
   const bad=await fetch("http://127.0.0.1:"+port+"/mcp");
-  assert.equal(bad.status,404,"Tokenless MCP endpoint should not be reachable");
+  assert.equal(bad.status,401,"Tokenless MCP endpoint should not be reachable");
   const admin=await fetch("http://127.0.0.1:"+adminPort+"/health");
   assert.equal(admin.status,401,"Admin API must require token");
+  const bearer=await fetch("http://127.0.0.1:"+port+"/mcp",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json",Accept:"application/json, text/event-stream"},body:JSON.stringify({jsonrpc:"2.0",id:10,method:"initialize",params:{protocolVersion:"2025-03-26",capabilities:{},clientInfo:{name:"bearer-ci",version:"1"}}})});
+  assert.equal(bearer.status,200);
+  await bearer.text();
   const response=await fetch("http://127.0.0.1:"+port+"/mcp/"+token,{
     method:"POST",
     headers:{"Content-Type":"application/json",Accept:"application/json, text/event-stream"},

@@ -101,6 +101,7 @@ export interface SessionManager {
   sendBadRequest(res: Response, message: string, requestId?: string | number | null): void;
   startCleanup(): void;
   stopCleanup(): void;
+  close(): Promise<void>;
 }
 
 function extractRequestId(body: unknown): string | number | null {
@@ -461,6 +462,14 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
       cleanupTimer.unref?.();
     },
 
+    async close() {
+      for (const sid of Object.keys(sessions)) {
+        const session = sessions[sid];
+        getUpstreamManager().unregisterMcpServer(session.server);
+        await session.server.close().catch(() => undefined);
+        delete sessions[sid];
+      }
+    },
     stopCleanup() {
       if (!cleanupTimer) return;
       clearInterval(cleanupTimer);
