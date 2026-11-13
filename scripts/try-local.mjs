@@ -55,8 +55,9 @@ const adminToken=randomBytes(32).toString("hex");
 function requestStop(){
   if(stopRequested)return;
   stopRequested=true;
-  // A piped stdin stream otherwise keeps the wrapper alive after the child exits.
+  // A piped stdin stream remains referenced even when paused; destroy it on quit.
   process.stdin.pause();
+  process.stdin.destroy();
   if(child && child.exitCode===null && !child.signalCode){
     child.kill("SIGTERM");
     forcedKill=setTimeout(()=>{
@@ -162,5 +163,6 @@ try {
   }
   if(forcedKill)clearTimeout(forcedKill);
   process.stdin.pause();
+  process.stdin.destroy();
   fs.rmSync(scratch,{recursive:true,force:true});
 }
