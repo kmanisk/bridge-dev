@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import {atomicJson,withFileLock} from "./atomic-store.js";
 import { getRuntimeMode } from "./runtime.js";
 
 export type UpstreamTransport = "stdio" | "http";
@@ -30,6 +31,7 @@ export interface UpstreamServerConfig {
   tools?: string[];
   disabled_tools?: string[];
   idle_timeout_sec?: number;
+  allow_private_network?: boolean;
 }
 
 export interface UpstreamConfigFile {
@@ -53,7 +55,10 @@ export function resolveUpstreamConfigPath(): string {
 
 function normalizeServer(raw: UpstreamServerConfig): UpstreamServerConfig {
   const id = raw.id.trim();
-  if (!id) throw new Error("Upstream server id is required");
+  if (!/^[a-zA-Z0-9_-]{1,48}$/.test(id)) throw new Error("Upstream server id must contain 1-48 safe characters");
+  if(raw.args && (!Array.isArray(raw.args) || !raw.args.every(x=>typeof x==="string")))throw new Error("Invalid provider arguments");
+  if(raw.expose && !["none","meta_only","allowlist","all"].includes(raw.expose))throw new Error("Invalid exposure");
+  if(raw.tool_prefix && !/^[a-zA-Z0-9_-]{1,48}$/.test(raw.tool_prefix))throw new Error("Invalid tool prefix");
 
   const transport = raw.transport;
   if (transport !== "stdio" && transport !== "http") {
@@ -70,7 +75,7 @@ function normalizeServer(raw: UpstreamServerConfig): UpstreamServerConfig {
   return {
     id,
     name: raw.name?.trim() || id,
-    enabled: raw.enabled !== false,
+    enabled: raw.enabled === true,
     transport,
     command: raw.command?.trim(),
     args: raw.args ?? [],
@@ -83,22 +88,32 @@ function normalizeServer(raw: UpstreamServerConfig): UpstreamServerConfig {
     tool_prefix: (raw.tool_prefix?.trim() || id).replace(/[^a-zA-Z0-9_-]/g, "_"),
     // New servers expose all tools by default, but an explicit allowlist or
     // meta-only setting remains a security boundary.
-    expose: raw.expose ?? (raw.enabled === false ? "none" : "all"),
+    expose: raw.expose ?? "none",
     tools: raw.tools ?? [],
     disabled_tools: raw.disabled_tools ?? [],
     idle_timeout_sec: raw.idle_timeout_sec ?? 600,
+    allow_private_network: raw.allow_private_network === true,
   };
+}
+
+export function normalizeConfig(config: UpstreamConfigFile):UpstreamConfigFile {
+  if(config.version!==1 || !Array.isArray(config.servers) || config.servers.length>64)throw new Error("Invalid upstream config schema");
+  const servers=config.servers.map(normalizeServer);
+  const ids=new Set<string>(),prefixes=new Set<string>();
+  for(const server of servers){
+    if(ids.has(server.id)||prefixes.has(server.tool_prefix!))throw new Error("PROVIDER_NAMESPACE_COLLISION");
+    ids.add(server.id);prefixes.add(server.tool_prefix!);
+  }
+  return {version:1,servers};
 }
 
 export async function loadUpstreamConfig(configPath = resolveUpstreamConfigPath()): Promise<UpstreamConfigFile> {
   try {
     const raw = await fs.readFile(configPath, "utf-8");
     const parsed = JSON.parse(raw) as UpstreamConfigFile;
+    if(parsed.version !== 1)throw new Error("Unsupported upstream schema version");
     if (!Array.isArray(parsed.servers)) throw new Error("servers must be an array");
-    return {
-      version: CONFIG_VERSION,
-      servers: parsed.servers.map(normalizeServer),
-    };
+    return normalizeConfig(parsed);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       const defaults = defaultUpstreamConfig();
@@ -112,12 +127,8 @@ export async function saveUpstreamConfig(
   config: UpstreamConfigFile,
   configPath = resolveUpstreamConfigPath()
 ): Promise<void> {
-  const normalized: UpstreamConfigFile = {
-    version: CONFIG_VERSION,
-    servers: config.servers.map(normalizeServer),
-  };
-  await fs.mkdir(path.dirname(configPath), { recursive: true });
-  await fs.writeFile(configPath, JSON.stringify(normalized, null, 2), "utf-8");
+  const normalized = normalizeConfig(config);
+  await withFileLock(configPath,()=>atomicJson(configPath,normalized));
 }
 
 export type McpImportSource = "cursor" | "claude" | "opencode" | "file";
@@ -188,7 +199,7 @@ function entryToServer(id: string, entry: McpServersEntry, enabledDefault = fals
   return normalizeServer({
     id,
     name: id,
-    enabled: entry.enabled ?? enabledDefault,
+    enabled: false,
     transport,
     command: cmdParts.command,
     args,
@@ -198,7 +209,7 @@ function entryToServer(id: string, entry: McpServersEntry, enabledDefault = fals
     headers: entry.headers,
     bearer_token_env_var: entry.bearer_token_env_var,
     auth: entry.auth,
-    expose: entry.enabled === false ? "none" : "all",
+    expose: "none",
     tools: [],
   });
 }

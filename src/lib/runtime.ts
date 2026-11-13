@@ -77,7 +77,7 @@ export function makePortablePolicy(): PolicyConfig {
     secret_names: [".env", ".env.*", "*.pem", "*.key", "id_*", "*token*", "credentials.json"],
     approval_paths: [],
     sensitive_segments: [".ssh", ".gnupg", ".aws", ".kube", "secrets", "keyrings"],
-    hard_paths: [sourceRoot, state],
+    hard_paths: [sourceRoot, state, path.join(workspace,".bridge-dev")],
     allowed_commands: ["pwd", "id", "whoami", "git status", "git diff", "git log"],
     approval_commands: [
       "sudo", "doas", "su", "pkexec", "ssh", "scp", "curl", "wget",

@@ -1,5 +1,9 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {withFileLock,atomicJson} from "./atomic-store.js";
+import {ProviderTransport} from "./provider-transport.js";
+import {safeFetch} from "./safe-network.js";
+import {validateToolArguments,validateToolMetadata,sanitizeProviderResult,proxyToolName} from "./provider-security.js";
+import {getPolicyGate} from "./policy-gateway.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -11,6 +15,7 @@ import {
   type UpstreamConfigFile,
   type UpstreamServerConfig,
   resolveUpstreamConfigPath,
+  normalizeConfig,
 } from "./mcp-upstream-config.js";
 import { FileOAuthClientProvider } from "./mcp-oauth-provider.js";
 
@@ -34,7 +39,7 @@ export interface UpstreamServerStatus {
 interface UpstreamConnection {
   config: UpstreamServerConfig;
   client: Client;
-  transport: StdioClientTransport | StreamableHTTPClientTransport;
+  transport: ProviderTransport | StreamableHTTPClientTransport;
   tools: Tool[];
   lastUsedAt: number;
   idleTimer: ReturnType<typeof setTimeout> | null;
@@ -52,6 +57,8 @@ export class McpUpstreamManager {
   private servers = new Set<McpServer>();
   private toolsCache = new Map<string, { tools: Tool[]; expiresAt: number }>();
   private oauthProviders = new Map<string, FileOAuthClientProvider>();
+  private generation=0;
+  private failures=new Map<string,{until:number;count:number;error:string}>();
   private readonly toolsCacheTtlMs = 60_000;
   private readonly connectTimeoutMs = Math.max(1_000, Number(process.env.MCP_UPSTREAM_CONNECT_TIMEOUT_MS) || 15_000);
 
@@ -75,7 +82,7 @@ export class McpUpstreamManager {
   }
 
   getConfig(): UpstreamConfigFile {
-    return this.config;
+    return structuredClone(this.config);
   }
 
   getConfigPath(): string {
@@ -83,11 +90,11 @@ export class McpUpstreamManager {
   }
 
   listServerConfigs(): UpstreamServerConfig[] {
-    return [...this.config.servers];
+    return structuredClone(this.config.servers);
   }
 
   getServerConfig(serverId: string): UpstreamServerConfig | undefined {
-    return this.config.servers.find((s) => s.id === serverId);
+    return structuredClone(this.config.servers.find((s) => s.id === serverId));
   }
 
   async reloadConfig(): Promise<UpstreamConfigFile> {
@@ -95,32 +102,38 @@ export class McpUpstreamManager {
     this.config = await loadUpstreamConfig(this.configPath);
     this.oauthProviders.clear();
     await this.refreshAllProxies();
-    return this.config;
+    return structuredClone(this.config);
   }
 
   async updateConfig(next: UpstreamConfigFile): Promise<UpstreamConfigFile> {
+    next=normalizeConfig(next);
     await saveUpstreamConfig(next, this.configPath);
     await this.shutdown();
-    this.config = next;
+    this.config = structuredClone(next);
     this.oauthProviders.clear();
     await this.refreshAllProxies();
-    return this.config;
+    return structuredClone(this.config);
   }
 
   async upsertServer(server: UpstreamServerConfig): Promise<void> {
-    const idx = this.config.servers.findIndex((s) => s.id === server.id);
-    if (idx >= 0) this.config.servers[idx] = server;
-    else this.config.servers.push(server);
-    await this.updateConfig(this.config);
+    await withFileLock(this.configPath,async()=>{
+      const current=await loadUpstreamConfig(this.configPath);
+      const next=normalizeConfig({version:1,servers:[...current.servers.filter(item=>item.id!==server.id),server]});
+      await atomicJson(this.configPath,next);
+    });
+    await this.reloadConfig();
   }
 
   async removeServer(serverId: string): Promise<boolean> {
-    const before = this.config.servers.length;
-    this.config.servers = this.config.servers.filter((s) => s.id !== serverId);
-    if (this.config.servers.length === before) return false;
-    await this.disconnect(serverId);
-    await this.updateConfig(this.config);
-    return true;
+    let removed=false;
+    await withFileLock(this.configPath,async()=>{
+      const current=await loadUpstreamConfig(this.configPath);
+      const servers=current.servers.filter(item=>item.id!==serverId);
+      removed=servers.length!==current.servers.length;
+      if(removed)await atomicJson(this.configPath,{version:1,servers});
+    });
+    await this.reloadConfig();
+    return removed;
   }
 
   private async disconnectDisabled(): Promise<void> {
@@ -188,7 +201,7 @@ export class McpUpstreamManager {
     await this.disconnect(serverId);
     const provider = this.getOAuthProvider(config);
     await provider.beginAuthorization({ resetTokens });
-    const result = await auth(provider, { serverUrl: config.url, scope: config.auth?.scope });
+    const result = await auth(provider, { serverUrl: config.url, scope: config.auth?.scope, fetchFn:safeFetch(config.allow_private_network===true) });
     const status = await provider.authorizationStatus();
     return { ...status, result };
   }
@@ -203,6 +216,7 @@ export class McpUpstreamManager {
     const result = await auth(provider, {
       serverUrl: config.url,
       authorizationCode,
+      fetchFn:safeFetch(config.allow_private_network===true),
       scope: config.auth?.scope,
     });
     if (result !== "AUTHORIZED") throw new Error(`OAuth authorization did not complete for ${serverId}`);
@@ -223,18 +237,19 @@ export class McpUpstreamManager {
 
   private async createTransport(config: UpstreamServerConfig): Promise<{
     client: Client;
-    transport: StdioClientTransport | StreamableHTTPClientTransport;
+    transport: ProviderTransport | StreamableHTTPClientTransport;
     pid: number | null;
   }> {
     const client = new Client({ name: "bridge-dev-hub", version: "2.0.0" });
 
     if (config.transport === "stdio") {
-      const transport = new StdioClientTransport({
+      if(getPolicyGate().getActiveProfile()==="strict")throw new Error("STRICT_PROVIDER_REFUSED: stdio requires a separately reviewed OS sandbox; HTTP providers only");
+      const transport = new ProviderTransport({
         command: config.command!,
         args: config.args,
         env: config.env,
         cwd: config.cwd,
-        stderr: "pipe",
+
       });
       await this.connectClient(client, transport, config.id);
       return { client, transport, pid: transport.pid };
@@ -251,6 +266,7 @@ export class McpUpstreamManager {
     const transport = new StreamableHTTPClientTransport(new URL(config.url!), {
       authProvider: this.shouldUseOAuth(config) ? this.getOAuthProvider(config) : undefined,
       requestInit: Object.keys(headers).length ? { headers } : undefined,
+      fetch: safeFetch(config.allow_private_network === true),
     });
     await this.connectClient(client, transport, config.id);
     return { client, transport, pid: null };
@@ -275,7 +291,7 @@ export class McpUpstreamManager {
 
   private async connectClient(
     client: Client,
-    transport: StdioClientTransport | StreamableHTTPClientTransport,
+    transport: ProviderTransport | StreamableHTTPClientTransport,
     serverId: string
   ): Promise<void> {
     try {
@@ -289,6 +305,8 @@ export class McpUpstreamManager {
   async connect(serverId: string, force = false): Promise<UpstreamConnection> {
     const config = this.getServerConfig(serverId);
     if (!config) throw new Error(`Unknown upstream server: ${serverId}`);
+    const failure=this.failures.get(serverId);
+    if(failure && Date.now()<failure.until)throw new Error("PROVIDER_BACKOFF: "+failure.error);
     if (!config.enabled) throw new Error(`Upstream server disabled: ${serverId}`);
 
     const pending = this.connecting.get(serverId);
@@ -308,11 +326,13 @@ export class McpUpstreamManager {
 
     if (existing) await this.disconnect(serverId);
 
+    const generation=this.generation;
     const attempt = (async (): Promise<UpstreamConnection> => {
-      const { client, transport, pid } = await this.withConnectTimeout(this.createTransport(config), serverId);
+      const { client, transport, pid } = await this.createTransport(config);
       try {
-        const list = await this.withConnectTimeout(client.listTools(), serverId);
-        const tools = list.tools ?? [];
+        const list = await this.withConnectTimeout(client.listTools(undefined,{timeout:15000}), serverId);
+        const tools = validateToolMetadata(list.tools ?? []);
+        if(generation!==this.generation || !this.getServerConfig(serverId)?.enabled)throw new Error("PROVIDER_DISABLED_DURING_CONNECT");
         const conn: UpstreamConnection = {
           config,
           client,
@@ -327,6 +347,9 @@ export class McpUpstreamManager {
           (conn as UpstreamConnection & { pid?: number }).pid = pid;
         }
 
+        const oldClose=client.onclose;
+        client.onclose=()=>{conn.connected=false;oldClose?.();};
+        this.failures.delete(serverId);
         this.connections.set(serverId, conn);
         this.toolsCache.set(serverId, { tools, expiresAt: Date.now() + this.toolsCacheTtlMs });
         this.touch(conn);
@@ -339,6 +362,10 @@ export class McpUpstreamManager {
     this.connecting.set(serverId, attempt);
     try {
       return await attempt;
+    } catch(error) {
+      const count=(this.failures.get(serverId)?.count || 0)+1;
+      this.failures.set(serverId,{count,until:Date.now()+Math.min(30000,250*2**Math.min(count,7)),error:String(error).slice(0,400)});
+      throw error;
     } finally {
       if (this.connecting.get(serverId) === attempt) this.connecting.delete(serverId);
     }
@@ -347,6 +374,7 @@ export class McpUpstreamManager {
   async disconnect(serverId: string): Promise<void> {
     const conn = this.connections.get(serverId);
     if (!conn) return;
+    conn.connected=false;
     if (conn.idleTimer) clearTimeout(conn.idleTimer);
     try {
       await conn.transport.close();
@@ -356,6 +384,8 @@ export class McpUpstreamManager {
   }
 
   async shutdown(): Promise<void> {
+    this.generation++;
+    await Promise.allSettled([...this.connecting.values()]);
     for (const id of [...this.connections.keys()]) {
       await this.disconnect(id);
     }
@@ -380,22 +410,31 @@ export class McpUpstreamManager {
   }
 
   async listTools(serverId: string): Promise<Tool[]> {
+    if(!this.getServerConfig(serverId)?.enabled)throw new Error("PROVIDER_DISABLED");
     const cached = this.toolsCache.get(serverId);
     if (cached && cached.expiresAt > Date.now()) return cached.tools;
 
     const conn = await this.connect(serverId);
-    const list = await conn.client.listTools();
-    const tools = list.tools ?? [];
+    const list = await conn.client.listTools(undefined,{timeout:15000});
+    const tools = validateToolMetadata(list.tools ?? []);
     conn.tools = tools;
     this.toolsCache.set(serverId, { tools, expiresAt: Date.now() + this.toolsCacheTtlMs });
     return tools;
   }
 
   async callTool(serverId: string, toolName: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    const config=this.getServerConfig(serverId);
+    if(!config?.enabled || !this.getProxiedToolNames(config,[{name:toolName,inputSchema:{type:"object"}}]).length)throw new Error("PROVIDER_TOOL_DENIED");
     const conn = await this.connect(serverId);
+    const tool=conn.tools.find(item=>item.name===toolName);
+    if(!tool)throw new Error("PROVIDER_UNKNOWN_TOOL");
+    validateToolArguments(tool,args);
     this.touch(conn);
-    const result = await conn.client.callTool({ name: toolName, arguments: args });
-    return result;
+    try {
+      const result = await conn.client.callTool({ name: toolName, arguments: args }, undefined, {timeout:15000});
+      return sanitizeProviderResult(result,config.id);
+    } catch(error){conn.lastError=String(error);await this.disconnect(serverId);throw error;}
+
   }
 
   async checkHealth(serverId: string): Promise<UpstreamServerStatus> {
@@ -446,11 +485,11 @@ export class McpUpstreamManager {
 
   getProxiedToolNames(config: UpstreamServerConfig, tools: Tool[]): string[] {
     if (!config.enabled || config.expose === "none" || config.expose === "meta_only") return [];
-    const prefix = `${config.tool_prefix ?? config.id}__`;
+
     return tools
       .filter((tool) => !(config.disabled_tools ?? []).includes(tool.name))
       .filter((tool) => config.expose === "all" || (config.tools ?? []).includes(tool.name))
-      .map((tool) => `${prefix}${tool.name}`);
+      .map((tool) => proxyToolName(config.tool_prefix ?? config.id,tool.name));
   }
 
   async refreshAllProxies(): Promise<void> {

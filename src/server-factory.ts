@@ -56,7 +56,7 @@ function configureToolRegistration(server: McpServer, session: PolicySession): v
       try {
         const decision=await gate.authorize(session,toolName,args);
         await gate.audit.append({phase:"decision",status:"allowed",tool:toolName,session_id:session.id,class:decision.kind});
-        if ((decision.requiresApproval || gate.getActiveProfile() === "dangerous") && !args.auth_token) {
+        if (!isUpstreamProxy && (decision.requiresApproval || gate.getActiveProfile() === "dangerous") && !args.auth_token) {
           const { getSecurityPolicy } = await import("./lib/security-policy.js");
           const policy = getSecurityPolicy();
           args.auth_token = policy.createAuthorization({

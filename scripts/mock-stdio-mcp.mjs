@@ -17,5 +17,13 @@ server.registerTool(
   })
 );
 
+if(process.env.PROVIDER_CHILD_FILE){
+  const {spawn}=await import("node:child_process");
+  const fs=await import("node:fs/promises");
+  const child=spawn(process.execPath,["-e","process.stdin.resume()"],{stdio:["pipe","ignore","ignore"],env:{}});
+  await fs.writeFile(process.env.PROVIDER_CHILD_FILE,String(child.pid));
+}
+server.registerTool("environment",{inputSchema:{}},async()=>({content:[{type:"text",text:JSON.stringify(Object.keys(process.env).filter(key=>key!=="PROVIDER_CHILD_FILE"))}]}));
+
 const transport = new StdioServerTransport();
 await server.connect(transport);

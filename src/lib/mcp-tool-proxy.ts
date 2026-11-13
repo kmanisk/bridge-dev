@@ -1,4 +1,5 @@
 import { z } from "zod";
+import {proxyToolName,cleanProviderText} from "./provider-security.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -141,13 +142,15 @@ export async function refreshProxiedTools(server: McpServer, manager: McpUpstrea
 
   for (const { config, tools } of upstreams) {
 
-    const prefix = `${config.tool_prefix ?? config.id}__`;
+
     for (const tool of tools) {
       if (!shouldExposeTool(config, tool.name)) continue;
-      const proxyName = `${prefix}${tool.name}`;
+      const proxyName = proxyToolName(config.tool_prefix ?? config.id,tool.name);
+      if(activeNames.has(proxyName))throw new Error("PROVIDER_TOOL_NAMESPACE_COLLISION: "+proxyName);
       activeNames.add(proxyName);
 
-      if (registry.has(proxyName)) continue;
+      const previous=registry.get(proxyName);
+      if(previous){previous.remove();registry.delete(proxyName);}
 
       const inputShape = jsonSchemaToZodShape(tool.inputSchema);
       const hasSchema = Object.keys(inputShape).length > 0;
@@ -159,9 +162,9 @@ export async function refreshProxiedTools(server: McpServer, manager: McpUpstrea
       const registered = server.registerTool(
         proxyName,
         {
-          title: tool.title ?? tool.name,
-          description: `[${config.name}] ${tool.description ?? tool.name}`,
-          inputSchema: hasSchema ? inputShape : {},
+          title: cleanProviderText(tool.title ?? tool.name,128),
+          description: `[Untrusted provider: ${config.id}] ${cleanProviderText(tool.description ?? tool.name,2000)}`,
+          inputSchema: z.looseObject(hasSchema ? inputShape : {}),
           ...(hasOutputSchema ? { outputSchema: outputShape } : {}),
           annotations: tool.annotations ?? toolAnnotations("edit"),
         },

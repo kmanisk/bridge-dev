@@ -35,3 +35,33 @@ HOME/XDG/config/data and policy state. No dependencies added.
 Verified: full baseline suite, policy suite, CLI suite, portable workspace suite,
 actual portable HTTP startup/authentication and native tools inventory.
 Production services, installed code, credentials, Funnel and VM state unchanged.
+
+## Phase 2
+
+Provider imports are disabled and deny exposure even if imported metadata requests
+enabling. Registry writes validate schema, IDs and namespace collisions, use an
+exclusive bounded file lock, an atomic rename and a private rollback snapshot.
+Invalid optional registries remain untouched and report initializationError.
+Provider HTTP uses DNS validation and pinned connection addresses; private/plain
+HTTP requires explicit allow_private_network. Redirects are not followed by the
+provider transport. Source downloads revalidate each redirect separately.
+
+Names are ASCII and at most 64 characters, with SHA-256 suffixes for normalization
+or truncation. Provider metadata/results have count/size limits, origin labels and
+control-character filtering. Original input schemas validate every forwarded call;
+regex and referenced schemas fail closed as unsupported. Disabled/removed and
+non-allowlisted tools are refused even through the legacy mcp_call fallback.
+All unclassified proxies retain X classification and signed per-call approvals;
+provider read-only annotations alone never grant policy permission.
+
+Stdio uses an explicit-only environment and an owned process group (Windows uses
+taskkill /T). STRICT refuses stdio without an independently reviewed sandbox.
+Requests time out, reconnect attempts back off on demand, and shutdown invalidates
+pending connections. There are no provider polling loops. Portable gateway-owned
+.bridge-dev configuration is protected from native workspace writes.
+
+Verified on Linux: independent SDK client through both HTTP and stdio providers,
+namespace collision refusal, invalid arguments, SSRF targets, safe persistence,
+stale-call denial after disable, removal, corrupted config and provider/child PID
+cleanup. Existing full suite, policy, CLI, portable and native inventory gates pass.
+No new dependencies. Windows/macOS execution follows in phase 6.
