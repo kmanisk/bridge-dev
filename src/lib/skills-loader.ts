@@ -15,7 +15,11 @@ function parseFrontmatter(content: string): { name?: string; description?: strin
   if (!match) return {};
   const block = match[1];
   const name = block.match(/^name:\s*(.+)$/m)?.[1]?.trim();
-  const description = block.match(/^description:\s*(.+export async function loadProjectSkills(workspaceRoot: string): Promise<SkillSummary[]> {
+  const description = block.match(/^description:\s*(.+)$/m)?.[1]?.trim();
+  return { name, description };
+}
+
+export async function loadProjectSkills(workspaceRoot: string): Promise<SkillSummary[]> {
   const root = await fs.realpath(path.resolve(workspaceRoot));
   const within = (target:string):boolean => {
     const rel=path.relative(root,target);
@@ -70,13 +74,6 @@ function parseFrontmatter(content: string): { name?: string; description?: strin
         path:computerUseSkill,source:"plugin",
       });
     }catch{}
-  }
-  return out;
-}
-
-,
-      source: "plugin",
-    });
   }
   return out;
 }
