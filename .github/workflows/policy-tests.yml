@@ -27,7 +27,7 @@ jobs:
         run: pnpm run test:policy
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - name: Install pinned chezmoi for full regression fixtures
         run: |
           go install github.com/twpayne/chezmoi/v2@v2.73.0
