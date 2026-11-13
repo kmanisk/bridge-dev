@@ -1,0 +1,29 @@
+name: policy-tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  policy-tests:
+    name: policy-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install from lockfile (no new runtime packages)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build and run disposable policy bypass tests
+        run: pnpm run test:policy
+      - name: Verify real MCP registration inventory
+        run: node scripts/sync-tool-counts.mjs --check-manifest profiles/native-tool-counts.json

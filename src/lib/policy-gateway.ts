@@ -1,0 +1,176 @@
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import { createHash, randomUUID, verify } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { assertRegistryComplete, classifyTool, type ToolClass } from "./tool-classification.js";
+import { enforcePolicy } from "./policy-enforcement.js";
+import { HashAudit } from "./hash-audit.js";
+
+export interface PolicyLimits {
+  max_payload_bytes: number;
+  max_mutations_per_minute: number;
+  max_denials: number;
+  approval_timeout_ms: number;
+}
+export interface PolicyConfig {
+  profile: "strict" | "standard" | "dangerous";
+  dangerous_enabled: boolean;
+  context_files: string[];
+  writable_roots: string[];
+  protected_paths: string[];
+  secret_paths: string[];
+  secret_names: string[];
+  approval_paths: string[];
+  sensitive_segments: string[];
+  hard_paths: string[];
+  allowed_commands: string[];
+  approval_commands: string[];
+  denied_commands: string[];
+  proxy_tools: Record<string, ToolClass>;
+  limits: PolicyLimits;
+  audit_log: string;
+}
+export interface PolicySession {
+  id: string;
+  contextHash: string | null;
+  mutationTimestamps: number[];
+  consecutiveDenials: number;
+  locked: boolean;
+}
+export interface PolicyAuthorization {
+  kind: ToolClass;
+  tool: string;
+  requiresApproval: boolean;
+}
+const policyExamplePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../profiles/policy.example.json");
+const configKeys = [
+  "profile", "dangerous_enabled", "context_files", "writable_roots", "protected_paths",
+  "secret_paths", "secret_names", "approval_paths", "sensitive_segments", "hard_paths",
+  "allowed_commands", "approval_commands", "denied_commands", "proxy_tools", "limits", "audit_log",
+] as const;
+const limitKeys = ["max_payload_bytes","max_mutations_per_minute","max_denials","approval_timeout_ms"];
+
+export function newPolicySession(): PolicySession {
+  return { id: randomUUID(), contextHash: null, mutationTimestamps: [], consecutiveDenials: 0, locked: false };
+}
+function expandPath(raw: string): string {
+  return path.resolve(raw.replace(/^\$HOME(?=\/|$)/, os.homedir()).replace(/^~(?=\/|$)/, os.homedir()));
+}
+function validateConfig(source: unknown): PolicyConfig {
+  if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("POLICYGATE_CONFIG_INVALID: expected object");
+  const raw = source as Record<string, unknown>;
+  for (const key of Object.keys(raw)) if (!(configKeys as readonly string[]).includes(key))
+    throw new Error("POLICYGATE_CONFIG_UNKNOWN_KEY: " + key);
+  for (const required of configKeys) if (!(required in raw)) throw new Error("POLICYGATE_CONFIG_MISSING_KEY: " + required);
+  if (!["strict","standard","dangerous"].includes(String(raw.profile)) || typeof raw.dangerous_enabled !== "boolean")
+    throw new Error("POLICYGATE_CONFIG_INVALID: profile/dangerous_enabled");
+  const arrayKeys = ["context_files","writable_roots","protected_paths","secret_paths","secret_names",
+    "approval_paths","sensitive_segments","hard_paths","allowed_commands","approval_commands","denied_commands"];
+  for (const key of arrayKeys)
+    if (!Array.isArray(raw[key]) || !(raw[key] as unknown[]).every((v) => typeof v === "string" && v.length > 0))
+      throw new Error("POLICYGATE_CONFIG_INVALID: " + key);
+  if (typeof raw.audit_log !== "string" || !raw.audit_log) throw new Error("POLICYGATE_CONFIG_INVALID: audit_log");
+  if (!raw.limits || typeof raw.limits !== "object" || Array.isArray(raw.limits))
+    throw new Error("POLICYGATE_CONFIG_INVALID: limits");
+  const limits = raw.limits as Record<string, unknown>;
+  for (const key of Object.keys(limits)) if (!limitKeys.includes(key)) throw new Error("POLICYGATE_CONFIG_UNKNOWN_LIMIT: " + key);
+  for (const key of limitKeys) if (!Number.isSafeInteger(limits[key]) || Number(limits[key]) <= 0)
+    throw new Error("POLICYGATE_CONFIG_INVALID_LIMIT: " + key);
+  if (!raw.proxy_tools || typeof raw.proxy_tools !== "object" || Array.isArray(raw.proxy_tools))
+    throw new Error("POLICYGATE_CONFIG_INVALID: proxy_tools");
+  for (const [name, value] of Object.entries(raw.proxy_tools)) {
+    if (!/^[a-zA-Z0-9_-]+__[a-zA-Z0-9_-]+$/.test(name) || !["R","W","X"].includes(String(value)))
+      throw new Error("POLICYGATE_CONFIG_INVALID_PROXY: " + name);
+  }
+  const cfg = raw as unknown as PolicyConfig;
+  if (cfg.context_files.length !== 2) throw new Error("POLICYGATE_CONFIG_INVALID: exactly two canonical context files required");
+  for (const key of ["context_files","writable_roots","protected_paths","secret_paths","approval_paths","hard_paths"] as const)
+    cfg[key] = cfg[key].map(expandPath);
+  cfg.audit_log = expandPath(cfg.audit_log);
+  if (cfg.profile === "dangerous" && (!cfg.dangerous_enabled || process.env.POLICYGATE_DANGEROUS !== "yes"))
+    throw new Error("POLICYGATE_DANGEROUS_UNAUTHORIZED: operator must set POLICYGATE_DANGEROUS=yes and dangerous_enabled=true");
+  return cfg;
+}
+export function loadPolicyConfig(file = process.env.POLICYGATE_POLICY_FILE || policyExamplePath): PolicyConfig {
+  const filePath = expandPath(file);
+  const config = JSON.parse(fs.readFileSync(filePath, "utf8")) as unknown;
+  return validateConfig(config);
+}
+export class PolicyGate {
+  readonly config: PolicyConfig;
+  readonly configPath: string;
+  private nativeRegistrations = new Set<string>();
+  readonly audit: HashAudit;
+  constructor(file = process.env.POLICYGATE_POLICY_FILE || policyExamplePath) {
+    this.configPath = expandPath(file);
+    this.config = loadPolicyConfig(this.configPath);
+    this.audit = new HashAudit(this.config.audit_log);
+  }
+  register(name: string): void {
+    // A proxy name without an explicit classification is X/approval, never implicit read.
+    classifyTool(name, {}, this.config.proxy_tools);
+    if (!name.includes("__")) this.nativeRegistrations.add(name);
+  }
+  assertComplete(includeBridge = true): void { assertRegistryComplete(this.nativeRegistrations, includeBridge); }
+  async contextHash(): Promise<string> {
+    const digester = createHash("sha256");
+    for (const filename of this.config.context_files) {
+      const content = await fsp.readFile(filename);
+      digester.update(filename).update("\0").update(content).update("\0");
+    }
+    return digester.digest("hex");
+  }
+  getActiveProfile(): "strict" | "standard" | "dangerous" {
+    const yoloPath = process.env.POLICYGATE_YOLO_LEASE || "/var/lib/local-coder-policygate/yolo-lease.json";
+    const pubKeyPath = process.env.POLICYGATE_APPROVAL_PUBLIC_KEY || "/etc/local-coder-policygate/operator-public.pem";
+    try {
+      if (fs.existsSync(yoloPath) && fs.existsSync(pubKeyPath)) {
+        const content = fs.readFileSync(yoloPath, "utf8");
+        const lease = JSON.parse(content) as {
+          mode: string;
+          expires_at: number;
+          signature: string;
+          nonce?: string;
+        };
+        if (lease.mode === "dangerous" && typeof lease.expires_at === "number" && Date.now() < lease.expires_at) {
+          const msg = JSON.stringify({ mode: lease.mode, expires_at: lease.expires_at, ...(lease.nonce ? { nonce: lease.nonce } : {}) });
+          const pubKey = fs.readFileSync(pubKeyPath, "utf8");
+          const ok = verify(null, Buffer.from(msg), pubKey, Buffer.from(lease.signature, "base64"));
+          if (ok) return "dangerous";
+        }
+      }
+    } catch {
+      // Ignore lease parse or verification error, fall back to configured/override profile
+    }
+
+    const modeOverridePath = process.env.POLICYGATE_MODE_FILE || "/var/lib/local-coder-policygate/mode.json";
+    try {
+      if (fs.existsSync(modeOverridePath)) {
+        const raw = JSON.parse(fs.readFileSync(modeOverridePath, "utf8")) as { mode?: string };
+        if (raw.mode === "strict" || raw.mode === "standard") {
+          return raw.mode;
+        }
+      }
+    } catch {
+      // Ignore
+    }
+
+    return this.config.profile;
+  }
+  async contextLoaded(session: PolicySession, args: Record<string, unknown>): Promise<void> {
+    const docs = args.docs;
+    if (Array.isArray(docs) && !(docs.includes("agents") && docs.includes("current_state"))) return;
+    session.contextHash = await this.contextHash();
+    session.consecutiveDenials = 0;
+  }
+  async authorize(session: PolicySession, tool: string, args: Record<string, unknown>): Promise<PolicyAuthorization> {
+    return enforcePolicy(this, session, tool, args);
+  }
+}
+let singleton: PolicyGate | undefined;
+export function getPolicyGate(): PolicyGate {
+  singleton ??= new PolicyGate();
+  return singleton;
+}

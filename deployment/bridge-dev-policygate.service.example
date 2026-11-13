@@ -1,0 +1,63 @@
+# EXAMPLE ONLY: do not install or enable before operator review.
+# System service runs under a dedicated unprivileged user; not the user's login account.
+[Unit]
+Description=BridgeDev MCP — restricted on-demand policy gateway
+After=network.target
+
+[Service]
+Type=exec
+User=localcoder
+Group=localcoder
+WorkingDirectory=/opt/local-coder
+EnvironmentFile=/etc/local-coder-policygate/service.env
+Environment=HOME=/var/lib/local-coder-policygate/home
+Environment=CODEX_HOME=/var/lib/local-coder-policygate/home/.codex
+Environment=MCP_SHELL_STATE_DIR=/var/lib/local-coder-policygate/home/.mcp-state
+Environment=MCP_OAUTH_STORE=/var/lib/local-coder-policygate/home/.mcp-oauth
+Environment=WORKSPACE_PATH=/srv/local-coder/workspace
+Environment=LOCAL_CODER_CHEZMOI_SOURCE_DIR=/srv/local-coder/context
+Environment=POLICYGATE_POLICY_FILE=/etc/local-coder-policygate/policy.json
+Environment=POLICYGATE_APPROVAL_PUBLIC_KEY=/etc/local-coder-policygate/operator-public.pem
+Environment=POLICYGATE_OPERATOR_PRIVATE_KEY=/etc/local-coder-policygate/operator-private.pem
+Environment=POLICYGATE_APPROVAL_DIR=/var/lib/local-coder-policygate/approvals
+Environment=POLICYGATE_AUDIT_ANCHOR_FILE=/etc/local-coder-policygate/audit-anchor.json
+Environment=POLICYGATE_ENV_FILE=/etc/local-coder-policygate/service.env
+Environment=MCP_UPSTREAM_CONFIG=/etc/local-coder-policygate/mcp-upstream.json
+Environment=POST_EDIT_HOOKS_CONFIG=/etc/local-coder-policygate/post-edit-hooks.json
+Environment=CHECKPOINT_ENABLED=false
+Environment=CHATGPT_TOOL_PROFILE=slim
+Environment=POLICYGATE_DANGEROUS=no
+Environment=HOST=127.0.0.1
+Environment=PORT=44910
+Environment=ADMIN_PORT=44911
+ExecStartPre=/usr/bin/node /opt/local-coder/scripts/production-preflight.mjs
+ExecStart=/usr/bin/node /opt/local-coder/dist/index.js
+Restart=no
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/opt/local-coder
+ReadOnlyPaths=/srv/local-coder/context
+ReadWritePaths=/srv/local-coder/workspace
+ReadWritePaths=/var/log/local-coder-policygate
+ReadWritePaths=/var/lib/local-coder-policygate/home
+ReadWritePaths=/var/lib/local-coder-policygate/approvals
+IPAddressDeny=any
+IPAddressAllow=localhost
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+
+# No [Install] section: operator-started only, never enable at boot.

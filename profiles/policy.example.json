@@ -1,0 +1,117 @@
+{
+  "profile": "standard",
+  "dangerous_enabled": false,
+  "context_files": [
+    "$HOME/.local/share/chezmoi/AGENTS.md",
+    "$HOME/.local/share/chezmoi/docs/system/SYSTEM_CONTEXT.md"
+  ],
+  "writable_roots": [
+    "$HOME/Projects",
+    "$HOME/.local/share/chezmoi",
+    "$HOME/Downloads",
+    "$HOME/Documents",
+    "$HOME/.codex/projects",
+    "/tmp"
+  ],
+  "protected_paths": [
+    "$HOME/.ssh",
+    "$HOME/.gnupg",
+    "/etc",
+    "/boot",
+    "/dev",
+    "/sys",
+    "/proc"
+  ],
+  "secret_paths": [
+    "$HOME/.ssh",
+    "$HOME/.gnupg",
+    "$HOME/.config/age"
+  ],
+  "secret_names": [
+    ".env",
+    ".env.*",
+    "id_*",
+    "*.pem",
+    "*.key",
+    "*token*",
+    "credentials.json"
+  ],
+  "approval_paths": [
+    "$HOME/.local/share/chezmoi/AGENTS.md",
+    "$HOME/.local/share/chezmoi/docs/system/SYSTEM_CONTEXT.md"
+  ],
+  "sensitive_segments": [
+    ".ssh",
+    ".gnupg",
+    ".aws",
+    ".kube",
+    "secrets",
+    "private"
+  ],
+  "hard_paths": [
+    "$HOME/Projects/chatgpt-local-coder/src",
+    "$HOME/Projects/chatgpt-local-coder-policygate/src",
+    "$HOME/Projects/chatgpt-local-coder/deployment",
+    "$HOME/Projects/chatgpt-local-coder-policygate/deployment",
+    "$HOME/Projects/chatgpt-local-coder/scripts/policygate-operator.mjs",
+    "$HOME/Projects/chatgpt-local-coder-policygate/scripts/policygate-operator.mjs"
+  ],
+  "allowed_commands": [
+    "ls",
+    "pwd",
+    "cat",
+    "head",
+    "tail",
+    "rg",
+    "grep",
+    "find",
+    "stat",
+    "git status",
+    "git diff",
+    "git log",
+    "git show",
+    "free",
+    "uptime",
+    "df",
+    "du",
+    "uname",
+    "whoami",
+    "id",
+    "date"
+  ],
+  "approval_commands": [
+    "sudo",
+    "su",
+    "pkexec",
+    "doas",
+    "eval",
+    "chezmoi apply",
+    "git push",
+    "pacman",
+    "paru",
+    "yay",
+    "systemctl",
+    "ssh",
+    "scp",
+    "nc",
+    "netcat",
+    "python -c",
+    "node -e",
+    "curl"
+  ],
+  "denied_commands": [
+    "mkfs",
+    "wipefs",
+    "shutdown -h",
+    "rm -rf /",
+    "git push --force"
+  ],
+  "proxy_tools": {},
+  "limits": {
+    "max_payload_bytes": 1048576,
+    "max_mutations_per_minute": 30,
+    "max_denials": 5,
+    "approval_timeout_ms": 30000
+  },
+  "audit_log": "./.policygate-dev.audit.jsonl"
+}
