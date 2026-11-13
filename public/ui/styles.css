@@ -354,3 +354,5 @@ input:focus, select:focus { border-color: #555; }
   .field.span-2 { grid-column: span 1; }
   .env-grid { grid-template-columns: 1fr; }
 }
+#extension-preview { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+#extension-source { width: min(100%, 36rem); }

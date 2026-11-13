@@ -534,7 +534,7 @@ async function refreshAll() {
 
 document.getElementById("refresh-all").addEventListener("click", () => refreshAll().catch((e) => toast(e.message, true)));
 
-refreshAll().catch((err) => toast(err.message, true));
+if(document.getElementById("admin-credential").value)refreshAll().catch((err) => toast(err.message, true));
 
 async function openLocalTools() {
   const data = await api("/api/local-tools");

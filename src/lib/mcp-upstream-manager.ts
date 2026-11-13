@@ -124,8 +124,8 @@ export class McpUpstreamManager {
   async updateConfig(next: UpstreamConfigFile): Promise<UpstreamConfigFile> {
     next=normalizeConfig(next);
     await saveUpstreamConfig(next, this.configPath);
-    await this.shutdown();
     this.config = structuredClone(next);
+    await this.shutdown();
     this.oauthProviders.clear();
     this.syncPermissions();
     await this.refreshAllProxies();
@@ -395,7 +395,7 @@ export class McpUpstreamManager {
     if (conn.idleTimer) clearTimeout(conn.idleTimer);
     try {
       await conn.transport.close();
-    } catch {}
+    } catch(error) {conn.lastError="PROVIDER_CLEANUP_FAILED";throw error;}
     this.connections.delete(serverId);
     this.toolsCache.delete(serverId);
   }

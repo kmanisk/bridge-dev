@@ -2,16 +2,18 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import http from "node:http";
 import https from "node:https";
-import { Readable, Transform } from "node:stream";
 
 export function isPublicAddress(raw: string): boolean {
   const ip = raw.toLowerCase().replace(/^\[|\]$/g, "");
   if (isIP(ip) === 4) {
-    const [a,b] = ip.split(".").map(Number);
-    return !(a===0 || a===10 || a===127 || a>=224 || (a===169&&b===254) || (a===172&&b>=16&&b<=31) || (a===192&&(b===168||b===0||b===2)) || (a===100&&b>=64&&b<=127) || (a===198&&(b===18||b===19||b===51)) || (a===203&&b===0));
+    const [a,b,c] = ip.split(".").map(Number);
+    return !(a===0 || a===10 || a===127 || a>=224 || (a===169&&b===254) || (a===172&&b>=16&&b<=31) || (a===192&&(b===168||(b===0&&(c===0||c===2))||(b===88&&c===99))) || (a===100&&b>=64&&b<=127) || (a===198&&(b===18||b===19||(b===51&&c===100))) || (a===203&&b===0&&c===113));
   }
   // Only global-unicast IPv6; reject mapped, NAT64, tunneling, local and documentation ranges.
-  return isIP(ip)===6 && /^[23]/.test(ip) && !/^(2001:|2002:|3fff:)/.test(ip);
+  if(isIP(ip)!==6)return false;
+  const canonical=new URL("https://["+ip+"]").hostname.slice(1,-1);
+  const [first,second]=canonical.split(":").map(part=>parseInt(part||"0",16));
+  return first>=0x2000 && first<=0x3fff && first!==0x2002 && first!==0x3fff && !(first===0x2001&&(second<0x200||second===0xdb8));
 }
 export async function validateNetworkUrl(input: string, allowPrivate = false): Promise<{url:URL; address:string; family:number}> {
   const url = new URL(input);
@@ -37,17 +39,29 @@ export function safeFetch(allowPrivate = false, maxBytes = 4 * 1024 * 1024): (in
         signal:init.signal || undefined,
       }, response => {
         if(Number(response.headers["content-length"] || 0)>maxBytes){response.destroy();reject(new Error("DOWNLOAD_SIZE_LIMIT"));return;}
-        let total=0;
-        const bounded = new Transform({transform(chunk, _encoding, next) {
-          total += chunk.length;
-          next(total>maxBytes?new Error("DOWNLOAD_SIZE_LIMIT"):null,chunk);
-        }});
-        response.on("error",error=>bounded.destroy(error));
-        response.pipe(bounded);
+        let total=0,complete=false;
         const outHeaders = new Headers();
         for(const [key,value] of Object.entries(response.headers))if(value)outHeaders.set(key,Array.isArray(value)?value.join(", "):value);
         const status=response.statusCode || 500;
-        resolve(new Response([204,205,304].includes(status)?null:Readable.toWeb(bounded) as ReadableStream<Uint8Array>,{status,headers:outHeaders}));
+        if([204,205,304].includes(status)){response.resume();resolve(new Response(null,{status,headers:outHeaders}));return;}
+        // Explicit cancellation state avoids the Node 22 toWeb adapter race in
+        // which a queued data event enqueues after the consumer cancels SSE.
+        const body=new ReadableStream<Uint8Array>({
+          start(controller){
+            const finish=(error?:Error)=>{if(complete)return;complete=true;error?controller.error(error):controller.close();};
+            response.on("data",(chunk:Buffer)=>{
+              if(complete)return;
+              total+=chunk.length;
+              if(total>maxBytes){finish(new Error("DOWNLOAD_SIZE_LIMIT"));response.destroy();return;}
+              controller.enqueue(new Uint8Array(chunk));
+              if((controller.desiredSize||0)<=0)response.pause();
+            });
+            response.on("end",()=>finish());response.on("error",error=>finish(error));
+          },
+          pull(){response.resume();},
+          cancel(){complete=true;response.destroy();request.destroy();},
+        });
+        resolve(new Response(body,{status,headers:outHeaders}));
       });
       request.setTimeout(15000,()=>request.destroy(new Error("NETWORK_TIMEOUT")));
       request.once("error",reject);

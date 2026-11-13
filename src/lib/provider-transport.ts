@@ -39,13 +39,19 @@ export class ProviderTransport implements Transport {
     const child=this.child,pid=child?.pid;
     if(!child || !pid)return;
     if(process.platform==="win32"){
-      // CIM retains ParentProcessId after a parent crashes; taskkill /T alone
-      // loses that tree when the parent has already exited.
-      const script='$items=@(Get-CimInstance Win32_Process); function Stop-Tree([int]$target) { foreach($item in $items) { if($item.ParentProcessId -eq $target) { Stop-Tree ([int]$item.ProcessId) } }; Stop-Process -Id $target -Force -ErrorAction SilentlyContinue }; Stop-Tree ([int]$env:BRIDGEDEV_CLEANUP_PID)';
-      await new Promise<void>(resolve=>{
-        const killer=spawn("powershell.exe",["-NoProfile","-NonInteractive","-Command",script],{stdio:"ignore",windowsHide:true,timeout:5000,env:{SystemRoot:process.env.SystemRoot,PATH:process.env.PATH,BRIDGEDEV_CLEANUP_PID:String(pid)}});
-        killer.on("error",()=>{child.kill();resolve();});killer.on("close",()=>resolve());
+      const cleanupEnv={SystemRoot:process.env.SystemRoot,PATH:process.env.PATH,BRIDGEDEV_CLEANUP_PID:String(pid)};
+      const run=(executable:string,args:string[])=>new Promise<boolean>(resolve=>{
+        const killer=spawn(executable,args,{stdio:"ignore",windowsHide:true,timeout:10000,env:cleanupEnv});
+        killer.on("error",()=>resolve(false));killer.on("close",code=>resolve(code===0));
       });
+      let stopped=false;
+      if(child.exitCode===null&&!child.signalCode)stopped=await run("taskkill.exe",["/PID",String(pid),"/T","/F"]);
+      // CIM retains ParentProcessId after a crash, unlike taskkill /T.
+      if(!stopped){
+        const script='$items=@(Get-CimInstance Win32_Process); function Stop-Tree([int]$target) { foreach($item in $items) { if($item.ParentProcessId -eq $target) { Stop-Tree ([int]$item.ProcessId) } }; Stop-Process -Id $target -Force -ErrorAction SilentlyContinue }; Stop-Tree ([int]$env:BRIDGEDEV_CLEANUP_PID); exit 0';
+        if(!await run("powershell.exe",["-NoProfile","-NonInteractive","-Command",script]))throw new Error("PROVIDER_TREE_CLEANUP_FAILED");
+      }
+      if(child.exitCode===null&&!child.signalCode)await new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error("PROVIDER_EXIT_TIMEOUT")),3000);child.once("exit",()=>{clearTimeout(timer);resolve();});});
     }else{
       try{process.kill(-pid,"SIGTERM");}catch{}
       await new Promise(resolve=>setTimeout(resolve,150));

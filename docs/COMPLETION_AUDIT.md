@@ -193,3 +193,24 @@ checked before automatic Node execution is proposed. Local full aggregate and
 focused source/extension/policy/CLI/inventory regressions pass after corrections.
 Windows libuv behavior was checked against its primary implementation:
 https://github.com/libuv/libuv/blob/v1.x/src/win/process.c
+
+### Phase 6 streaming and native teardown
+
+Debian/Arch passed after adding a real container init. Fedora's Node 22 then exposed
+an SSE cancellation race in the Node Readable.toWeb adapter; safe HTTP now implements
+explicit cancellation and backpressure, with byte limits retained. Windows showed
+live-tree cleanup timing failures: live parents use bounded taskkill /T /F; crashed
+parents use bounded ancestry inspection. Cleanup failures propagate and disabled
+configuration becomes effective before shutdown. Client fixture control requests
+close their connections across rapid gateway restarts.
+
+The authenticated admin flow also passed in an isolated, preinstalled headless
+Chromium-compatible browser: login, source discovery, exact preview, approval and
+installed-state rendering. The optional test uses temporary HOME/profile/XDG data
+and terminates its browser tree. Screenshot retained in /tmp/bridge-admin-browser.png.
+No browser or application dependency was installed. Browser CLI commands:
+BRIDGEDEV_TEST_BROWSER=/absolute/path/to/chromium pnpm run test:browser
+
+The slim manifest now includes cached mcp_tools inspection: 52 slim / 73 full.
+Local full, source, extension, browser, policy, CLI, portable and inventory checks
+passed after these corrections. Native platform CI is rerun for the corrected SHA.

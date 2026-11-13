@@ -1,5 +1,5 @@
 {
-  "slim": 51,
+  "slim": 52,
   "full": 73,
   "native_registrations": 73,
   "fingerprint": "12812273e1676090d461258cf4ff182c580f5025d602ca5796617e8ec40dd12f",
@@ -37,6 +37,7 @@
       "mcp_servers",
       "mcp_status",
       "mcp_test",
+      "mcp_tools",
       "multi_edit",
       "process_output",
       "project_context",

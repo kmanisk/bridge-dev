@@ -68,6 +68,7 @@ export const SLIM_CHATGPT_TOOLS = new Set([
   "load_skill",
   "rewind",
   "mcp_servers",
+  "mcp_tools",
 ]);
 
 export function getChatGptToolProfile(): ToolProfileName {

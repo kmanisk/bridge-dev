@@ -25,6 +25,7 @@ try{
  const zipAttacks=JSON.parse(await fs.readFile(new URL('./fixtures/archive-attacks.json',import.meta.url),'utf8'));for(const [name,encoded]of Object.entries(zipAttacks))assert.throws(()=>extractZip(Buffer.from(encoded,'base64')),undefined,name);
  assert.deepEqual(Object.keys(extractTar(tar('safe.txt'))),['safe.txt']);
  for(const ip of ['0.0.0.0','127.1.2.3','10.0.0.1','100.64.0.1','169.254.169.254','172.31.0.1','192.168.0.1','198.18.0.1','224.0.0.1','::1','::ffff:127.0.0.1','fe80::1','fc00::1','64:ff9b::7f00:1'])assert.equal(isPublicAddress(ip),false,ip);
+ assert.equal(isPublicAddress('2001:4860:4860::8888'),true);assert.equal(isPublicAddress('2001:0db8::1'),false);
  for(const url of ['https://127.0.0.1','https://[::1]','https://0x7f000001','http://8.8.8.8','https://user:pass@8.8.8.8'])await assert.rejects(validateNetworkUrl(url));
  assert.throws(()=>validateSkill('---\nname: bad\ndescription: bad\n---\n[x](file:///secret)',{'SKILL.md':'x'}),/LINK_UNSAFE/);
  assert.throws(()=>validateToolMetadata([{name:'bad',inputSchema:{type:'object',properties:{x:{$ref:'https://evil.invalid'}}}}]),/UNSUPPORTED/);
