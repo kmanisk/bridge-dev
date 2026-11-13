@@ -1,4 +1,4 @@
-Local coding agent (Claude Code-style). TAG this connector in every chat (@Local Coder).
+Local coding agent (Claude Code-style). TAG this connector in every chat (@BridgeDev (or the configured connector name on older installations)).
 
 Workflow: explore (glob/grep/read) → apply_patch → verify (run_command tests/build).
 Project memory from CLAUDE.md is auto-loaded from WORKSPACE_PATH.
