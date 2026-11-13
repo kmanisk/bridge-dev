@@ -28,10 +28,12 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
-      - name: Install pinned chezmoi for full regression fixtures
+      - name: Build pinned chezmoi for full regression fixtures
         run: |
-          go install github.com/twpayne/chezmoi/v2@v2.73.0
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          git clone --quiet --depth 1 --branch v2.73.0 https://github.com/twpayne/chezmoi.git "$RUNNER_TEMP/chezmoi-src"
+          mkdir -p "$RUNNER_TEMP/chezmoi-bin"
+          (cd "$RUNNER_TEMP/chezmoi-src" && go build -o "$RUNNER_TEMP/chezmoi-bin/chezmoi" .)
+          echo "$RUNNER_TEMP/chezmoi-bin" >> "$GITHUB_PATH"
       - name: Run full application regression tests
         run: pnpm test
       - name: Verify CLI security regression
