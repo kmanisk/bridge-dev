@@ -17,7 +17,7 @@ const env={PATH:bin+path.delimiter+process.env.PATH,HOME:base,USERPROFILE:base,A
 const scripts=process.argv.slice(2);
 if(!scripts.length)throw Error('Supply test scripts');
 const results=[];
-for(const script of scripts){const r=spawnSync(process.execPath,[script,...(script.endsWith("sync-tool-counts.mjs")?["--check-manifest","profiles/native-tool-counts.json"]:[])],{cwd:repo,env,encoding:'utf8',timeout:120000});results.push({script,status:r.status,error:r.error?.message,output:(r.stdout||'')+(r.stderr||'')});console.log(script+' exit '+r.status);}
+for(const script of scripts){const r=spawnSync(process.execPath,[...(script.endsWith("test-source-fixtures.mjs")?["--experimental-test-module-mocks"]:[]),script,...(script.endsWith("sync-tool-counts.mjs")?["--check-manifest","profiles/native-tool-counts.json"]:[])],{cwd:repo,env,encoding:'utf8',timeout:120000});results.push({script,status:r.status,error:r.error?.message,output:(r.stdout||'')+(r.stderr||'')});console.log(script+' exit '+r.status);}
 fs.writeFileSync(path.join(base,'results.json'),JSON.stringify(results,null,2));
 fs.rmSync(base,{recursive:true,force:true});
 if(results.some(r=>r.status!==0)){for(const r of results.filter(r=>r.status!==0))console.error(r.output);process.exitCode=1;}

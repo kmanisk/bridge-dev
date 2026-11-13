@@ -65,3 +65,34 @@ namespace collision refusal, invalid arguments, SSRF targets, safe persistence,
 stale-call denial after disable, removal, corrupted config and provider/child PID
 cleanup. Existing full suite, policy, CLI, portable and native inventory gates pass.
 No new dependencies. Windows/macOS execution follows in phase 6.
+
+## Phase 3
+
+Implemented extensible SourceAdapter detection/discovery with content-addressed
+previews and update checks. Local directories/files, local Git working trees,
+GitHub/GitLab repository URLs, generic HTTPS Git URLs, raw Markdown/JSON URLs,
+GitHub blob URLs, HTTPS endpoints, tar/tgz/ZIP artifacts, npm metadata and PyPI
+wheel metadata use generic component mechanisms. Ambiguous repositories require
+component selection; a README alone is never interpreted as an installer.
+
+Remote Git runs without checkout, hooks, submodules, credential helpers or filters
+through an on-demand smart-HTTP relay. The relay pins validated public addresses,
+refuses redirects and caps each response and total transfer. It closes after the
+operation. Archives reject traversal, links, special files, excess counts, large
+entries and decompression bombs. ZIP checks CRC; tar checks header checksum.
+
+Operator proposals bind the reviewed content, resolved commit/version, artifact
+hashes, permissions, scope and entrypoints. Applying an executable package leaves
+its provider disabled. npm installation extracts a verified dependency-free
+artifact without scripts. Python uses a reviewed wheel in a dedicated venv with
+pip --no-index --no-deps --only-binary; no source builds. Missing runtimes report
+the process error. Dependency graphs currently require independent installation
+and a local MCP definition. SSH Git, private repository credentials and community
+registry adapters are not implemented. No registry API formats were guessed.
+
+Verified with local fixtures only: actual HTTPS Git smart protocol, multi-component
+selection, pinned Git provenance, Markdown HTTPS, npm tarball installation, Python
+wheel installation, endpoint registration, update detection, disabled registration,
+removal and reference/symlink rejection. Node's test-only module mocks redirect
+remote transports to the fixture server; production exposes no TLS/SSRF bypass.
+Required full, policy, CLI, portable and inventory gates pass. No dependencies added.
