@@ -21,6 +21,7 @@ async function start(){gateway=spawn(process.execPath,['dist/index.js'],{env,std
 async function stop(){if(!gateway||gateway.exitCode!==null)return;gateway.kill('SIGTERM');await new Promise(resolve=>gateway.once('exit',resolve));assert.equal(gateway.exitCode,0,logs);}
 try{
  await start();
+ const sessions=spawnSync(process.execPath,["scripts/test-mcp-session.mjs"],{env,encoding:"utf8",timeout:30000});assert.equal(sessions.status,0,sessions.stdout+sessions.stderr);
  assert.equal((await api('/api/extensions',undefined,token)).status,401);
  assert.equal((await fetch(`http://127.0.0.1:${adminPort}/ui/`)).status,200,'Public login assets only');
  const initial=await api('/api/extensions');assert.equal(initial.body.data.providers.length,0);
@@ -39,6 +40,9 @@ try{
  const selfApprove=await client.callTool({name:'extensions_approve',arguments:{id:enable.id}});assert.equal(selfApprove.isError,true);
  const skill=cli(['skills','add',source]);cli(['approve',skill.id]);const skillEnable=cli(['skills','enable','demo']);cli(['approve',skillEnable.id]);
  const loaded=await client.callTool({name:'load_skill',arguments:{name:'demo'}});assert.match(JSON.stringify(loaded),/Untrusted skill guidance/);
+ const manifest=JSON.parse(await fs.readFile(path.join(source,'bridge-dev.json'),'utf8'));manifest.servers[0].args.push('--new-version');await fs.writeFile(path.join(source,'bridge-dev.json'),JSON.stringify(manifest));
+ const update=cli(['mcp','update','fixture']);assert.ok(update.id);assert.equal((await api('/api/extensions')).body.data.providers[0].enabled,true,'Proposed command update must not apply itself');cli(['approve',update.id]);assert.equal((await api('/api/extensions')).body.data.providers[0].enabled,false,'Changed command requires fresh enable review');
+ const fresh=cli(['mcp','enable','fixture','--tools','echo','--permission','R']);assert.notEqual(fresh.id,enable.id);cli(['approve',fresh.id]);
  const disabled=cli(['mcp','disable','fixture']);cli(['approve',disabled.id]);
  const stale=await client.callTool({name:'fixture__echo',arguments:{message:'stale'}});assert.equal(stale.isError,true);
  await client.close();client=null;await stop();await start();assert.equal((await api('/api/extensions')).body.data.providers[0].enabled,false);

@@ -13,7 +13,7 @@ function checkSchema(schema:unknown,depth=0):void{
   if(depth>16)throw new Error("PROVIDER_SCHEMA_DEPTH_LIMIT");
   if(schema && typeof schema==="object")for(const [key,value]of Object.entries(schema)){
     // Refuse remote references and regex execution from untrusted schemas.
-    if(["$ref","$dynamicRef","pattern","patternProperties"].includes(key))throw new Error("PROVIDER_SCHEMA_UNSUPPORTED: "+key);
+    if(["$ref","$dynamicRef","pattern","patternProperties","__proto__","constructor","prototype"].includes(key))throw new Error("PROVIDER_SCHEMA_UNSUPPORTED: "+key);
     checkSchema(value,depth+1);
   }
 }

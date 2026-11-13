@@ -1,3 +1,4 @@
+import os from "node:os";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -7,7 +8,7 @@ import { applyMultiFilePatch, applyUnifiedPatchToText, isMultiFilePatch } from "
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const tmpDir = path.join(root, ".tool-test-tmp");
+const tmpDir = path.join(process.env.BRIDGEDEV_TEST_ROOT || os.tmpdir(), ".tool-test-tmp");
 
 let passed = 0;
 let failed = 0;

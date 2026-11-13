@@ -43,6 +43,10 @@ try{
  assert.match(JSON.stringify(await client.callTool({name:'stdio__echo',arguments:{message:'via-gateway'}})),/via-gateway/);
  const environment=await client.callTool({name:'stdio__environment',arguments:{}});
  assert.doesNotMatch(JSON.stringify(environment),/MCP_TOKEN|ADMIN_TOKEN|HOME|POLICYGATE/);
+ const beforeChild=Number(await fs.readFile(path.join(base,'child.pid'),'utf8')),beforePid=manager.listStatusesCached().find(s=>s.id==='stdio').pid;
+ process.kill(beforePid,'SIGKILL');await new Promise(r=>setTimeout(r,150));
+ assert.match(JSON.stringify(await manager.callTool('stdio','echo',{message:'after-crash'})),/after-crash/);
+ let oldAlive=false;try{process.kill(beforeChild,0);oldAlive=true;}catch{}assert.equal(oldAlive,false,'Provider crash left its original child');
  const childPid=Number(await fs.readFile(path.join(base,'child.pid'),'utf8'));
  const stdioPid=manager.listStatusesCached().find(s=>s.id==='stdio').pid;
  await manager.updateConfig({version:1,servers:[http,{...stdio,enabled:false}]});

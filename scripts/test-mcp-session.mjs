@@ -2,7 +2,8 @@
  * Integration test: MCP session init, tool call, stale-session recovery.
  * Requires server running on PORT (default 3000).
  */
-const PORT = parseInt(process.env.PORT || "3000", 10);
+if(!process.env.BRIDGEDEV_TEST_ROOT || !process.env.PORT || !process.env.MCP_TOKEN)throw Error("Run only against an explicitly configured disposable gateway via the isolated integration suite");
+const PORT = parseInt(process.env.PORT, 10);
 const BASE = `http://127.0.0.1:${PORT}`;
 
 let passed = 0;
@@ -22,6 +23,7 @@ async function mcpPost(path, body, sessionId, extraHeaders = {}) {
   const headers = {
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
+    Authorization:"Bearer "+process.env.MCP_TOKEN,
     ...extraHeaders,
   };
   if (sessionId) headers["mcp-session-id"] = sessionId;

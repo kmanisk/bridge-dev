@@ -30,8 +30,9 @@ export function extensionRouter(manager:McpUpstreamManager):Router{
   const {id}=z.object({id:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body);
   const proposal=await store.proposal(id);
   await getPolicyGate().audit.append({phase:"operator_extension_approval",id,action:proposal.action,source:proposal.discovery?.source,resolved:proposal.discovery?.resolved,digest:proposal.discovery?.digest});
-  const result=await store.apply(id);await manager.refreshAllProxies();
-  await getPolicyGate().audit.append({phase:"operator_extension_result",id,status:"ok"});return result;
+  try{const result=await store.apply(id);await manager.refreshAllProxies();
+   await getPolicyGate().audit.append({phase:"operator_extension_result",id,status:"ok"});return result;
+  }catch(error){await getPolicyGate().audit.append({phase:"operator_extension_result",id,status:"error",error:String(error)});throw error;}
  }));
  return router;
 }

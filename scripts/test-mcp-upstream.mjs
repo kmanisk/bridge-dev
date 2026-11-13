@@ -1,3 +1,4 @@
+import os from "node:os";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -17,7 +18,7 @@ import { registerMcpBridgeTools } from "../dist/tools/mcp-bridge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const tmpDir = path.join(root, ".tool-test-tmp", "mcp-upstream");
+const tmpDir = path.join(process.env.BRIDGEDEV_TEST_ROOT || os.tmpdir(), ".tool-test-tmp", "mcp-upstream");
 
 let passed = 0;
 let failed = 0;

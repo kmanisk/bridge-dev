@@ -1,20 +1,16 @@
 name: portable-platforms
-
 on:
   push:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'scripts/test-portable-runtime.mjs'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/portable-platforms.yml'
+  pull_request:
   workflow_dispatch:
-
+permissions:
+  contents: read
 jobs:
   portable:
     name: portable / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -33,3 +29,24 @@ jobs:
       - run: pnpm run build
       - run: pnpm run test:portable
       - run: pnpm run test:portable:server
+      - run: pnpm run test:cli
+      - run: pnpm run test:extensions
+  sources:
+    name: Linux source and supply chain fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run test:sources
+      - run: pnpm run test:integration

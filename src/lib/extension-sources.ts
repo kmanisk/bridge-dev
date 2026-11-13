@@ -27,7 +27,7 @@ export interface SourceAdapter {
   discover(source:string):Promise<Omit<Discovery,"source"|"adapter"|"digest">>;
 }
 export function safeRelative(input:string):string {
-  if(!input || input.length>240 || input.includes("\\") || input.includes("\0") || input.startsWith("/") || /^[a-z]:/i.test(input) || input.split("/").some(x=>x===".."||x===""||x==="."))throw new Error("SOURCE_PATH_UNSAFE: "+input);
+  if(!input || input.length>240 || input.includes("\\") || input.includes("\0") || input.startsWith("/") || /^[a-z]:/i.test(input) || input.split("/").some(x=>x===".."||x===""||x==="."||x==="__proto__"))throw new Error("SOURCE_PATH_UNSAFE: "+input);
   return input;
 }
 export function componentId(input:string):string {
@@ -227,8 +227,8 @@ class PackageAdapter implements SourceAdapter{
   const version=type==="npm"?(requested||metadata["dist-tags"]?.latest):metadata.info?.version;
   const info=type==="npm"?metadata.versions?.[version]:metadata.info;
   if(!info || typeof version!=="string")throw new Error("PACKAGE_VERSION_NOT_FOUND");
-  const artifact=type==="npm"?{url:info.dist?.tarball,integrity:info.dist?.integrity}:metadata.urls?.find((item:any)=>item.packagetype==="bdist_wheel");
-  if(!artifact?.url)throw new Error("PACKAGE_NO_REVIEWABLE_ARTIFACT");
+  const artifact=type==="npm"?{url:info.dist?.tarball,integrity:info.dist?.integrity}:metadata.urls?.find((item:any)=>item.packagetype==="bdist_wheel" && /-py3-none-any\.whl$/.test(item.filename||item.url));
+  if(!artifact?.url)throw new Error("PACKAGE_NO_REVIEWABLE_ARTIFACT: Python requires a universal py3-none-any wheel");
   const bins=type==="npm"?(typeof info.bin==="string"?{[name.split("/").pop()!]:info.bin}:info.bin||{}):{};
   const components:ExtensionComponent[]=Object.keys(bins).map(bin=>({id:componentId(bin),kind:"mcp",name:bin,description:String(info.description||"Package executable"),files:{},requirements:[type==="npm"?"Node.js and reviewed dependency installation":"Python and wheel-compatible runtime"],permissions:["Package installation and execution require exact-version approval; hooks disabled"],package:{type:type as "npm",name,version,url:artifact.url,integrity:artifact.integrity||artifact.digests?.sha256||""}}));
   if(type==="pypi")components.push({id:componentId(name),kind:"mcp",name,description:String(info.summary||name),files:{},requirements:["Python; review wheel entrypoints and all dependencies"],permissions:["No builds or source distributions executed"],package:{type:"pypi",name,version,url:artifact.url,integrity:artifact.digests?.sha256||""}});

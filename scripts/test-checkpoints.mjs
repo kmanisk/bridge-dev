@@ -1,3 +1,4 @@
+import os from "node:os";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -11,7 +12,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const tmpDir = path.join(root, ".tool-test-tmp", "checkpoints");
+const tmpDir = path.join(process.env.BRIDGEDEV_TEST_ROOT || os.tmpdir(), ".tool-test-tmp", "checkpoints");
 const storeDir = path.join(tmpDir, "store");
 
 process.env.CHECKPOINT_PATH = storeDir;

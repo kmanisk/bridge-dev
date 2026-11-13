@@ -33,7 +33,13 @@ export class ProviderTransport implements Transport {
     const child=this.child,pid=child?.pid;
     if(!child || !pid)return;
     if(process.platform==="win32"){
-      await new Promise<void>(resolve=>{const killer=spawn("taskkill.exe",["/pid",String(pid),"/T","/F"],{stdio:"ignore",windowsHide:true});killer.on("error",()=>{child.kill();resolve();});killer.on("close",()=>resolve());});
+      // CIM retains ParentProcessId after a parent crashes; taskkill /T alone
+      // loses that tree when the parent has already exited.
+      const script='$items=@(Get-CimInstance Win32_Process); function Stop-Tree([int]$target) { foreach($item in $items) { if($item.ParentProcessId -eq $target) { Stop-Tree ([int]$item.ProcessId) } }; Stop-Process -Id $target -Force -ErrorAction SilentlyContinue }; Stop-Tree ([int]$env:BRIDGEDEV_CLEANUP_PID)';
+      await new Promise<void>(resolve=>{
+        const killer=spawn("powershell.exe",["-NoProfile","-NonInteractive","-Command",script],{stdio:"ignore",windowsHide:true,timeout:5000,env:{SystemRoot:process.env.SystemRoot,PATH:process.env.PATH,BRIDGEDEV_CLEANUP_PID:String(pid)}});
+        killer.on("error",()=>{child.kill();resolve();});killer.on("close",()=>resolve());
+      });
     }else{
       try{process.kill(-pid,"SIGTERM");}catch{}
       await new Promise(resolve=>setTimeout(resolve,150));

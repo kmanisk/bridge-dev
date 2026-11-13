@@ -147,3 +147,29 @@ inert model requests, self-approval rejection, stale-call refusal, persistence a
 restart and removal. All required baseline and new suites pass; admin JavaScript
 syntax checks pass. Browser visual/interaction acceptance has not been executed.
 No dependencies added; production unchanged.
+
+## Phase 6
+
+The aggregate suite now executes every baseline test plus portable startup, source,
+managed content, extension security, network fixtures and both independent/legacy
+HTTP integration scenarios under separate temporary HOME/XDG/policy/config state.
+Legacy integration tests were repaired for bearer auth and explicit operator cache
+warming; stale-session tests require an explicitly supplied disposable gateway.
+The existing stale-session scenario found and fixed missing internal bearer auth.
+No assertion was removed to conceal that regression.
+
+New negative/recovery coverage includes crashed providers and descendant cleanup,
+command updates requiring fresh enable review, model self-approval, proposal
+mutation, concurrent install/lock races, corrupted locks, DNS pinning/rebinding,
+mixed-address DNS, redirect SSRF, IPv4/IPv6 encodings, tar/ZIP traversal/links,
+decompression bombs, oversized responses, referenced schemas and secret scrubbing.
+Windows cleanup uses a bounded PowerShell process-tree snapshot to retain ancestry
+after parent exit. It is cleanup, not an OS sandbox or a Job Object guarantee.
+
+Local Linux full aggregate, extensions, sources, policy, CLI, portable and inventory
+gates passed. GitHub workflows now run native Linux/Windows/macOS HTTP and extension
+scenarios plus Debian, Fedora and Arch disposable-container core tests. Actual
+remote results are recorded in phase 7 after the jobs execute. Android/Termux,
+real client accounts and deployed privileged-host acceptance remain unverified.
+Setup dependencies are installed before tests; the tests contact only fixtures.
+No new application dependencies and no production changes.

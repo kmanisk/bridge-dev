@@ -2,6 +2,8 @@
  * Integration: hub server + mock upstream + meta tools + proxy tool.
  * Self-contained — spawns child processes on random ports.
  */
+import os from "node:os";
+import net from "node:net";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -10,13 +12,12 @@ import { randomBytes } from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const scratch = process.env.GOAL_SCRATCH || path.join(root, ".tool-test-tmp", "bridge-integration");
+const scratch = await fs.mkdtemp(path.join(os.tmpdir(),"bridge-legacy-integration-"));
 
-const mcpPort = 4100 + Math.floor(Math.random() * 200);
-const adminPort = mcpPort + 1;
-const adminToken = randomBytes(32).toString("hex");
+const getPort=()=>new Promise(resolve=>{const server=net.createServer();server.listen(0,"127.0.0.1",()=>{const port=server.address().port;server.close(()=>resolve(port));});});
+const mcpPort=await getPort(),adminPort=await getPort(),mockPort=await getPort();
+const adminToken = randomBytes(32).toString("hex"),mcpToken=randomBytes(32).toString("hex");
 const adminHeaders = { Authorization: "Bearer " + adminToken };
-const mockPort = mcpPort + 2;
 const tmpDir = path.join(scratch, `run-${mcpPort}`);
 
 function spawnNode(script, env = {}) {
@@ -50,6 +51,7 @@ async function mcpPost(base, body, sessionId, extraHeaders = {}) {
   const headers = {
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
+    Authorization:"Bearer "+mcpToken,
     ...extraHeaders,
   };
   if (sessionId) headers["mcp-session-id"] = sessionId;
@@ -88,6 +90,7 @@ await fs.writeFile(
           name: "Mock HTTP",
           enabled: true,
           transport: "http",
+          allow_private_network:true,
           url: `http://127.0.0.1:${mockPort}/mcp`,
           expose: "meta_only",
           tools: [],
@@ -106,9 +109,10 @@ const hub = spawnNode(path.join(root, "dist/index.js"), {
   PORT: String(mcpPort),
   ADMIN_PORT: String(adminPort),
   ADMIN_TOKEN: adminToken,
+  MCP_TOKEN:mcpToken,
   CHATGPT_TOOL_PROFILE: "full",
   MCP_UPSTREAM_CONFIG: configPath,
-  WORKSPACE_PATH: root,
+  WORKSPACE_PATH: process.env.WORKSPACE_PATH,
 });
 
 let hubLog = "";
@@ -135,6 +139,7 @@ try {
   if (anonymousAdmin.status !== 401) throw Error("admin health exposed without token");
   await waitFor(`http://127.0.0.1:${adminPort}/health`);
 
+  await fetch(`http://127.0.0.1:${adminPort}/api/extensions/provider-test`,{method:"POST",headers:{...adminHeaders,"Content-Type":"application/json"},body:JSON.stringify({name:"mockhttp"})});
   const init = await mcpPost(
     `http://127.0.0.1:${mcpPort}`,
     {
@@ -214,6 +219,7 @@ try {
           name: "Mock HTTP",
           enabled: true,
           transport: "http",
+          allow_private_network:true,
           url: `http://127.0.0.1:${mockPort}/mcp`,
           expose: "allowlist",
           tools: ["add"],
@@ -283,8 +289,10 @@ try {
   await fs.writeFile(path.join(scratch, "integration-error.log"), String(err?.stack || err));
   console.error("FAIL bridge integration:", err.message || err);
   console.error(hubLog.slice(-2000));
-  process.exit(1);
+  process.exitCode=1;
 } finally {
   hub.kill("SIGTERM");
   mockHttp.kill("SIGTERM");
+  await Promise.all([hub,mockHttp].map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once("exit",resolve))));
+  await fs.rm(scratch,{recursive:true,force:true});
 }

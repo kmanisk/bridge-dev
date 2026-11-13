@@ -236,6 +236,8 @@ async function cmdMode(args: string[]) {
 
 function cmdProject(args: string[]) {
   const action = args[0]?.toLowerCase() || "list";
+  if(action==="unmap"&&args[1])validateProjectName(args[1]);
+  if(getRuntimeMode()==="portable"&&action==="list"){console.log("Workspace: "+portableWorkspace());console.log("Portable workspace selection uses WORKSPACE_PATH; managed bind mounts require Linux operator configuration.");return;}
   if (process.platform !== "linux") {
     console.error("Project bind-mount management is supported only by the hardened Linux installation.");
     process.exitCode = 1;

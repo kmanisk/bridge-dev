@@ -122,6 +122,7 @@ async function loopbackMcpPost(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
+    ...(process.env.MCP_TOKEN?{Authorization:"Bearer "+process.env.MCP_TOKEN}:{}),
   };
   if (sessionId) headers["mcp-session-id"] = sessionId;
   if (protocolVersion) headers["mcp-protocol-version"] = protocolVersion;

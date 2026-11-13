@@ -26,8 +26,8 @@ jobs:
       - name: Build and run disposable policy bypass tests
         run: pnpm run test:policy
       - name: Verify portable workspace and extension regression
-        run: node scripts/test-portable-runtime.mjs
+        run: node scripts/isolated-tests.mjs scripts/test-portable-runtime.mjs
       - name: Verify CLI security regression
-        run: node scripts/test-bridge-dev-cli.mjs
+        run: node scripts/isolated-tests.mjs scripts/test-bridge-dev-cli.mjs
       - name: Verify real MCP registration inventory
-        run: node scripts/sync-tool-counts.mjs --check-manifest profiles/native-tool-counts.json
+        run: node scripts/isolated-tests.mjs scripts/sync-tool-counts.mjs
