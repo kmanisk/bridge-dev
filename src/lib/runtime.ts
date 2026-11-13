@@ -1,4 +1,5 @@
 import os from "node:os";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PolicyConfig } from "./policy-gateway.js";
@@ -58,7 +59,9 @@ export function portableStateDir(): string {
 }
 
 export function makePortablePolicy(): PolicyConfig {
-  const workspace = portableWorkspace();
+  // Match canonicalPath() on Windows and on macOS /var -> /private/var aliases.
+  // A portable workspace must exist; never broaden permissions on a missing root.
+  const workspace = fs.realpathSync.native(portableWorkspace());
   const state = portableStateDir();
   const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const home = os.homedir();
@@ -73,7 +76,7 @@ export function makePortablePolicy(): PolicyConfig {
     ],
     secret_names: [".env", ".env.*", "*.pem", "*.key", "id_*", "*token*", "credentials.json"],
     approval_paths: [],
-    sensitive_segments: [".ssh", ".gnupg", ".aws", ".kube", "secrets", "private", "keyrings"],
+    sensitive_segments: [".ssh", ".gnupg", ".aws", ".kube", "secrets", "keyrings"],
     hard_paths: [sourceRoot, state],
     allowed_commands: ["pwd", "id", "whoami", "git status", "git diff", "git log"],
     approval_commands: [
