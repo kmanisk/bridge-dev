@@ -214,3 +214,19 @@ BRIDGEDEV_TEST_BROWSER=/absolute/path/to/chromium pnpm run test:browser
 The slim manifest now includes cached mcp_tools inspection: 52 slim / 73 full.
 Local full, source, extension, browser, policy, CLI, portable and inventory checks
 passed after these corrections. Native platform CI is rerun for the corrected SHA.
+
+### Phase 6 final platform correction
+
+At a009a0b, native macOS/Ubuntu and Debian/Fedora/Arch containers passed. Windows
+startup, CLI and end-to-end extension management passed, but the WMI cleanup query
+failed its bounded deadline after a provider crash. The Windows-only helper now
+uses local Toolhelp process snapshots through the OS-provided .NET/PowerShell
+runtime, with no WMI/WinRM or persistent helper. Live trees still use taskkill;
+crashed roots are never killed again (avoiding a reused root PID). Descendants are
+terminated and awaited. Local baseline and focused gates remain green; Windows
+cleanup is verified only by the next native CI run.
+
+CLI reads the same optional .env as serve, with test dotenv paths forced into each
+disposable test root. Portable status/doctor use configured ports and application
+state and do not require a Linux system service or inspect production host policy.
+The interface regression verifies portable doctor against the isolated gateway.

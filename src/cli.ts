@@ -4,6 +4,8 @@
  * BridgeDev CLI — Self-hosted MCP Development Gateway
  */
 
+import "dotenv/config";
+import {verifyAuditFile} from "./lib/hash-audit.js";
 import {extensionCli,operatorApi} from "./lib/extension-cli.js";
 import { execSync, spawnSync, execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -143,13 +145,12 @@ async function cmdStatus() {
     } catch {}
   }
 
-  const endpointStr = funnel
-    ? `${funnel} -> http://127.0.0.1:3000`
-    : "http://127.0.0.1:3000 (local only)";
+  const localEndpoint=`http://127.0.0.1:${process.env.PORT||3000}`;
+  const endpointStr = funnel ? `${funnel} -> ${localEndpoint}` : localEndpoint+" (local only)";
 
   const profile = health?.instructions?.tool_profile || "slim";
   const sessions = health?.activeSessions ?? 0;
-  const workspace = health?.workspace || path.join(getActivePath("srv"), "workspace");
+  const workspace = health?.workspace || (getRuntimeMode()==="portable"?portableWorkspace():path.join(getActivePath("srv"), "workspace"));
 
   console.log(`BridgeDev v${VERSION}`);
   console.log(`Runtime   : ${health?.runtimeMode || (unit ? "managed system service" : getRuntimeMode())} on ${process.platform}`);
@@ -177,7 +178,7 @@ async function cmdConnect(showToken = false) {
   console.log("BridgeDev MCP connection");
   console.log("Endpoint : " + endpoint);
   console.log("Protocol : Streamable HTTP MCP");
-  console.log("Auth     : Token in URL path (not an Authorization: Bearer header)");
+  console.log("Auth     : Legacy URL token shown; /mcp also accepts a Bearer token");
   console.log("Admin UI : http://127.0.0.1:3001 (local only, separate admin token)");
   console.log("");
   console.log("ChatGPT: configure the custom MCP connector URL to the endpoint above.");
@@ -345,6 +346,15 @@ async function cmdDoctor() {
   const add = (label:string,status:"OK"|"UNVERIFIED"|"INFO",detail:string) => checks.push({label,status,detail});
   const nodeMajor = Number.parseInt(process.versions.node.split(".")[0]||"0",10);
   add("Node runtime",nodeMajor>=20?"OK":"UNVERIFIED",process.version);
+  if(getRuntimeMode()==="portable"){
+    const health=await fetchHealth(Number(process.env.PORT||3000));
+    add("MCP endpoint",health?"OK":"UNVERIFIED",health?"authenticated MCP gateway reachable":"configured gateway port is unavailable");
+    const {McpUpstreamManager}=await import("./lib/mcp-upstream-manager.js");const manager=new McpUpstreamManager();await manager.init();
+    add("Optional providers",manager.initializationError?"UNVERIFIED":"OK",manager.initializationError||manager.listServerConfigs().length+" registered; no providers executed");
+    try{const proof=verifyAuditFile(path.join(portableStateDir(),"audit.jsonl"));add("Application audit","OK",proof.entries+" chained entries; OS append-only protection not claimed");}catch(error){add("Application audit","UNVERIFIED",String(error));}
+    for(const check of checks)console.log("["+check.status+"] "+check.label+": "+check.detail);
+    if(checks.some(check=>check.status==="UNVERIFIED"))process.exitCode=1;return;
+  }
   if (process.platform === "linux") {
     const unit=getServiceUnit();
     add("systemd",unit?"OK":"UNVERIFIED",unit||"no running BridgeDev system service found");

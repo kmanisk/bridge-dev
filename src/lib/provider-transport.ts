@@ -1,3 +1,4 @@
+import {fileURLToPath} from "node:url";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -40,16 +41,18 @@ export class ProviderTransport implements Transport {
     if(!child || !pid)return;
     if(process.platform==="win32"){
       const cleanupEnv={SystemRoot:process.env.SystemRoot,PATH:process.env.PATH,BRIDGEDEV_CLEANUP_PID:String(pid)};
+      let cleanupError="";
       const run=(executable:string,args:string[])=>new Promise<boolean>(resolve=>{
-        const killer=spawn(executable,args,{stdio:"ignore",windowsHide:true,timeout:10000,env:cleanupEnv});
-        killer.on("error",()=>resolve(false));killer.on("close",code=>resolve(code===0));
+        const killer=spawn(executable,args,{stdio:["ignore","ignore","pipe"],windowsHide:true,timeout:10000,env:cleanupEnv});
+        let detail="";killer.stderr?.on("data",chunk=>{detail=(detail+chunk.toString()).slice(-2000);});
+        killer.on("error",error=>{cleanupError=error.message;resolve(false);});killer.on("close",(code,signal)=>{if(code!==0)cleanupError=executable+" exit="+code+" signal="+signal+" "+detail;resolve(code===0);});
       });
       let stopped=false;
       if(child.exitCode===null&&!child.signalCode)stopped=await run("taskkill.exe",["/PID",String(pid),"/T","/F"]);
-      // CIM retains ParentProcessId after a crash, unlike taskkill /T.
+      // A native local snapshot retains ancestry after a crash, unlike taskkill /T.
       if(!stopped){
-        const script='$items=@(Get-CimInstance Win32_Process); function Stop-Tree([int]$target) { foreach($item in $items) { if($item.ParentProcessId -eq $target) { Stop-Tree ([int]$item.ProcessId) } }; Stop-Process -Id $target -Force -ErrorAction SilentlyContinue }; Stop-Tree ([int]$env:BRIDGEDEV_CLEANUP_PID); exit 0';
-        if(!await run("powershell.exe",["-NoProfile","-NonInteractive","-Command",script]))throw new Error("PROVIDER_TREE_CLEANUP_FAILED");
+        const script=fileURLToPath(new URL("../../platform/windows-provider-cleanup.ps1",import.meta.url));
+        if(!await run("powershell.exe",["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",script,"-RootProcessId",String(pid)]))throw new Error("PROVIDER_TREE_CLEANUP_FAILED: native Windows snapshot helper failed: "+cleanupError);
       }
       if(child.exitCode===null&&!child.signalCode)await new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error("PROVIDER_EXIT_TIMEOUT")),3000);child.once("exit",()=>{clearTimeout(timer);resolve();});});
     }else{

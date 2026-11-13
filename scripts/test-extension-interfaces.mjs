@@ -24,6 +24,7 @@ try{
  const sessions=spawnSync(process.execPath,["scripts/test-mcp-session.mjs"],{env,encoding:"utf8",timeout:30000});assert.equal(sessions.status,0,sessions.stdout+sessions.stderr);
  assert.equal((await api('/api/extensions',undefined,token)).status,401);
  assert.equal((await fetch(`http://127.0.0.1:${adminPort}/ui/`)).status,200,'Public login assets only');
+ const doctor=spawnSync(process.execPath,["dist/cli.js","doctor","--json"],{env,encoding:"utf8",timeout:10000});assert.equal(doctor.status,0,doctor.stdout+doctor.stderr);assert.doesNotMatch(doctor.stdout,/systemd|Funnel/);
  const initial=await api('/api/extensions');assert.equal(initial.body.data.providers.length,0);
  const choices=cli(['add',source]);assert.equal(choices.components.length,2);
  const proposed=cli(['add',source,'--select','mcp:fixture']);assert.equal((await api('/api/extensions')).body.data.providers.length,0);

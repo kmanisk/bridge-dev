@@ -90,8 +90,7 @@ function normalizeServer(raw: UpstreamServerConfig): UpstreamServerConfig {
     bearer_token_env_var: raw.bearer_token_env_var?.trim(),
     auth: raw.auth ?? { type: transport === "http" ? "auto" : "none" },
     tool_prefix: (raw.tool_prefix?.trim() || id).replace(/[^a-zA-Z0-9_-]/g, "_"),
-    // New servers expose all tools by default, but an explicit allowlist or
-    // meta-only setting remains a security boundary.
+    // Discovery never grants exposure. Existing explicit allowlists remain valid.
     expose: raw.expose ?? "none",
     tools: raw.tools ?? [],
     disabled_tools: raw.disabled_tools ?? [],
