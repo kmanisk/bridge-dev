@@ -236,3 +236,21 @@ legacy powershell.exe host (exit=null, signal=SIGTERM, no script diagnostics).
 Cleanup now prefers installed PowerShell 7, keeps a bounded legacy fallback and
 captures only trusted helper diagnostics on failure. The provider-crash/child-PID
 assertion remains required. Local required suites pass; native CI remains the gate.
+
+### Verified phase 6 CI and source URL coverage
+
+At 2295c88 all expanded native and distribution jobs passed:
+https://github.com/kmanisk/bridge-dev/actions/runs/43446920786
+https://github.com/kmanisk/bridge-dev/actions/runs/43446920352
+https://github.com/kmanisk/bridge-dev/actions/runs/43446921264
+
+The native matrix includes actual Windows/macOS HTTP startup/authentication, CLI,
+aggregation, provider crash/descendant cleanup, scoped content, security and full
+extension-management HTTP scenarios. The Linux source job installs fixture npm
+artifacts and universal Python wheels without reaching public registries.
+
+Source fixtures now exercise literal GitHub/GitLab repository, blob/raw SKILL.md
+and GitHub release-artifact URL shapes against the disposable HTTPS fixture.
+Archive discovery preserves multiple top-level directories instead of stripping
+each root separately; SSH sources produce an explicit unsupported error.
+Source tests and required policy/CLI/portable/inventory gates pass after this fix.

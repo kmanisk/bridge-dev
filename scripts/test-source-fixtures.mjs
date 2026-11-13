@@ -16,6 +16,7 @@ try{
  git(['init','-q']);git(['add','.']);git(['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']);
  const commit=git(['rev-parse','HEAD']);
  execFileSync('git',['clone','--bare',repo,path.join(base,'fixture.git')],{stdio:'ignore'});
+ const extensionArchive=path.join(base,'extensions.tgz');execFileSync('tar',['-czf',extensionArchive,'-C',base,'fixture']);const extensionBytes=await fs.readFile(extensionArchive);
  const packageDir=path.join(base,'package');await fs.mkdir(packageDir);
  await fs.writeFile(path.join(packageDir,'package.json'),JSON.stringify({name:'demo',version:'1.2.3',bin:{demo:'bin.js'}}));
  await fs.writeFile(path.join(packageDir,'bin.js'),'console.log("reviewed fixture only")');
@@ -40,6 +41,8 @@ with zipfile.ZipFile(sys.argv[1],"w") as z:
    req.pipe(child.stdin);let output=Buffer.alloc(0);child.stdout.on('data',chunk=>{output=Buffer.concat([output,chunk]);});
    child.on('close',()=>{const at=output.indexOf('\r\n\r\n');if(at<0){res.writeHead(500);res.end();return;}const headers=output.subarray(0,at).toString().split('\r\n');let status=200;for(const h of headers){const index=h.indexOf(':');if(index<0)continue;const key=h.slice(0,index),value=h.slice(index+1).trim();if(key==='Status')status=parseInt(value);else res.setHeader(key,value);}res.writeHead(status);res.end(output.subarray(at+4));});return;
   }
+  if(req.url==='/extensions.tgz'){res.end(extensionBytes);return;}
+  if(req.url==='/SKILL.md'){res.end('---\nname: direct-skill\ndescription: Direct HTTPS fixture\n---\n# Guidance\n');return;}
   if(req.url==='/demo.tgz'){res.end(npmBytes);return;}
   if(req.url==='/demo-1.0-py3-none-any.whl'){res.end(wheelBytes);return;}
   res.setHeader('content-type','application/json');
@@ -52,9 +55,12 @@ with zipfile.ZipFile(sys.argv[1],"w") as z:
  // Only test module mocking redirects remote adapters. No production config or
  // environment option can disable TLS/SSRF policy.
  async function fixtureFetch(input,init={}){
-  const url=new URL(input);const allowed=['fixture.invalid','registry.npmjs.org','pypi.org'];assert.ok(allowed.includes(url.hostname),'Test attempted real network: '+url.hostname);
+  const url=new URL(input);const allowed=['fixture.invalid','registry.npmjs.org','pypi.org','github.com','gitlab.com','raw.githubusercontent.com'];assert.ok(allowed.includes(url.hostname),'Test attempted real network: '+url.hostname);
+  let fixturePath=url.pathname+url.search;
+  if(['github.com','gitlab.com'].includes(url.hostname)){fixturePath=url.pathname.includes('/releases/download/')?'/extensions.tgz':url.pathname.endsWith('/SKILL.md')?'/SKILL.md':url.pathname.replace(/^\/owner\/project/,'/fixture.git')+url.search;}
+  if(url.hostname==='raw.githubusercontent.com')fixturePath='/SKILL.md';
   return new Promise((resolve,reject)=>{
-   const request=https.request({hostname:'127.0.0.1',port,path:url.pathname+url.search,method:init.method||'GET',headers:Object.fromEntries(new Headers(init.headers)),rejectUnauthorized:false},res=>{const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('end',()=>resolve(new Response(Buffer.concat(chunks),{status:res.statusCode,headers:res.headers})));});request.on('error',reject);request.end(init.body);
+   const request=https.request({hostname:'127.0.0.1',port,path:fixturePath,method:init.method||'GET',headers:Object.fromEntries(new Headers(init.headers)),rejectUnauthorized:false},res=>{const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('end',()=>resolve(new Response(Buffer.concat(chunks),{status:res.statusCode,headers:res.headers})));});request.on('error',reject);request.end(init.body);
   });
  }
  mock.module('../dist/lib/safe-network.js',{namedExports:{downloadHttps:async url=>Buffer.from(await (await fixtureFetch(url)).arrayBuffer()),safeFetch:()=>fixtureFetch,validateNetworkUrl:async input=>({url:new URL(input),address:'127.0.0.1',family:4})}});
@@ -64,6 +70,10 @@ with zipfile.ZipFile(sys.argv[1],"w") as z:
  const catalog=new SourceCatalog();
  const local=await catalog.discover(repo);assert.equal(local.resolved,commit);assert.equal(local.components.length,3);assert.equal(local.components.find(c=>c.kind==='mcp').provider.enabled,false);
  const remote=await catalog.discover('git+https://fixture.invalid/fixture.git');assert.equal(remote.resolved,commit);assert.equal(remote.components.length,3);
+ for(const host of ['github.com','gitlab.com']){const hosted=await catalog.discover(`https://${host}/owner/project`);assert.equal(hosted.resolved,commit);assert.equal(hosted.components.length,3);}
+ for(const url of ['https://raw.githubusercontent.com/owner/project/main/SKILL.md','https://github.com/owner/project/blob/main/SKILL.md','https://gitlab.com/owner/project/-/blob/main/SKILL.md'])assert.equal((await catalog.discover(url)).components[0].kind,'skill');
+ const release=await catalog.discover('https://github.com/owner/project/releases/download/v1/extensions.tgz');assert.equal(release.components.length,3);
+ await assert.rejects(catalog.discover('git@github.com:owner/project.git'),/SSH_UNSUPPORTED/);
  const notes=await catalog.discover('https://fixture.invalid/notes.md');assert.equal(notes.components[0].kind,'instructions');
  const npm=await catalog.discover('npm:demo');assert.equal(npm.resolved,'1.2.3');assert.equal(npm.components[0].package.integrity,npmIntegrity);
  const pypi=await catalog.discover('pypi:demo');assert.equal(pypi.components[0].package.type,'pypi');

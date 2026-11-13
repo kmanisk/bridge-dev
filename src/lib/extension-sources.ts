@@ -203,12 +203,14 @@ class UrlAdapter implements SourceAdapter{
    const bytes=await downloadHttps(source);const files={[name]:bytes.toString("utf8")};return {resolved:sha256(bytes),components:discoverFiles(files),warnings:[]};
   }
   if(/\.(tgz|tar|tar.gz)$/i.test(name)){
-   const bytes=await downloadHttps(source,8*1048576),archive=extractTar(bytes);const files=Object.fromEntries(Object.entries(archive).map(([k,v])=>[k.replace(/^[^/]+\//,""),v.toString("utf8")]));
+   const bytes=await downloadHttps(source,8*1048576),archive=extractTar(bytes);const names=Object.keys(archive),first=names[0]?.split("/")[0];
+   const prefix=names.length&&first!==".bridge-dev"&&names.every(k=>k.includes("/")&&k.split("/")[0]===first)?first+"/":"";
+   const files=Object.fromEntries(Object.entries(archive).map(([k,v])=>[k.slice(prefix.length),v.toString("utf8")]));
    return {resolved:sha256(bytes),components:discoverFiles(files),warnings:[]};
   }
   if(/\.zip$/i.test(name)){
    const bytes=await downloadHttps(source,8*1048576),archive=extractZip(bytes);
-   const names=Object.keys(archive),prefix=names.every(k=>k.includes("/")&&k.split("/")[0]===names[0].split("/")[0])?names[0].split("/")[0]+"/":"";
+   const names=Object.keys(archive),prefix=names.length&&!names[0].startsWith(".bridge-dev/")&&names.every(k=>k.includes("/")&&k.split("/")[0]===names[0].split("/")[0])?names[0].split("/")[0]+"/":"";
    const files=Object.fromEntries(Object.entries(archive).map(([k,v])=>[k.slice(prefix.length),v.toString("utf8")]));
    return {resolved:sha256(bytes),components:discoverFiles(files),warnings:[]};
   }
@@ -257,6 +259,7 @@ class PackageAdapter implements SourceAdapter{
 export class SourceCatalog{
  constructor(private adapters:SourceAdapter[]=[new LocalAdapter(),new GitAdapter(),new PackageAdapter(),new UrlAdapter()]){}
  async discover(source:string):Promise<Discovery>{
+  if(/^ssh:\/\/|^[^/]+@[^:]+:/.test(source))throw new Error("SOURCE_SSH_UNSUPPORTED: use HTTPS Git or a reviewed local checkout; authenticated SSH transport is not implemented");
   if(source.length>2048 || /[\x00-\x20]/.test(source)&&!path.isAbsolute(source)&&!source.startsWith("."))throw new Error("SOURCE_INVALID");
   const adapter=this.adapters.find(item=>item.detect(source));if(!adapter)throw new Error("SOURCE_UNSUPPORTED: HTTPS Git, HTTPS files/endpoints, npm:, pypi: or local paths required");
   const result=await adapter.discover(source);
