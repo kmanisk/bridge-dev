@@ -6,12 +6,21 @@ export async function withFileLock<T>(filename: string, action: () => Promise<T>
   await fs.mkdir(path.dirname(filename), {recursive:true, mode:0o700});
   const lock = filename + ".lock";
   let acquired = false;
+  let lastError: NodeJS.ErrnoException | undefined;
   for (let attempt = 0; attempt < 40; attempt++) {
     try { await fs.mkdir(lock, {mode:0o700}); acquired = true; break; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+    catch (error) {
+      lastError = error as NodeJS.ErrnoException;
+      // Windows can report access denied while another owner finishes removing
+      // a directory. Retry acquisition only; never enter without owning the lock.
+      if (lastError.code !== "EEXIST" && !(process.platform === "win32" && lastError.code === "EPERM")) throw error;
+    }
     await new Promise(resolve => setTimeout(resolve, 25));
   }
-  if (!acquired) throw new Error("CONFIG_BUSY: another operation owns " + lock + "; inspect the owner before recovering a stale lock");
+  if (!acquired) {
+    if (lastError?.code === "EPERM") throw lastError;
+    throw new Error("CONFIG_BUSY: another operation owns " + lock + "; inspect the owner before recovering a stale lock");
+  }
   try { return await action(); } finally { await fs.rmdir(lock); }
 }
 export async function atomicJson(filename: string, value: unknown): Promise<void> {

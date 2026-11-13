@@ -36,6 +36,13 @@ try{
  const victim=path.join(root,'victim');await fs.writeFile(victim,'preserved');const config=path.join(root,'config.json');await atomicJson(config,{v:1});
  if(process.platform!=='win32'){await fs.symlink(victim,config+'.bak');await atomicJson(config,{v:2});assert.equal(await fs.readFile(victim,'utf8'),'preserved');}
  let active=0,max=0;await Promise.all(Array.from({length:12},()=>withFileLock(config,async()=>{active++;max=Math.max(max,active);await new Promise(r=>setTimeout(r,2));active--;})));assert.equal(max,1);
+ const mkdir=fs.mkdir;let ranDeniedAction=false;
+ fs.mkdir=async function(directory,...args){if(directory===config+'.lock')throw Object.assign(Error('fixture access denied'),{code:'EPERM'});return mkdir.call(this,directory,...args);};
+ try{await assert.rejects(withFileLock(config,async()=>{ranDeniedAction=true;}),error=>error.code==='EPERM');assert.equal(ranDeniedAction,false);}finally{fs.mkdir=mkdir;}
+ if(process.platform==='win32'){
+  let transient=true,entered=false;fs.mkdir=async function(directory,...args){if(directory===config+'.lock'&&transient){transient=false;throw Object.assign(Error('fixture directory deletion pending'),{code:'EPERM'});}return mkdir.call(this,directory,...args);};
+  try{await withFileLock(config,async()=>{entered=true;});assert.equal(entered,true);}finally{fs.mkdir=mkdir;}
+ }
  const work=path.join(root,'work');await fs.mkdir(work);const md=path.join(root,'guide.md');await fs.writeFile(md,'# Untrusted fixture guidance');const store=new ExtensionStore(work);
  const proposals=await Promise.all([store.propose(md),store.propose(md)]);const applied=await Promise.allSettled(proposals.map(p=>store.apply(p.id)));assert.equal(applied.filter(r=>r.status==='fulfilled').length,1);
  const key='instructions:guide',remove=await store.proposeAction('remove',key);const file=path.join(store.root,'proposals',remove.id+'.json');const data=JSON.parse(await fs.readFile(file,'utf8'));data.action='enable';await fs.writeFile(file,JSON.stringify(data));await assert.rejects(store.apply(remove.id),/CHANGED/);

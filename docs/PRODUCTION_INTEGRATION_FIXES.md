@@ -130,3 +130,15 @@ sandbox/UID, token URL compatibility and ledger integrity. Keep the failed stage
 release and bounded redacted diagnostics for investigation. If rollback health
 fails, stop further changes and report the exact blocker; the retained
 /opt/local-coder-policygate release is available for a separately reviewed recovery.
+
+
+## Native CI lock correction
+
+At ac5da3b, policy, Ubuntu/macOS, source fixtures and all distribution jobs passed.
+Windows passed migration and HTTP extension management but its existing 12-writer
+exclusive-lock test encountered EPERM while creating a concurrently removed lock
+directory. The lock helper now retries that Windows acquisition error within the
+existing bounded deadline. It never enters the action without acquiring the lock;
+persistent EPERM remains a permission error. The original concurrency assertion
+is retained, with transient/permanent permission-error regressions added. Linux
+permission failures still fail immediately. Corrected-head CI is required.
