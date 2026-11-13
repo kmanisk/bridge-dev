@@ -51,8 +51,9 @@ load, even if the old bytes are subsequently restored.
 Keep the same `Mcp-Session-Id` on later calls. Ordinary SSE/HTTP reconnect to a live
 session preserves that session. Recovery of a missing/expired session creates a
 fresh policy session and requires its own context load. Headerless discovery remains
-compatible, but each headerless request creates a different session. Adoption now
-returns its session ID, exposed through CORS, so a client can retain it. A client
+compatible, but each headerless request creates a different session. The SDK
+already returns its session ID; the gateway now exposes that header through CORS
+so browser clients can retain it. A client
 that deliberately initializes a new session for every tool call cannot carry context
 authorization between those calls. Fix that client's session persistence; the server
 never guesses identity from a bearer token, IP address or User-Agent and never shares

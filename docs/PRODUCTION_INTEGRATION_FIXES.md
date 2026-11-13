@@ -21,9 +21,11 @@ at 18:58:23 UTC was denied under a different ID. Neighboring inspection calls al
 used distinct policy sessions. This establishes a session boundary, not an
 in-session hash comparison failure. Policy sessions are closure-bound to the server
 created by buildSession; recovery builds a new policy session. Missing HTTP session
-headers trigger independent adoption on every request. That response previously
-omitted Mcp-Session-Id. Context uses file bytes, not timestamps or system inspection
-output; repeated live read-only digest samples were stable. The successful native
+headers trigger independent adoption on every request. A baseline real-HTTP
+check ruled out a missing response header: the SDK already returned Mcp-Session-Id,
+but the original CORS response did not expose it to browser JavaScript. A retained
+ID permits execution after context; dropping it creates a fresh denied session.
+Context uses file bytes, not timestamps or system inspection output; repeated live read-only digest samples were stable. The successful native
 result shape reaches contextLoaded; a real HTTP client retaining its session can
 load context and execute pwd.
 
@@ -44,9 +46,9 @@ script groups plus inventory. Exact-head CI is reported with the publication.
 
 ## Remaining client boundary
 
-Retaining a session is mandatory for context followed by execution. Publishing an
-adopted session ID and exposing it to browser clients makes recovery usable; it does
-not make a client retain it. No client/account transport configuration was changed.
+Retaining a session is mandatory for context followed by execution. Exposing the
+existing SDK session header to browser clients makes it readable; it does not
+make a client retain it. No client/account transport configuration was changed.
 If the new ChatGPT connector keeps opening unrelated sessions, it must retain the
 MCP session header. Shared bearer credentials, client names, IP or User-Agent are
 not a safe substitute. Actual ChatGPT acceptance remains a cutover gate; isolated
@@ -142,3 +144,14 @@ existing bounded deadline. It never enters the action without acquiring the lock
 persistent EPERM remains a permission error. The original concurrency assertion
 is retained, with transient/permanent permission-error regressions added. Linux
 permission failures still fail immediately. Corrected-head CI is required.
+
+
+### Baseline header hypothesis correction
+
+A direct HTTP reproduction against archived d7025dd confirmed the SDK already
+includes the adopted session ID. The redundant explicit server header override was
+removed. CORS exposure, audited grant validation and lifecycle revocation remain.
+The production context/command calls used different policy sessions; no server-only
+change can make unrelated sessions share authorization under the required security
+boundary. New-connector session persistence is an unresolved client-side cutover
+gate, not a claimed server or production acceptance result.

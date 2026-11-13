@@ -449,9 +449,6 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
       touch(staleSessionId);
       console.log(`[MCP] Session recovered: ${staleSessionId}`);
 
-      // The adoption response must publish its session ID too. Otherwise a
-      // headerless caller cannot retain the freshly initialized policy session.
-      res.setHeader("Mcp-Session-Id",staleSessionId);
       const patchedReq = withSessionIdHeader(req, staleSessionId, protocolVersion);
       await enqueueSessionOp(staleSessionId, async () => {
         await recovered.transport.handleRequest(patchedReq, res, body);
