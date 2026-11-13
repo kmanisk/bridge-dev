@@ -169,7 +169,7 @@ app.get("/health", (_req, res) => {
     name: "bridge-dev",
     workspace: workspaceRoot,
     defaultCwd: getDefaultCwd(),
-    fullMachineAccess: true,
+    fullMachineAccess: getPolicyGate().getActiveProfile() === "dangerous",
     fullDiskAccess: getFullDiskAccess(),
     activeSessions: sessionManager.count(),
     sessionRecovery: SESSION_RECOVERY,

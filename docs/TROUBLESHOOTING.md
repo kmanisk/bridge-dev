@@ -10,7 +10,7 @@ Start by running the built-in diagnostic tool:
 bridge-dev doctor
 ```
 
-This verifies Node.js, daemon process, port listeners, Tailscale Funnel, operator signing keys, and audit ledger integrity.
+This reports Node.js and endpoint health, verifies the audit hash chain and trusted anchor when readable, and clearly labels protected state UNVERIFIED instead of silently passing it. Run protected diagnostics as an independent authorized operator.
 
 ---
 
@@ -25,15 +25,11 @@ This verifies Node.js, daemon process, port listeners, Tailscale Funnel, operato
   sudo journalctl -u bridge-dev.service -n 20 --no-pager
   ```
 
-### 2. Authorization Token Mismatch
-- **Symptom:** AI coding client returns `401 Unauthorized` or `Invalid token`.
-- **Resolution:**
-  Inspect the configured token:
-  ```bash
-  bridge-dev connect --show-token
-  ```
-  Ensure the exact Bearer token is provided in your client header:
-  `Authorization: Bearer <MCP_TOKEN>`
+### 2. MCP URL / Authentication Mismatch
+- **Symptom:** Connector fails to initialize or reports a missing endpoint.
+- **Cause:** BridgeDev authenticates MCP requests with a secret URL segment, not an Authorization Bearer header.
+- **Resolution:** `bridge-dev connect` prints a redacted endpoint. Configure the client URL as `http://127.0.0.1:3000/mcp/<MCP_TOKEN>` or the equivalent approved HTTPS tunnel URL.
+- `bridge-dev connect --show-token` is explicit and may expose the token in terminal logs. Use it only privately and never paste the output into issues or chats.
 
 ### 3. Context Invalidation (`POLICYGATE_CONTEXT_REQUIRED`)
 - **Symptom:** Tool calls fail with `POLICYGATE_CONTEXT_REQUIRED`.
@@ -66,4 +62,4 @@ systemctl --user start chatgpt-local-coder.service
 # 3. Verify health
 curl -s http://127.0.0.1:3000/health
 ```
-Rollback takes under 2 seconds.
+Rollback timing is host-dependent; verify the restored MCP endpoint and client session.

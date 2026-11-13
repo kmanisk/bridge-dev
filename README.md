@@ -28,16 +28,16 @@ BridgeDev connects AI coding assistants (ChatGPT, Claude Code, Codex, and other 
 | Platform | Tier | Runtime & Notes |
 |---|---|---|
 | **Linux** (Arch, CachyOS, Ubuntu/Debian, Fedora) | **Supported** | Native Node.js 20+, systemd service isolation (`ProtectHome=yes`, `ProtectSystem=strict`), append-only audit ledger (`chattr +a`), ACLs. |
-| **Windows** (10 / 11) | **Supported** | Native Node.js 20+, PowerShell management (`start.ps1`, `stop.ps1`, `tunnel.ps1`), Cloudflare / Tailscale tunnels. |
-| **macOS** (12+ Intel & Apple Silicon) | **Supported** | Native Node.js 20+, zsh/bash foreground or launchd agent. |
-| **Android** (Termux) | **Experimental** | Userland Node.js in Termux. Systemd is unsupported; filesystem isolation relies on PRoot containerization. |
+| **Windows** (10 / 11) | **Experimental source runtime** | Native Node.js 20+, PowerShell management (`start.ps1`, `stop.ps1`, `tunnel.ps1`), Cloudflare / Tailscale tunnels. |
+| **macOS** (12+ Intel & Apple Silicon) | **Experimental source runtime** | Native Node.js 20+, zsh/bash foreground or launchd agent. |
+| **Android** (Termux) | **Experimental** | Userland Node.js in Termux. Systemd is unsupported; filesystem PRoot is optional and does not reproduce systemd isolation. |
 
 ---
 
 ## Installation
 
 ### Prerequisites
-- **Node.js:** version 20.0.0 or higher
+- **Node.js:** version 20.0.0 or higher (CI validates Node.js 24 on Linux)
 - **Package Manager:** `pnpm` (recommended) or `npm`
 - **Git:** for repository clone and version control operations
 
@@ -72,7 +72,7 @@ pnpm install --frozen-lockfile --ignore-scripts
 pnpm run build
 ```
 
-### 4. Android (Termux — Experimental)
+### 4. Android (Termux — Experimental; not a hardened gateway)
 ```bash
 pkg install nodejs-lts git
 git clone https://github.com/kmanisk/bridge-dev.git
@@ -80,6 +80,10 @@ cd bridge-dev
 npm install
 npm run build
 ```
+
+---
+
+Windows, macOS and Android builds have not passed the Linux restricted-UID security acceptance suite. Their source runtimes must not be represented as equivalent to the hardened Linux deployment.
 
 ---
 
@@ -91,8 +95,8 @@ cp .env.example .env
 ```
 Generate a secure authentication token and set it in `.env`:
 ```bash
-node dist/cli.js login
-# Copy the token and set MCP_TOKEN in your .env file
+node dist/cli.js login --generate
+# Copy the new token into MCP_TOKEN in your private .env file
 ```
 
 ### 2. Start the Gateway
@@ -102,14 +106,14 @@ pnpm start
 ```
 
 ### 3. Connect Your Coding Assistant
-BridgeDev exposes an authenticated MCP endpoint at `/mcp`:
+BridgeDev authenticates MCP requests using a token in the **URL path**, not a Bearer header:
 
-- **Endpoint URL:** `http://127.0.0.1:3000/mcp` (or your HTTPS tunnel URL)
-- **Authentication:** Bearer token (`MCP_TOKEN`)
+- **Endpoint URL:** `http://127.0.0.1:3000/mcp/<MCP_TOKEN>` (or the same path on your HTTPS tunnel)
+- **Authentication:** The configured `MCP_TOKEN` is the final URL segment. Treat this URL as a secret.
 
 Run the built-in helper to view full connection parameters:
 ```bash
-node dist/cli.js connect
+node dist/cli.js connect  # redacted URL; --show-token explicitly reveals the secret
 ```
 
 ---
@@ -123,13 +127,13 @@ BridgeDev provides a compact CLI (`bridge-dev` or `node dist/cli.js`):
 | `bridge-dev` | Status overview | Displays product version, daemon state, mode, project, and endpoint. |
 | `bridge-dev status` | Detailed status | Queries process state, active sessions, and health status. |
 | `bridge-dev connect` | Connection parameters | Prints MCP URL and client configuration blocks (use `--show-token` to reveal). |
-| `bridge-dev mode` | View/Switch mode | Inspects or sets security mode (`strict`, `standard`, `yolo`). |
-| `bridge-dev project` | Workspace management | Maps or unmaps local project directories into the sandbox. |
-| `bridge-dev doctor` | Diagnostics | Validates Node runtime, port listeners, keypairs, and audit ledger. |
-| `bridge-dev login` | Authentication | Inspects current token or generates a cryptographically secure token. |
+| `bridge-dev mode` | View/Switch mode | Operator-controlled security modes; requires an independent local operator for changes. |
+| `bridge-dev project` | Workspace management | Linux only; delegates to the independently installed project-mapping helper. |
+| `bridge-dev doctor` | Diagnostics | Reports validated checks, marking unreadable audit and mode state UNVERIFIED (not successful). |
+| `bridge-dev login` | Authentication | Reports token configuration without disclosure; `--generate` outputs a new token once. |
 | `bridge-dev setup` | Environment check | Verifies directory paths, permissions, and configuration. |
-| `bridge-dev restart` | Restart daemon | Restarts the running service and confirms health recovery. |
-| `bridge-dev stop` | Stop daemon | Stops the running service cleanly. |
+| `bridge-dev restart` | Restart daemon | Linux systemd only; fails if service health does not return. |
+| `bridge-dev stop` | Stop daemon | Linux systemd only; stop foreground sessions with Ctrl-C. |
 | `bridge-dev help` | Help menu | Shows all CLI commands and available options. |
 
 ---
@@ -150,7 +154,7 @@ BridgeDev reads configuration from `.env` in local development, or `/etc/bridge-
 | `POLICYGATE_POLICY_FILE`| `/etc/bridge-dev/policy.json` | Path to JSON security policy file. |
 | `POLICYGATE_APPROVAL_DIR`| `/var/lib/bridge-dev/approvals`| Storage directory for signed operator approvals. |
 
-The admin web interface is available at **`http://127.0.0.1:3001`** (loopback only). Never expose port 3001 through a public tunnel.
+The authenticated admin interface is available at **`http://127.0.0.1:3001/ui`** (loopback only). Never expose port 3001 through a public tunnel.
 
 ---
 

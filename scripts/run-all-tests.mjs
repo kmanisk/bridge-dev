@@ -68,6 +68,7 @@ const unitScripts = [
   "scripts/test-phase2-chezmoi.mjs",
   "scripts/test-system-enhancements.mjs",
   "scripts/test-policy-gateway.mjs",
+  "scripts/test-bridge-dev-cli.mjs",
   "scripts/test-policy-upstream-readonly.mjs",
 ];
 
