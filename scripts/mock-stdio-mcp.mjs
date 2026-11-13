@@ -23,7 +23,7 @@ if(process.env.PROVIDER_CHILD_FILE){
   const child=spawn(process.execPath,["-e","process.stdin.resume()"],{stdio:["pipe","ignore","ignore"],env:{}});
   await fs.writeFile(process.env.PROVIDER_CHILD_FILE,String(child.pid));
 }
-server.registerTool("environment",{inputSchema:{}},async()=>({content:[{type:"text",text:JSON.stringify(Object.keys(process.env).filter(key=>key!=="PROVIDER_CHILD_FILE"))}]}));
+server.registerTool("environment",{inputSchema:{}},async()=>({content:[{type:"text",text:JSON.stringify(Object.keys(process.env).filter(key=>key!=="PROVIDER_CHILD_FILE"&&process.env[key]))}]}));
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

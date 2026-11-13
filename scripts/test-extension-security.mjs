@@ -9,6 +9,7 @@ import {ExtensionStore} from '../dist/lib/extension-store.js';
 import {atomicJson,withFileLock} from '../dist/lib/atomic-store.js';
 import {isPublicAddress,validateNetworkUrl} from '../dist/lib/safe-network.js';
 import {validateToolMetadata,sanitizeProviderResult,cleanProviderText} from '../dist/lib/provider-security.js';
+import {publicProvider} from '../dist/lib/provider-redaction.js';
 import {childEnvironment} from '../dist/lib/child-environment.js';
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'bridge-security-'));
 function tar(name,type='0',body=Buffer.from('safe')){
@@ -30,6 +31,7 @@ try{
  assert.throws(()=>sanitizeProviderResult({content:[{type:'text',text:'x'.repeat(5*1048576)}]},'p'),/SIZE_LIMIT/);
  assert.equal(cleanProviderText('Safe\x1b\u202eText'),'SafeText');
  const env=childEnvironment({PATH:'/safe',HOME:root,ADMIN_TOKEN:'never',MCP_TOKEN:'never',POLICYGATE_OPERATOR_PRIVATE_KEY:'never',BRIDGEDEV_ADMIN_TOKEN_FILE:'never',UNRELATED_SECRET:'never'});assert.deepEqual(env,{PATH:'/safe',HOME:root});
+ assert.doesNotMatch(JSON.stringify(publicProvider({id:'p',name:'p',enabled:false,transport:'stdio',command:'fixture',expose:'none',env:{CUSTOM_VALUE:'private-sentinel'},headers:{Custom:'private-header'}})),/private-sentinel|private-header/);
  const victim=path.join(root,'victim');await fs.writeFile(victim,'preserved');const config=path.join(root,'config.json');await atomicJson(config,{v:1});
  if(process.platform!=='win32'){await fs.symlink(victim,config+'.bak');await atomicJson(config,{v:2});assert.equal(await fs.readFile(victim,'utf8'),'preserved');}
  let active=0,max=0;await Promise.all(Array.from({length:12},()=>withFileLock(config,async()=>{active++;max=Math.max(max,active);await new Promise(r=>setTimeout(r,2));active--;})));assert.equal(max,1);

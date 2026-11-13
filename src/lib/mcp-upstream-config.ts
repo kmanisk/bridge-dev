@@ -83,7 +83,7 @@ function normalizeServer(raw: UpstreamServerConfig): UpstreamServerConfig {
     transport,
     command: raw.command?.trim(),
     args: raw.args ?? [],
-    env: raw.env ?? {},
+    env: {...(process.platform==="win32"?{SYSTEMROOT:process.env.SystemRoot||process.env.SYSTEMROOT||"",WINDIR:process.env.WINDIR||process.env.SystemRoot||process.env.SYSTEMROOT||""}:{}),...(raw.env??{})},
     cwd: raw.cwd?.trim(),
     url: raw.url?.trim(),
     headers: raw.headers ?? {},

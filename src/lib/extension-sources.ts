@@ -106,7 +106,7 @@ async function localFiles(root:string):Promise<Record<string,string>>{
   async function walk(dir:string,depth:number):Promise<void>{
     if(depth>8)throw new Error("SOURCE_DEPTH_LIMIT");
     for(const entry of (await fs.readdir(dir,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))){
-      if([".git","node_modules",".venv","dist"].includes(entry.name))continue;
+      if([".git","node_modules",".venv","dist",".ssh",".gnupg",".aws",".kube"].includes(entry.name)||/^\.env(?:$|\.(?!example$))/.test(entry.name)||/\.(pem|key)$/.test(entry.name))continue;
       if(++count>512)throw new Error("SOURCE_FILE_COUNT_LIMIT");
       const name=path.join(dir,entry.name),rel=path.relative(root,name).split(path.sep).join("/");safeRelative(rel);
       if(entry.isSymbolicLink())throw new Error("SOURCE_SYMLINK_REFUSED: "+rel);
@@ -237,9 +237,11 @@ class PackageAdapter implements SourceAdapter{
   if(type==="npm"){
     const pkg=JSON.parse(archive["package/package.json"]?.toString()||"{}");
     if(pkg.name!==name || pkg.version!==version)throw new Error("PACKAGE_METADATA_MISMATCH");
+    for(const [field,current]of [["os",process.platform],["cpu",process.arch]] as const){const allowed=pkg[field];if(Array.isArray(allowed)&&(allowed.includes("!"+current)||allowed.some((item:string)=>!item.startsWith("!"))&&!allowed.includes(current)))throw new Error("PACKAGE_PLATFORM_UNSUPPORTED: "+field+" "+current);}
     for(const component of components){
       const entrypoint=String(bins[component.name]);safeRelative(entrypoint.replace(/^\.\//,""));
       if(!archive["package/"+entrypoint.replace(/^\.\//,"")])throw new Error("PACKAGE_ENTRYPOINT_MISSING");
+      if(!/\.(?:c?js|mjs)$/.test(entrypoint)&&!/^#![^\n]*\bnode\b/.test(archive["package/"+entrypoint.replace(/^\.\//,"")].toString("utf8")))throw new Error("NPM_ENTRYPOINT_REVIEW_REQUIRED: only Node.js entrypoints install automatically");
       Object.assign(component.package!,{sha256:sha256(bytes),entrypoint,dependencies:Object.keys(pkg.dependencies||{})});
     }
   }else{

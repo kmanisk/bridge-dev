@@ -38,7 +38,7 @@ try {
   assert.throws(()=>validateProjectName("bad;name"));
   const validDir=path.join(tmp,"safe-project");
   fs.mkdirSync(validDir);
-  assert.equal(resolveProjectDirectory(validDir,tmp),validDir);
+  assert.equal(fs.realpathSync.native(resolveProjectDirectory(validDir,tmp)),fs.realpathSync.native(validDir));
   assert.throws(()=>resolveProjectDirectory(path.join(tmp,"missing"),tmp));
   const unsafe=run(["project","unmap","../../etc"]);
   assert.notEqual(unsafe.status,0);

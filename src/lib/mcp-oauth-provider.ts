@@ -1,3 +1,4 @@
+import {atomicJson} from "./atomic-store.js";
 import fs from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
@@ -77,7 +78,7 @@ export class FileOAuthClientProvider implements OAuthClientProvider {
   private async save(): Promise<void> {
     this.store.updatedAt = new Date().toISOString();
     await fs.mkdir(path.dirname(this.storePath), { recursive: true });
-    await fs.writeFile(this.storePath, JSON.stringify(this.store, null, 2), { encoding: "utf-8", mode: 0o600 });
+    await atomicJson(this.storePath,this.store);
   }
 
   get redirectUrl(): string {

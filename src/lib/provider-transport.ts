@@ -3,7 +3,7 @@ import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/s
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 
-/** No inherited environment. POSIX process groups, Windows taskkill /T. */
+/** Explicit environment. Windows libuv defaults are blanked; only configured OS essentials survive. */
 export class ProviderTransport implements Transport {
   onmessage?: Transport["onmessage"];
   onclose?: ()=>void;
@@ -14,7 +14,13 @@ export class ProviderTransport implements Transport {
   get pid():number|null{return this.child?.pid || null;}
   constructor(private options:{command:string;args?:string[];env?:Record<string,string>;cwd?:string}){}
   async start():Promise<void>{
-    const child=spawn(this.options.command,this.options.args || [],{cwd:this.options.cwd,env:this.options.env || {},shell:false,detached:process.platform!=="win32",stdio:"pipe",windowsHide:true});
+    const env:Record<string,string>={...(this.options.env||{})};
+    if(process.platform==="win32"){
+      for(const key of ["HOMEDRIVE","HOMEPATH","LOGONSERVER","PATH","SYSTEMDRIVE","SYSTEMROOT","TEMP","USERDOMAIN","USERNAME","USERPROFILE","WINDIR"]){
+        if(!Object.keys(env).some(name=>name.toUpperCase()===key))env[key]="";
+      }
+    }
+    const child=spawn(this.options.command,this.options.args || [],{cwd:this.options.cwd,env,shell:false,detached:process.platform!=="win32",stdio:"pipe",windowsHide:true});
     this.child=child;
     const buffer=new ReadBuffer({maxBufferSize:4*1024*1024});
     child.stdout.on("data",chunk=>{try {buffer.append(chunk);let message;while((message=buffer.readMessage())!==null)this.onmessage?.(message);}catch(error){this.onerror?.(error as Error);void this.close();}});

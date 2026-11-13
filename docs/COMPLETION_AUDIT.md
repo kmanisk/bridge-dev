@@ -173,3 +173,23 @@ remote results are recorded in phase 7 after the jobs execute. Android/Termux,
 real client accounts and deployed privileged-host acceptance remain unverified.
 Setup dependencies are installed before tests; the tests contact only fixtures.
 No new application dependencies and no production changes.
+
+### Phase 6 CI corrections
+
+The first expanded CI run passed Ubuntu core and Linux source/integration tests but
+exposed macOS canonical-path comparison, Windows environment defaults/shutdown-test
+assumptions and container orphan reaping failures. The failures were retained and
+fixed: CLI path assertions compare canonical paths; Windows stdio explicitly blanks
+libuv's automatically inherited variables and includes reviewed SYSTEMROOT/WINDIR
+OS requirements; shutdown tests use the authenticated lifecycle API on every OS.
+Docker container jobs use --init so PID 1 reaps terminated orphan descendants.
+No process-cleanup assertion was relaxed. A stale keep-alive control socket during
+rapid restart was removed by closing lifecycle control connections explicitly.
+
+Provider inspection now redacts all granted environment/header values regardless
+of key names. OAuth credential files use atomic private writes. Local source
+scanning excludes credential files, and npm entrypoints/platform constraints are
+checked before automatic Node execution is proposed. Local full aggregate and
+focused source/extension/policy/CLI/inventory regressions pass after corrections.
+Windows libuv behavior was checked against its primary implementation:
+https://github.com/libuv/libuv/blob/v1.x/src/win/process.c

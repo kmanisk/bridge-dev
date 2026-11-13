@@ -64,7 +64,7 @@ export function startAdminServer(options: AdminServerOptions): Server {
   app.get("/", (_req, res) => res.redirect("/ui/"));
   app.use(adminAuth);
   app.use(extensionRouter(options.manager));
-  app.post("/api/lifecycle/stop",(_req,res)=>{res.json({ok:true});setTimeout(()=>{void options.shutdown?.();},50);});
+  app.post("/api/lifecycle/stop",(_req,res)=>{res.setHeader("Connection","close");res.json({ok:true});setTimeout(()=>{void options.shutdown?.();},50);});
 
   app.use(createAdminRouter(options.manager, {
     mcpPort: options.mcpPort,

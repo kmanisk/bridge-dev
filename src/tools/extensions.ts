@@ -1,3 +1,4 @@
+import {publicProvider} from "../lib/provider-redaction.js";
 import {z} from "zod";
 import type {McpServer} from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {McpUpstreamManager} from "../lib/mcp-upstream-manager.js";
@@ -29,7 +30,7 @@ export function registerExtensionTools(server:McpServer,workspace:string,manager
     data=await store.request({action,scope:args.scope,...(args.source?{source:args.source}:{}),...(key?{key}:{}),...(args.selection?{selection:args.selection}:{})});
    }else if(name==="mcp_info"){
     const config=manager.getServerConfig(args.name||"");if(!config)throw new Error("PROVIDER_NOT_FOUND");
-    data={config:redactAudit(config),provider_fingerprint:sha256(JSON.stringify(config)),status:manager.listStatusesCached().find(s=>s.id===config.id)};
+    data={config:publicProvider(config),provider_fingerprint:sha256(JSON.stringify(config)),status:manager.listStatusesCached().find(s=>s.id===config.id)};
    }else if(name==="mcp_test"){
     const config=manager.getServerConfig(args.name||"");if(!config||args.provider_fingerprint!==sha256(JSON.stringify(config)))throw new Error("PROVIDER_FINGERPRINT_CHANGED");
     data=await manager.testProvider(config.id);

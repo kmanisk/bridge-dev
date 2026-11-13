@@ -16,9 +16,9 @@ await fs.writeFile(path.join(source,'bridge-dev.json'),JSON.stringify({version:1
 const env={...process.env,POLICYGATE_POLICY_FILE:'',BRIDGEDEV_RUNTIME_MODE:'portable',WORKSPACE_PATH:work,BRIDGEDEV_STATE_DIR:path.join(root,'state'),MCP_UPSTREAM_CONFIG:path.join(root,'providers.json'),MCP_TOKEN:token,ADMIN_TOKEN:admin,PORT:String(port),ADMIN_PORT:String(adminPort)};
 let gateway,logs='',client;
 function cli(args,overrides={}){const run=spawnSync(process.execPath,['dist/cli.js',...args,'--json'],{env:{...env,...overrides},encoding:'utf8',timeout:30000});assert.equal(run.status,0,run.stderr+' '+run.stdout);return JSON.parse(run.stdout).data;}
-async function api(route,body,credential=admin){const r=await fetch(`http://127.0.0.1:${adminPort}`+route,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+credential,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,body:await r.json()};}
+async function api(route,body,credential=admin){const r=await fetch(`http://127.0.0.1:${adminPort}`+route,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+credential,'Content-Type':'application/json',Connection:'close'},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,body:await r.json()};}
 async function start(){gateway=spawn(process.execPath,['dist/index.js'],{env,stdio:['ignore','pipe','pipe']});gateway.stdout.on('data',b=>logs+=b);gateway.stderr.on('data',b=>logs+=b);for(let i=0;i<100;i++){if(gateway.exitCode!==null)throw Error(logs);try{if((await fetch(`http://127.0.0.1:${port}/health`)).ok)return;}catch{}await new Promise(r=>setTimeout(r,50));}throw Error(logs);}
-async function stop(){if(!gateway||gateway.exitCode!==null)return;gateway.kill('SIGTERM');await new Promise(resolve=>gateway.once('exit',resolve));assert.equal(gateway.exitCode,0,logs);}
+async function stop(){if(!gateway||gateway.exitCode!==null||gateway.signalCode)return;const exit=new Promise(resolve=>gateway.once('exit',resolve));await api('/api/lifecycle/stop',{});await exit;assert.equal(gateway.exitCode,0,logs);}
 try{
  await start();
  const sessions=spawnSync(process.execPath,["scripts/test-mcp-session.mjs"],{env,encoding:"utf8",timeout:30000});assert.equal(sessions.status,0,sessions.stdout+sessions.stderr);
