@@ -25,6 +25,10 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build and run disposable policy bypass tests
         run: pnpm run test:policy
+      - name: Install chezmoi for full regression fixtures
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends chezmoi
       - name: Run full application regression tests
         run: pnpm test
       - name: Verify CLI security regression
