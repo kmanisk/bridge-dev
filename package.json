@@ -28,7 +28,8 @@
     "dev": "tsx watch src/index.ts",
     "tunnel": "cloudflared tunnel --url http://localhost:3000",
     "test:cli": "tsc && node scripts/test-bridge-dev-cli.mjs",
-    "test:portable": "tsc && node scripts/test-portable-runtime.mjs"
+    "test:portable": "tsc && node scripts/test-portable-runtime.mjs",
+    "test:portable:server": "node scripts/test-portable-server.mjs"
   },
   "keywords": [
     "mcp",
