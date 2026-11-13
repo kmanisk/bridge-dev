@@ -25,5 +25,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build and run disposable policy bypass tests
         run: pnpm run test:policy
+      - name: Display discovered MCP tool inventory
+        run: node scripts/sync-tool-counts.mjs --json
       - name: Verify real MCP registration inventory
         run: node scripts/sync-tool-counts.mjs --check-manifest profiles/native-tool-counts.json
