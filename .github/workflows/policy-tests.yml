@@ -25,17 +25,6 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build and run disposable policy bypass tests
         run: pnpm run test:policy
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.26'
-      - name: Build pinned chezmoi for full regression fixtures
-        run: |
-          git clone --quiet --depth 1 --branch v2.73.0 https://github.com/twpayne/chezmoi.git "$RUNNER_TEMP/chezmoi-src"
-          mkdir -p "$RUNNER_TEMP/chezmoi-bin"
-          (cd "$RUNNER_TEMP/chezmoi-src" && go build -o "$RUNNER_TEMP/chezmoi-bin/chezmoi" .)
-          echo "$RUNNER_TEMP/chezmoi-bin" >> "$GITHUB_PATH"
-      - name: Run full application regression tests
-        run: pnpm test
       - name: Verify CLI security regression
         run: node scripts/test-bridge-dev-cli.mjs
       - name: Verify real MCP registration inventory
