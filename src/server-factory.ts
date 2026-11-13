@@ -17,6 +17,8 @@ import type { McpUpstreamManager } from "./lib/mcp-upstream-manager.js";
 import { getChatGptToolProfile, shouldExposeTool } from "./lib/tool-profile.js";
 import { TOOL_RESULT_OUTPUT_SCHEMA } from "./lib/tool-result.js";
 import { getPolicyGate, newPolicySession, type PolicySession } from "./lib/policy-gateway.js";
+import { z } from "zod";
+import { executionAuthority } from "./lib/execution-authority.js";
 
 const NOOP_TOOL = {
   remove: () => {},
@@ -51,13 +53,23 @@ function configureToolRegistration(server: McpServer, session: PolicySession): v
         ? { ...config, outputSchema: TOOL_RESULT_OUTPUT_SCHEMA }
         : config;
 
-    return original(name, nextConfig as any, (async (...callArgs: unknown[]) => {
+    const schema = nextConfig.inputSchema;
+    const shape=schema instanceof z.ZodObject?schema.shape:schema;
+    let tokenName=isUpstreamProxy?"_bridge_context_token":"context_token";
+    while(shape && Object.hasOwn(shape,tokenName))tokenName="_"+tokenName;
+    const tokenField = z.string().max(2048).optional().describe("For stateless/reconnected calls: copy context_token from the most recent system_context. Does not grant privileged approval.");
+    const inputSchema = schema instanceof z.ZodObject ? schema.extend({[tokenName]:tokenField}) : {...schema,[tokenName]:tokenField};
+    return original(name, {...nextConfig,inputSchema} as any, (async (...callArgs: unknown[]) => {
       const args = (callArgs[0] && typeof callArgs[0] === "object" ? callArgs[0] : {}) as Record<string, unknown>;
+      let hostRoot=false;
+      let approvalId:string|undefined;
       await gate.audit.append({phase:"request",tool:toolName,session_id:session.id,mcp_session_id:session.transportSessionId,args});
       try {
-        const decision=await gate.authorize(session,toolName,args);
+        const decision=await gate.authorize(session,toolName,args,args[tokenName]);
+        hostRoot=decision.hostRoot===true;
+        approvalId=decision.rootApprovalId;
         await gate.audit.append({phase:"decision",status:"allowed",tool:toolName,session_id:session.id,class:decision.kind});
-        if (!isUpstreamProxy && (decision.requiresApproval || gate.getActiveProfile() === "dangerous") && !args.auth_token) {
+        if (!isUpstreamProxy && !hostRoot && (decision.requiresApproval || gate.getActiveProfile() === "dangerous") && !args.auth_token) {
           const { getSecurityPolicy } = await import("./lib/security-policy.js");
           const policy = getSecurityPolicy();
           args.auth_token = policy.createAuthorization({
@@ -74,9 +86,16 @@ function configureToolRegistration(server: McpServer, session: PolicySession): v
         throw error;
       }
       try {
-        const result=await (callback as (...a: unknown[]) => Promise<any>)(...callArgs);
+        // Gateway-only capability is never forwarded to an untrusted provider.
+        delete args[tokenName];
+        const result=await executionAuthority.run({hostRoot,approvalId},()=>(callback as (...a: unknown[]) => Promise<any>)(...callArgs));
         if(toolName==="system_context" && !result?.isError && result?.structuredContent?.ok!==false) {
           await gate.contextLoaded(session,args,result.structuredContent?.data || {});
+          const capability=gate.issueContextToken(session);
+          if(capability){
+            Object.assign(result.structuredContent.data,capability);
+            result.content=[{type:"text",text:JSON.stringify(result.structuredContent,null,2)}];
+          }
         }
         await gate.audit.append({phase:"result",status:result?.isError||result?.structuredContent?.ok===false?"error":"ok",tool:toolName,session_id:session.id});
         return result;

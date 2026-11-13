@@ -151,6 +151,10 @@ Provider registration, exposure, execution permissions and operator approvals ar
 
 ## Documentation
 
+[Optional Linux host controller and root-lease limits](docs/HOST_CONTROLLER.md).
+Stateless MCP clients can explicitly pass the short-lived context capability from
+`system_context`; unrelated clients never inherit a context grant automatically.
+
 [Local trial](docs/LOCAL_TRIAL.md) · [Platform support](docs/PLATFORM_SUPPORT.md) · [Sources](docs/SOURCES.md) · [Extensions](docs/EXTENSIONS.md) · [MCP integrations](docs/MCP_INTEGRATIONS.md) · [Managed deployment](docs/SYSTEMD_DEPLOYMENT.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Completion audit](docs/COMPLETION_AUDIT.md)
 
 ## License and attribution

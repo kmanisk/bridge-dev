@@ -4,7 +4,8 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import path from "path";
-import { randomUUID, timingSafeEqual } from "crypto";
+import { createHash, randomUUID, timingSafeEqual } from "crypto";
+import { requestIdentity } from "./lib/request-identity.js";
 
 import {
   setDefaultCwd,
@@ -308,9 +309,11 @@ app.use("/mcp", (req, res, next) => {
 });
 
 for (const mcpPath of MCP_PATHS) {
-  app.post(mcpPath, handleMcpPost);
-  app.get(mcpPath, handleMcpGet);
-  app.delete(mcpPath, handleMcpDelete);
+  const authenticated = (handler: typeof handleMcpPost) => (req: express.Request, res: express.Response) =>
+    requestIdentity.run({subject:createHash("sha256").update(MCP_TOKEN).digest("hex")}, () => handler(req,res));
+  app.post(mcpPath, authenticated(handleMcpPost));
+  app.get(mcpPath, authenticated(handleMcpGet));
+  app.delete(mcpPath, authenticated(handleMcpDelete));
 }
 
 sessionManager.startCleanup();

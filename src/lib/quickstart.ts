@@ -7,6 +7,7 @@ export const MCP_QUICKSTART = `
 5. Host-specific system_context, system_inspect, system_job and chezmoi_inspect are optional platform integrations.
 6. Upstream MCP servers are optional; imported configs are not automatic execution permission.
 7. Do not assume root privileges, unrestricted disk access, or YOLO approval.
+8. Load system_context with agents and current_state before execution. If the connector does not retain its session, copy the returned context_token into each subsequent tool call. Reload on expiry or context change; this token never approves privileged work.
 `.trim();
 
 export function buildServerInstructions(

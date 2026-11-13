@@ -7,6 +7,7 @@
 import "dotenv/config";
 import {verifyAuditFile,redactAudit} from "./lib/hash-audit.js";
 import {extensionCli,operatorApi} from "./lib/extension-cli.js";
+import {controllerCli} from "./lib/controller-cli.js";
 import { execSync, spawnSync, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -463,6 +464,8 @@ function cmdHelp() {
   console.log("  instructions <action> list/add/info/remove/enable/disable/update");
   console.log("  pack <action>         add/info/list/update/remove");
   console.log("  approve <id>          Apply exact reviewed proposal using independent operator credentials");
+  console.log("  operator status|yolo|exec|logs|cleanup  Optional Linux host controller");
+  console.log("  deploy plan|start|status|logs|verify|rollback|cleanup  Recoverable cutover jobs");
   console.log("  --json --verbose      Machine-readable output or diagnostic errors");
   console.log("  help, --help          Show this help menu\n");
   console.log("Security Modes:");
@@ -476,6 +479,7 @@ async function main() {
   const json=rawArgs.includes("--json");
   const args=rawArgs.filter(arg=>!["--json","--verbose"].includes(arg));
   if(await extensionCli(args,json,rawArgs.includes("--verbose")))return;
+  if(await controllerCli(args,json))return;
   if(json){const log=console.log,lines:string[]=[];console.log=(...values:unknown[])=>{lines.push(values.map(String).join(" "));};process.once("beforeExit",()=>{console.log=log;log(JSON.stringify({ok:!process.exitCode,command:args[0]||"status",output:lines}));});}
   const cmd = (args[0] || "").toLowerCase();
 

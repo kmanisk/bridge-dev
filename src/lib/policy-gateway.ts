@@ -2,7 +2,8 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { createHash, randomUUID, verify } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual, verify } from "node:crypto";
+import { requestIdentity } from "./request-identity.js";
 import { fileURLToPath } from "node:url";
 import { assertRegistryComplete, classifyTool, type ToolClass } from "./tool-classification.js";
 import { enforcePolicy } from "./policy-enforcement.js";
@@ -38,12 +39,15 @@ export interface PolicySession {
   id: string;
   transportSessionId?: string;
   revoked?: boolean;
+  expiresAt?: number;
   contextHash: string | null;
   mutationTimestamps: number[];
   consecutiveDenials: number;
   locked: boolean;
 }
 export interface PolicyAuthorization {
+  hostRoot?: boolean;
+  rootApprovalId?: string;
   kind: ToolClass;
   tool: string;
   requiresApproval: boolean;
@@ -103,6 +107,8 @@ export function loadPolicyConfig(file = process.env.POLICYGATE_POLICY_FILE || po
   return validateConfig(config);
 }
 export class PolicyGate {
+  private readonly contextKey = randomBytes(32);
+  private readonly contextIssuers = new Map<string, {session:PolicySession; subject:string; expires:number}>();
   readonly config: PolicyConfig;
   readonly configPath: string;
   private nativeRegistrations = new Set<string>();
@@ -178,7 +184,38 @@ export class PolicyGate {
   async invalidateContext(session: PolicySession, reason: string, revoke = false): Promise<void> {
     session.contextHash = null;
     if (revoke) session.revoked = true;
+    this.contextIssuers.delete(session.id);
     await this.audit.append({phase:"context_authorization",status:"invalidated",session_id:session.id,mcp_session_id:session.transportSessionId,reason});
+  }
+  issueContextToken(session:PolicySession): {context_token:string; context_expires_at:number} | undefined {
+    const subject=requestIdentity.getStore()?.subject;
+    if(!subject || !session.contextHash || session.revoked)return;
+    const now=Date.now();
+    for(const [id,entry] of this.contextIssuers)if(entry.expires<=now || entry.session.revoked)this.contextIssuers.delete(id);
+    if(this.contextIssuers.size>=10000)throw new Error("POLICYGATE_CONTEXT_CAPACITY: retry after existing grants expire");
+    const expires=Math.min(now+5*60_000,session.expiresAt??Infinity);
+    const payload=Buffer.from(JSON.stringify({v:1,issuer:session.id,subject,hash:session.contextHash,expires})).toString("base64url");
+    const signature=createHmac("sha256",this.contextKey).update(payload).digest("base64url");
+    this.contextIssuers.set(session.id,{session,subject,expires});
+    return {context_token:payload+"."+signature,context_expires_at:expires};
+  }
+  async acceptContextToken(session:PolicySession,value:unknown):Promise<boolean> {
+    if(typeof value!=="string" || value.length>2048 || session.revoked)return false;
+    const [payload,signature,...extra]=value.split(".");
+    if(!payload || !signature || extra.length)return false;
+    const expected=createHmac("sha256",this.contextKey).update(payload).digest();
+    const supplied=Buffer.from(signature,"base64url");
+    if(supplied.length!==expected.length || !timingSafeEqual(expected,supplied))return false;
+    let token;try{token=JSON.parse(Buffer.from(payload,"base64url").toString());}catch{return false;}
+    const issuer=this.contextIssuers.get(token.issuer),subject=requestIdentity.getStore()?.subject,now=Date.now();
+    if(!issuer || !subject || subject!==token.subject || subject!==issuer.subject || token.v!==1 ||
+      token.expires!==issuer.expires || token.expires<=now || issuer.session.revoked ||
+      (issuer.session.expiresAt??Infinity)<=now || issuer.session.contextHash!==token.hash)return false;
+    const current=await this.contextHash().catch(()=>"");
+    if(current!==token.hash){await this.invalidateContext(issuer.session,"capability_context_changed");return false;}
+    // Request-scoped proof: do not grant the recipient transport session authority.
+    await this.audit.append({phase:"context_authorization",status:"granted",session_id:session.id,issuer_session_id:issuer.session.id,reason:"explicit_context_token"});
+    return true;
   }
   async contextLoaded(session: PolicySession, args: Record<string, unknown>, data: {documents?: SystemDocument[]; configured?: boolean}): Promise<void> {
     if (session.revoked) throw new Error("POLICYGATE_SESSION_CLOSED: initialize a new session and reload context");
@@ -205,8 +242,8 @@ export class PolicyGate {
     session.contextHash = loaded;
     session.consecutiveDenials = 0;
   }
-  async authorize(session: PolicySession, tool: string, args: Record<string, unknown>): Promise<PolicyAuthorization> {
-    return enforcePolicy(this, session, tool, args);
+  async authorize(session: PolicySession, tool: string, args: Record<string, unknown>,contextToken:unknown=args.context_token): Promise<PolicyAuthorization> {
+    return enforcePolicy(this, session, tool, args,contextToken);
   }
 }
 let singleton: PolicyGate | undefined;

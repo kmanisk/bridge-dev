@@ -170,6 +170,7 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
     const session = sessions[sessionId];
     if (session && !session.policy.revoked) {
       session.lastAccessedAt = Date.now();
+      session.policy.expiresAt = session.lastAccessedAt + SESSION_TTL_MS;
     }
   }
 
@@ -213,6 +214,7 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
     // remain available through a classified, approved MCP tool call.
     const hookInstructions = "Unattended SessionStart executable hooks are disabled by the policy gateway.";
     const policySession = newPolicySession();
+    policySession.expiresAt = Date.now() + SESSION_TTL_MS;
     const mcpServer = createMcpServer(
       config.workspaceRoot,
       config.shellTimeout,

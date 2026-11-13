@@ -8,6 +8,9 @@ import { audit } from "../lib/audit.js";
 import { toolAnnotations } from "../lib/tool-annotations.js";
 import { toolResult } from "../lib/tool-result.js";
 import { getSecurityPolicy } from "../lib/security-policy.js";
+import { getPolicyGate } from "../lib/policy-gateway.js";
+import { executeHostCommand } from "../lib/host-controller.js";
+import { executionAuthority } from "../lib/execution-authority.js";
 import {
   bootstrapShellSession,
   execInShellSession,
@@ -49,7 +52,7 @@ export function registerShellTools(server: McpServer, defaultCwd: string, timeou
     {
       title: "Run Command",
       description:
-        "Run shell commands to verify work (tests, build, lint). Cwd persists across ChatGPT tool calls (saved to disk). Use shell_status to check cwd. Use start_process for long jobs.",
+        "Run shell commands to verify work (tests, build, lint). Normal shell cwd persists across calls; use shell_status to check it. Leased host-root jobs use working_directory or the current shell cwd without updating it. Use start_process for unprivileged long jobs or the operator controller for recoverable root jobs.",
       inputSchema: {
         command: z.string(),
         working_directory: z.string().optional().describe("One-off override; does not reset persistent cwd unless you use shell_reset"),
@@ -59,6 +62,11 @@ export function registerShellTools(server: McpServer, defaultCwd: string, timeou
       annotations: toolAnnotations("command"),
     },
     async ({ command, working_directory, auth_token }) => {
+      if(executionAuthority.getStore()?.hostRoot) {
+        const result=await executeHostCommand(command,working_directory||getShellStatus().cwd||defaultCwd,Math.min(timeoutSec,7200),executionAuthority.getStore()?.approvalId);
+        await getPolicyGate().audit.append({phase:"privileged_execution",tool:"run_command",job_id:result.job_id,status:result.job_status});
+        return toolResult("run_command",result,{ok:result.exit_code===0,summary:"Host root job "+result.job_id+": "+result.job_status});
+      }
       requireCommandAllowed(command);
       const policy = getSecurityPolicy();
       const authCheck = policy.authorizeCommand(command, auth_token);

@@ -4,8 +4,10 @@ import path from "node:path";
 import { createHash, sign, verify, generateKeyPairSync, randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
+import {spawnSync} from "node:child_process";
 
 const args = process.argv.slice(2);
+if(args[0]==="mode"&&args[1]==="yolo")args.splice(0,2,"yolo");
 const action = args[0];
 const id = args[1];
 
@@ -14,6 +16,13 @@ const keyFile = path.resolve(process.env.POLICYGATE_OPERATOR_PRIVATE_KEY || (fs.
 const pubFile = path.resolve(process.env.POLICYGATE_APPROVAL_PUBLIC_KEY || (fs.existsSync("/etc/bridge-dev/operator-public.pem") ? "/etc/bridge-dev/operator-public.pem" : "/etc/local-coder-policygate/operator-public.pem"));
 const yoloLeasePath = path.resolve(process.env.POLICYGATE_YOLO_LEASE || (fs.existsSync("/var/lib/bridge-dev/yolo-lease.json") ? "/var/lib/bridge-dev/yolo-lease.json" : "/var/lib/local-coder-policygate/yolo-lease.json"));
 const modeFilePath = path.resolve(process.env.POLICYGATE_MODE_FILE || (fs.existsSync("/var/lib/bridge-dev/mode.json") ? "/var/lib/bridge-dev/mode.json" : "/var/lib/local-coder-policygate/mode.json"));
+function revokeJobs(){
+  const helper="/usr/local/bin/bridge-dev-controller";
+  if(process.env.POLICYGATE_TEST_OPERATOR!=="1"&&fs.existsSync(helper)){
+    const result=spawnSync(helper,["revoke"],{env:{PATH:"/usr/bin:/bin"},encoding:"utf8",timeout:30000});
+    if(result.status!==0)throw new Error("Controller revocation failed; inspect tracked jobs immediately");
+  }
+}
 
 if (action !== "status") {
   if (process.getuid?.() !== 0 && process.env.POLICYGATE_TEST_OPERATOR !== "1") {
@@ -80,6 +89,7 @@ if (action === "yolo") {
     if (fs.existsSync(yoloLeasePath)) {
       fs.unlinkSync(yoloLeasePath);
     }
+    revokeJobs();
     console.log("YOLO mode DEACTIVATED. System immediately returned to STANDARD mode.");
     process.exit(0);
   }
@@ -87,11 +97,10 @@ if (action === "yolo") {
   // Parse duration
   let durationMin = 30;
   const durIdx = args.indexOf("--duration");
-  if (durIdx !== -1 && args[durIdx + 1]) {
-    const parsed = parseInt(args[durIdx + 1], 10);
-    if (!Number.isNaN(parsed) && parsed > 0 && parsed <= 120) {
-      durationMin = parsed;
-    }
+  if (durIdx !== -1) {
+    const parsed = Number(args[durIdx + 1]);
+    if(!Number.isSafeInteger(parsed)||parsed<1||parsed>120)throw new Error("Duration must be an integer from 1 to 120 minutes");
+    durationMin = parsed;
   }
 
   const keyStat = fs.statSync(keyFile);
@@ -135,7 +144,13 @@ if (action === "yolo") {
   };
 
   fs.mkdirSync(path.dirname(yoloLeasePath), { recursive: true, mode: 0o755 });
-  fs.writeFileSync(yoloLeasePath, JSON.stringify(leaseData, null, 2) + "\n", { mode: 0o644 });
+  const temporary=yoloLeasePath+"."+randomUUID()+".tmp";
+  fs.writeFileSync(temporary, JSON.stringify(leaseData, null, 2) + "\n", { mode: 0o644,flag:"wx" });
+  fs.renameSync(temporary,yoloLeasePath);
+  if(process.env.POLICYGATE_TEST_OPERATOR!=="1"&&fs.existsSync("/usr/local/bin/bridge-dev-controller")){
+    const activated=spawnSync("/usr/local/bin/bridge-dev-controller",["activate"],{stdio:"inherit",env:{PATH:"/usr/bin:/bin"},timeout:30000});
+    if(activated.status!==0){fs.unlinkSync(yoloLeasePath);throw new Error("Host controller activation failed; YOLO lease removed");}
+  }
 
   console.log(`YOLO mode ENABLED for ${durationMin} minutes.`);
   console.log(`Active until: ${new Date(expires_at).toISOString()}`);
@@ -157,6 +172,7 @@ if (action === "mode") {
     if (fs.existsSync(yoloLeasePath)) {
       fs.unlinkSync(yoloLeasePath);
     }
+    revokeJobs();
     fs.mkdirSync(path.dirname(modeFilePath), { recursive: true, mode: 0o755 });
     fs.writeFileSync(modeFilePath, JSON.stringify({ mode: targetMode, updated_at: Date.now() }, null, 2) + "\n", { mode: 0o644 });
     console.log(`Active mode switched to ${targetMode.toUpperCase()}.`);

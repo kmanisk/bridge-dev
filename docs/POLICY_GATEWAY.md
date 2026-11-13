@@ -54,10 +54,30 @@ fresh policy session and requires its own context load. Headerless discovery rem
 compatible, but each headerless request creates a different session. The SDK
 already returns its session ID; the gateway now exposes that header through CORS
 so browser clients can retain it. A client
-that deliberately initializes a new session for every tool call cannot carry context
-authorization between those calls. Fix that client's session persistence; the server
-never guesses identity from a bearer token, IP address or User-Agent and never shares
-authorization among clients.
+that initializes a new session for every tool call can explicitly carry the
+short-lived context token described below. The server never guesses identity from
+IP address, client name or User-Agent and never implicitly shares session grants.
+
+### Explicit context capability for stateless clients
+
+After a successful HTTP `system_context`, its structured data includes a
+`context_token` and `context_expires_at`. Copy the token into the optional
+`context_token` argument of subsequent native tools when session continuity is
+unavailable. Provider tools advertise a separate `_bridge_context_token` argument
+(with another leading underscore if the provider already owns that name); the
+gateway removes only its capability field before forwarding arguments.
+
+The HMAC capability binds the authenticated HTTP credential fingerprint, exact
+context digest, issuing policy session and expiry (at most five minutes). It is
+request-scoped: using it never authorizes the recipient transport's later
+tokenless calls. An unrelated client without the explicit capability stays denied.
+The issuer's DELETE, expiry, context invalidation or gateway restart revokes it.
+Reload after expiry/context changes; stale tokens remain invalid when old context
+bytes are restored. Audit records omit tokens. This capability proves context
+loading only and never approves a privileged operation or changes permissions.
+
+See [HOST_CONTROLLER.md](HOST_CONTROLLER.md) for optional host-root YOLO execution,
+signed STANDARD execution, detached jobs, rollback and the limits of root leases.
 
 DELETE revokes policy authorization immediately; the transport's brief cleanup grace
 period does not restore it. TTL is checked on access as well as during periodic

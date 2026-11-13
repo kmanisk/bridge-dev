@@ -44,12 +44,21 @@ ChatGPT/Codex/Claude account acceptance are unverified. No production rollout wa
 performed; installed service code, credentials, Funnel and workstation state remain
 outside this repository task. Preserve those boundaries and the Go archive.
 
-## Production integration fixes (2026-11-14, deployment pending)
+## Production integration fixes (2026-11-14, f909c32 cutover verified)
 
 Isolated source work starts at d7025dd; the original checkout's local edits remain
 untouched. See docs/PRODUCTION_INTEGRATION_FIXES.md for baseline, proven legacy
 shape/session boundary, regression evidence and approval-required cutover/rollback.
-Production is unchanged. Keep per-session context authorization: a connector that
-creates a new session for each call must retain Mcp-Session-Id. Never share grants
-by bearer token, IP or client name. Registry legacy compatibility is read-only;
+That cutover was subsequently verified at f909c32. Per-session context remains the
+default; explicit short-lived context capabilities now support stateless calls.
+Never share grants implicitly by bearer token, IP or client name. Registry legacy compatibility is read-only;
 only explicit operator `mcp migrate` persists a verified backup and atomic conversion.
+
+## Optional host controller work
+
+See docs/HOST_CONTROLLER.md. Source tests use synthetic keys and unprivileged
+transaction copies; no test runner installs or calls the host helper. Deployment
+and actual root verification require an independent operator bootstrap/lease.
+Unrestricted host root can modify local enforcement/signing keys: do not claim a
+tamper-proof lease or automatic undo of arbitrary root changes. Preserve normal
+STRICT/STANDARD checks and report real ChatGPT acceptance separately.

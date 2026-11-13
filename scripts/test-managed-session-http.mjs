@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import {spawn,spawnSync} from 'node:child_process';
-import {randomBytes,randomUUID} from 'node:crypto';
+import {randomBytes,randomUUID,generateKeyPairSync,sign} from 'node:crypto';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {verifyAuditFile} from '../dist/lib/hash-audit.js';
@@ -21,8 +21,8 @@ const freePort=()=>new Promise(resolve=>{const server=net.createServer();server.
 const port=await freePort(),adminPort=await freePort(),token=randomBytes(32).toString('hex'),admin=randomBytes(32).toString('hex'),url=new URL(`http://127.0.0.1:${port}/mcp`);
 const env={...process.env,POLICYGATE_POLICY_FILE:policyFile,WORKSPACE_PATH:work,LOCAL_CODER_CHEZMOI_SOURCE_DIR:source,BRIDGEDEV_STATE_DIR:path.join(root,'state'),MCP_UPSTREAM_CONFIG:path.join(root,'upstreams.json'),MCP_TOKEN:token,ADMIN_TOKEN:admin,PORT:String(port),ADMIN_PORT:String(adminPort),MCP_SESSION_TTL_MS:'60000',MCP_SESSION_CLEANUP_MS:'60000',MCP_SESSION_DELETE_GRACE_MS:'100',CHATGPT_TOOL_PROFILE:'slim'};
 await fs.writeFile(env.MCP_UPSTREAM_CONFIG,JSON.stringify({servers:[{id:'legacy',transport:'http',url:'https://example.invalid/mcp',enabled:false,reviewed:true,expose:'none'}]}));
-let gateway,logs='';const clients=[];
-async function start(){gateway=spawn(process.execPath,['dist/index.js'],{env,stdio:['ignore','pipe','pipe']});gateway.stdout.on('data',b=>logs+=b);gateway.stderr.on('data',b=>logs+=b);for(let i=0;i<150;i++){if(gateway.exitCode!==null)throw Error(logs);try{if((await fetch(`http://127.0.0.1:${port}/health`)).ok)return;}catch{}await new Promise(r=>setTimeout(r,50));}throw Error('Startup timeout: '+logs);}
+let gateway,logs='',mockHost=false;const clients=[];
+async function start(){gateway=spawn(process.execPath,mockHost?['--experimental-test-module-mocks','scripts/mock-host-controller-gateway.mjs']:['dist/index.js'],{env,stdio:['ignore','pipe','pipe']});gateway.stdout.on('data',b=>logs+=b);gateway.stderr.on('data',b=>logs+=b);for(let i=0;i<150;i++){if(gateway.exitCode!==null)throw Error(logs);try{if((await fetch(`http://127.0.0.1:${port}/health`)).ok)return;}catch{}await new Promise(r=>setTimeout(r,50));}throw Error('Startup timeout: '+logs);}
 async function stop(){if(!gateway||gateway.exitCode!==null)return;const exit=new Promise(resolve=>gateway.once('exit',resolve));await fetch(`http://127.0.0.1:${adminPort}/api/lifecycle/stop`,{method:'POST',headers:{Authorization:'Bearer '+admin,'Content-Type':'application/json'},body:'{}'});await exit;assert.equal(gateway.exitCode,0,logs);}
 function cli(args){const result=spawnSync(process.execPath,['dist/cli.js',...args,'--json'],{env,encoding:'utf8',timeout:30000});assert.equal(result.status,0,result.stderr+' '+result.stdout);return JSON.parse(result.stdout).data;}
 async function adminGet(route){const response=await fetch(`http://127.0.0.1:${adminPort}`+route,{headers:{Authorization:'Bearer '+admin}});assert.equal(response.status,200);return response.json();}
@@ -56,6 +56,17 @@ try{
  const adopted=await rawCall('system_context',{docs:['agents','current_state']});assert.equal(adopted.status,200);assert.ok(adopted.id);assert.match(adopted.exposed,/Mcp-Session-Id/i);assert.equal(adopted.body.result.structuredContent.ok,true);
  const retained=await rawCall('run_command',{command:'pwd'},adopted.id);assert.equal(retained.body.result.structuredContent.ok,true);
  const dropped=await rawCall('run_command',{command:'pwd'});assert.match(JSON.stringify(dropped.body),/POLICYGATE_CONTEXT_REQUIRED/);
+ const contextToken=adopted.body.result.structuredContent.data.context_token;
+ assert.equal(typeof contextToken,'string');
+ const stateless=await rawCall('run_command',{command:'pwd',context_token:contextToken});assert.equal(stateless.body.result.structuredContent.ok,true,JSON.stringify(stateless));
+ const noImplicitGrant=await rawCall('run_command',{command:'pwd'},stateless.id);assert.match(JSON.stringify(noImplicitGrant.body),/POLICYGATE_CONTEXT_REQUIRED/);
+ const concurrent=await Promise.all(Array.from({length:4},()=>rawCall('run_command',{command:'pwd',context_token:contextToken})));assert.ok(concurrent.every(r=>r.body.result.structuredContent.ok));
+ const tampered=await rawCall('run_command',{command:'pwd',context_token:contextToken.slice(0,-3)+'xyz'});assert.match(JSON.stringify(tampered.body),/POLICYGATE_CONTEXT_REQUIRED/);
+ await fs.appendFile(context,'Capability source changed\n');assert.match(JSON.stringify((await rawCall('run_command',{command:'pwd',context_token:contextToken})).body),/POLICYGATE_CONTEXT_REQUIRED/);
+ await fs.writeFile(context,'# Fixture current state\n');assert.match(JSON.stringify((await rawCall('run_command',{command:'pwd',context_token:contextToken})).body),/POLICYGATE_CONTEXT_REQUIRED/);
+ const fresh=await rawCall('system_context',{docs:['agents','current_state']});const revokedToken=fresh.body.result.structuredContent.data.context_token;
+ const deletion=await fetch(url,{method:'DELETE',headers:{Authorization:'Bearer '+token,'Mcp-Session-Id':fresh.id}});assert.equal(deletion.status,200);
+ assert.match(JSON.stringify((await rawCall('run_command',{command:'pwd',context_token:revokedToken})).body),/POLICYGATE_CONTEXT_REQUIRED/);
  const unknown=await rawCall('run_command',{command:'pwd'},randomUUID());assert.match(JSON.stringify(unknown.body),/POLICYGATE_CONTEXT_REQUIRED/);
  const deleted=await connect();await load(deleted.client);const deletedId=deleted.transport.sessionId;await deleted.transport.terminateSession();
  const stale=await rawCall('run_command',{command:'pwd'},deletedId);assert.ok(stale.status>=400||stale.body.result?.isError,JSON.stringify(stale));
@@ -64,8 +75,25 @@ try{
  env.MCP_SESSION_TTL_MS='2000';await start();const expiring=await connect();await load(expiring.client);await new Promise(r=>setTimeout(r,2200));await denied(expiring.client,'pwd',/POLICYGATE_CONTEXT_REQUIRED/);await load(expiring.client);await allowed(expiring.client);
  await fs.writeFile(env.POLICYGATE_MODE_FILE,JSON.stringify({mode:'strict'}));await denied(expiring.client,'pwd',/POLICYGATE_APPROVAL_REQUIRED/);await denied(expiring.client,'sudo id');
  await expiring.client.close();await stop();
+ // Exercise YOLO routing over real HTTP with an explicitly unprivileged module
+ // fixture. Host-root execution is verified separately after operator activation.
+ await fs.rm(env.POLICYGATE_MODE_FILE,{force:true});env.MCP_SESSION_TTL_MS='60000';mockHost=true;
+ const keys=generateKeyPairSync('ed25519',{privateKeyEncoding:{format:'pem',type:'pkcs8'},publicKeyEncoding:{format:'pem',type:'spki'}});
+ env.POLICYGATE_APPROVAL_PUBLIC_KEY=path.join(root,'operator-public.pem');await fs.writeFile(env.POLICYGATE_APPROVAL_PUBLIC_KEY,keys.publicKey);
+ const lease=async(expires)=>{const value={mode:'dangerous',expires_at:expires,nonce:randomUUID()};value.signature=sign(null,Buffer.from(JSON.stringify(value)),keys.privateKey).toString('base64');await fs.writeFile(env.POLICYGATE_YOLO_LEASE,JSON.stringify(value));};
+ await start();const yolo=await connect();await denied(yolo.client,'pwd',/POLICYGATE_CONTEXT_REQUIRED/);await load(yolo.client);await denied(yolo.client,'sudo id');
+ await lease(Date.now()+60000);
+ for(const command of ['sudo -n id','sudo /bin/bash -c "printf fixture > /etc/fixture"','sudo /bin/bash -c "true; true"']){
+   const routed=await call(yolo.client,'run_command',{command,working_directory:'/'});assert.equal(routed.structuredContent?.ok,true,JSON.stringify(routed));assert.equal(routed.structuredContent.data.stdout,'UNPRIVILEGED_ROUTING_FIXTURE');assert.equal(routed.structuredContent.data.fixture_command,command);
+ }
+ const yoloContext=await rawCall('system_context',{docs:['agents','current_state']});const yoloProof=yoloContext.body.result.structuredContent.data.context_token;
+ assert.equal((await rawCall('run_command',{command:'sudo id',context_token:yoloProof})).body.result.structuredContent.data.stdout,'UNPRIVILEGED_ROUTING_FIXTURE');
+ const freshYolo=await connect();await denied(freshYolo.client,'sudo id',/POLICYGATE_CONTEXT_REQUIRED/);
+ await fs.rm(env.POLICYGATE_YOLO_LEASE);await denied(yolo.client,'sudo id');
+ await lease(Date.now()-1);await denied(yolo.client,'sudo id');
+ await yolo.client.close();await freshYolo.client.close();await stop();
  const records=(await fs.readFile(audit,'utf8')).trim().split('\n').map(JSON.parse);for(const status of ['granted','invalidated','denied'])assert.ok(records.some(r=>r.phase==='context_authorization'&&r.status===status),status);
  const grant=records.find(r=>r.phase==='context_authorization'&&r.status==='granted');assert.ok(grant.mcp_session_id&&grant.session_id&&grant.mcp_session_id!==grant.session_id);
  assert.ok(verifyAuditFile(audit).entries>0);assert.ok(!logs.includes(token)&&!logs.includes(admin));
- console.log('Managed HTTP sessions: initialize/context/command, independent client, reconnect, changed/missing sources, headerless adoption, DELETE/recovery, TTL, strict approvals and audit PASS');
+ console.log('Managed HTTP sessions: initialize/context/command, independent client, reconnect, stateless explicit capability, concurrent clients, changed/missing sources, token tampering, DELETE/recovery, TTL, strict approvals and audit PASS');
 }finally{for(const c of clients)await c.close().catch(()=>{});await stop();await fs.rm(root,{recursive:true,force:true});assert.equal(await fs.stat(root).then(()=>true,()=>false),false);}

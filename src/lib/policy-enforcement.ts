@@ -25,7 +25,7 @@ function deny(session:PolicySession,gate:PolicyGate,message:string,contextOnly=f
   }
   throw new Error(message + (session.locked?" POLICYGATE_SESSION_LOCKED: ask the operator to unlock the session.":""));
 }
-export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:string,args:Record<string,unknown>):Promise<PolicyAuthorization> {
+export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:string,args:Record<string,unknown>,contextToken:unknown=args.context_token):Promise<PolicyAuthorization> {
   const activeProfile = gate.getActiveProfile();
   const config = activeProfile === gate.config.profile ? gate.config : { ...gate.config, profile: activeProfile };
   const cls=classifyTool(tool,args,gate.getProxyPermissions());
@@ -39,13 +39,22 @@ export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:s
     return deny(session,gate,"POLICYGATE_PAYLOAD_LIMIT: reduce the tool arguments.");
   if(cls.kind!=="R"){
     const current=await gate.contextHash().catch(()=>"");
-    if(config.context_files.length > 0 && (!session.contextHash || session.contextHash!==current)) {
+    const capability = contextToken !== undefined && await gate.acceptContextToken(session,contextToken);
+    if(config.context_files.length > 0 && !capability && (!session.contextHash || session.contextHash!==current)) {
       if(session.contextHash)await gate.invalidateContext(session,"source_changed_or_unavailable");
       await gate.audit.append({phase:"context_authorization",status:"denied",session_id:session.id,mcp_session_id:session.transportSessionId,reason:"context_required"});
-      return deny(session,gate,"POLICYGATE_CONTEXT_REQUIRED: call system_context with agents and current_state in this session, then retry. Retain the same Mcp-Session-Id; a new or recovered session needs its own context load.",true);
+      return deny(session,gate,"POLICYGATE_CONTEXT_REQUIRED: call system_context with agents and current_state, then retry. Retain Mcp-Session-Id or supply the returned context_token explicitly for reconnecting/stateless calls.",true);
     }
   }
   let approval=cls.requiresProxyApproval;
+  // Only run_command has a verified host-root execution path. Other native tools
+  // retain their existing filesystem/security boundaries, including in YOLO.
+  if(config.profile==="dangerous" && tool==="run_command") {
+    const {hostControllerAvailable}=await import("./host-controller.js");
+    if(!hostControllerAvailable())throw new Error("HOST_CONTROLLER_UNAVAILABLE: YOLO root execution requires the installed host controller");
+    session.consecutiveDenials=0;
+    return {tool,kind:cls.kind,requiresApproval:false,hostRoot:true};
+  }
   const reasons:string[]=[];
   // Commands without working_directory use the persisted shell cwd, not
   // WORKSPACE_PATH. Analyze the same effective cwd the runner will execute in.
@@ -136,6 +145,7 @@ export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:s
     }
     // Dangerous mode skips discretionary approvals and command allowlists but never explicit path/hard-path checks.
     if(config.profile==="dangerous")approval=false;
+    let rootApprovalId:string|undefined;
     if(approval){
       const request=store(gate).request(session.id,tool,args,
         tool+": "+(typeof args.command==="string"?args.command:JSON.stringify(args)),
@@ -143,10 +153,14 @@ export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:s
       if(!store(gate).consume(request))
         return deny(session,gate,"POLICYGATE_APPROVAL_REQUIRED: ask the operator to review the actual action and approve "+
           request.id+" using the out-of-band policygate-operator CLI; repeat the identical call afterward.");
+      if(tool==="run_command" && typeof args.working_directory==="string" && /^\s*(?:\/usr\/bin\/)?sudo\s/.test(String(args.command??""))){
+        const {hostControllerAvailable}=await import("./host-controller.js");
+        if(hostControllerAvailable())rootApprovalId=request.id;
+      }
     }
     if(cls.kind!=="R")session.mutationTimestamps.push(Date.now());
     session.consecutiveDenials=0;
-    return {tool,kind:cls.kind,requiresApproval:approval};
+    return {tool,kind:cls.kind,requiresApproval:approval,...(rootApprovalId?{hostRoot:true,rootApprovalId}:{})};
   } catch(error){
     if(error instanceof Error && error.message.startsWith("POLICYGATE_") &&
       !error.message.includes("POLICYGATE_SESSION_LOCKED") &&
