@@ -315,47 +315,30 @@ const adminServer = startAdminServer({
 });
 
 const server = app.listen(PORT, HOST, () => {
-  console.log("");
-  console.log("========================================");
-  console.log("  Codex MCP Server");
-  console.log("========================================");
-  console.log(`  Local:     http://${HOST}:${PORT}`);
-  console.log(`  MCP:       http://${HOST}:${PORT}${DISPLAY_MCP_PATHS[0]}`);
-  console.log(`  MCP alt:   http://${HOST}:${PORT}${DISPLAY_MCP_PATHS[1]}`);
-  console.log(`  Health:    http://${HOST}:${PORT}/health`);
-  console.log(`  Admin UI:  http://127.0.0.1:${ADMIN_PORT}/ui`);
-  console.log(`  Default cwd: ${workspaceRoot}`);
-  console.log(`  Policy Gate: ${getFullDiskAccess() ? "YOLO (Full Access Active)" : "STANDARD (Production)"}`);
-  console.log(`  Session recovery: ${SESSION_RECOVERY ? "ON" : "OFF"}`);
-  console.log(`  Auth:      ${MCP_TOKEN ? "ON (MCP_TOKEN in URL path)" : "OFF — dat MCP_TOKEN trong .env!"}`);
-  console.log(`  PID:       ${process.pid}`);
-  console.log("========================================");
-  console.log("  Dang chay... (Ctrl+C de dung)");
-  console.log("========================================");
-  console.log("");
+  console.log("BridgeDev v2.0.0");
+  console.log("Runtime : " + getRuntimeMode() + " / " + process.platform);
+  console.log("Workspace : " + workspaceRoot);
+  console.log("MCP : http://" + HOST + ":" + PORT + DISPLAY_MCP_PATHS[DISPLAY_MCP_PATHS.length - 1]);
+  console.log("Admin : http://127.0.0.1:" + ADMIN_PORT + "/ui (authentication required)");
+  console.log("Tools : " + getChatGptToolProfile());
+  console.log("Stop : Ctrl-C");
 });
 
 server.on("error", (err: NodeJS.ErrnoException) => {
-  if (err.code === "EADDRINUSE") {
-    console.error(`\n[LOI] Port ${PORT} da co server khac dang chay!`);
-    console.error("Chay lenh sau de tim process:");
-    console.error(`  netstat -ano | findstr ":${PORT}"`);
-    console.error("Hoac dung: .\\stop.ps1 de tat server cu\n");
-  } else {
-    console.error("\n[LOI] Khong the khoi dong server:", err.message, "\n");
-  }
-  process.exit(1);
+  console.error("BridgeDev failed to listen on " + HOST + ":" + PORT + ": " + err.message);
+  if (err.code === "EADDRINUSE") console.error("Choose a free PORT or stop the existing gateway explicitly.");
+  process.exitCode = 1;
 });
 
 process.on("SIGINT", () => {
-  console.log("\n[DUNG] Server dang tat...");
+  console.log("BridgeDev shutting down...");
   sessionManager.stopCleanup();
   void upstreamManager.shutdown();
   adminServer.close();
   server.close(() => process.exit(0));
 });
 
-// Tranh process tu tat khi stdin dong (Windows)
+// Keep an interactive foreground server alive when stdin is attached.
 if (process.stdin.isTTY) {
   process.stdin.resume();
 }
