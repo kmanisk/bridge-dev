@@ -30,7 +30,7 @@ try {
   assert.equal(config.profile,"standard");
   assert.equal(gate.getActiveProfile(),"standard");
   assert.deepEqual(config.context_files,[]);
-  assert.deepEqual(config.writable_roots,[workspace]);
+  assert.deepEqual(config.writable_roots,[fs.realpathSync.native(workspace)]);
   assert.equal(config.dangerous_enabled,false);
   assert.match(config.audit_log,/audit\.jsonl$/);
   assert.equal(checkPath(path.join(workspace,"allowed.txt"),"W",config,gate.configPath).approval,false);
