@@ -8,6 +8,7 @@ import "dotenv/config";
 import {verifyAuditFile,redactAudit} from "./lib/hash-audit.js";
 import {extensionCli,operatorApi} from "./lib/extension-cli.js";
 import {controllerCli} from "./lib/controller-cli.js";
+import {parseCliArguments} from "./lib/cli-arguments.js";
 import { execSync, spawnSync, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -476,9 +477,8 @@ function cmdHelp() {
 
 async function main() {
   const rawArgs = process.argv.slice(2);
-  const json=rawArgs.includes("--json");
-  const args=rawArgs.filter(arg=>!["--json","--verbose"].includes(arg));
-  if(await extensionCli(args,json,rawArgs.includes("--verbose")))return;
+  const {args,json,verbose}=parseCliArguments(rawArgs);
+  if(await extensionCli(args,json,verbose))return;
   if(await controllerCli(args,json))return;
   if(json){const log=console.log,lines:string[]=[];console.log=(...values:unknown[])=>{lines.push(values.map(String).join(" "));};process.once("beforeExit",()=>{console.log=log;log(JSON.stringify({ok:!process.exitCode,command:args[0]||"status",output:lines}));});}
   const cmd = (args[0] || "").toLowerCase();
@@ -529,7 +529,8 @@ async function main() {
 }
 
 main().catch((err) => {
-  const detail=String(redactAudit(process.argv.includes("--verbose")?(err.stack||err.message):err.message));
-  console.error(process.argv.includes("--json")?JSON.stringify({ok:false,error:detail,code:"BRIDGEDEV_ERROR"}):`Fatal error: ${detail}`);
+  const flags=parseCliArguments(process.argv.slice(2));
+  const detail=String(redactAudit(flags.verbose?(err.stack||err.message):err.message));
+  console.error(flags.json?JSON.stringify({ok:false,error:detail,code:"BRIDGEDEV_ERROR"}):`Fatal error: ${detail}`);
   process.exit(1);
 });

@@ -2,11 +2,12 @@ import {controllerCall,hostControllerAvailable} from "./host-controller.js";
 import {spawnSync} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import fs from "node:fs";
+import {cliOption} from "./cli-arguments.js";
 
 export async function controllerCli(args:string[],json:boolean):Promise<boolean>{
   if(!["operator","deploy"].includes(args[0]))return false;
   if(!hostControllerAvailable())throw new Error("HOST_CONTROLLER_UNAVAILABLE: optional managed Linux operator component is not installed");
-  const flag=(name:string)=>{const at=args.indexOf(name);return at<0?undefined:args[at+1];};
+  const flag=(name:string)=>cliOption(args,name);
   const group=args[0],action=args[1]||"status";let result:any;
   if(group==="operator"&&action==="yolo"){
     const script="/usr/local/libexec/bridge-dev/policygate-operator.mjs";

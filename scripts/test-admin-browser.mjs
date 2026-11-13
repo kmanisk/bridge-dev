@@ -2,13 +2,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import net from 'node:net';
+import {fixturePorts} from './test-ports.mjs';
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 const binary=process.env.BRIDGEDEV_TEST_BROWSER;if(!binary||!path.isAbsolute(binary))throw Error('Set BRIDGEDEV_TEST_BROWSER to an existing Chromium-compatible executable');
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'bridge-browser-'));
-const freePort=()=>new Promise(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});
-const port=await freePort(),adminPort=await freePort(),token=randomBytes(32).toString('hex'),admin=randomBytes(32).toString('hex'),work=path.join(root,'work'),source=path.join(root,'guide.md');await fs.mkdir(work);await fs.writeFile(source,'# Browser fixture instructions\n');
+const [port,adminPort]=await fixturePorts(2),token=randomBytes(32).toString('hex'),admin=randomBytes(32).toString('hex'),work=path.join(root,'work'),source=path.join(root,'guide.md');await fs.mkdir(work);await fs.writeFile(source,'# Browser fixture instructions\n');
 const env={...process.env,POLICYGATE_POLICY_FILE:'',BRIDGEDEV_RUNTIME_MODE:'portable',BRIDGEDEV_STATE_DIR:path.join(root,'state'),WORKSPACE_PATH:work,MCP_UPSTREAM_CONFIG:path.join(root,'providers.json'),PORT:String(port),ADMIN_PORT:String(adminPort),MCP_TOKEN:token,ADMIN_TOKEN:admin};
 let gateway,browser,ws,logs='';
 async function waitFor(action){for(let i=0;i<100;i++){try{const result=await action();if(result)return result;}catch{}await new Promise(r=>setTimeout(r,100));}throw Error('Browser fixture timeout: '+logs.slice(-1000));}

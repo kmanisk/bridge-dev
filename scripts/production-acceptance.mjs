@@ -42,6 +42,7 @@ try{
   check(controller('status',undefined,[sleeper.job_id]).status==='REVOKED','Tracked job survived revocation');checks.tracked_job_revocation=true;
   const refused=spawnSync('/usr/local/bin/bridge-dev-controller',['submit'],{env:{PATH:'/usr/bin:/bin'},input:JSON.stringify({kind:'exec',request_id:randomUUID(),argv:['/usr/bin/id','-u'],cwd:'/',timeout:1}),encoding:'utf8',timeout:10000});check(refused.status!==0,'Root execution survived revocation');checks.root_revoked=true;
  }
+ const legacy=spawnSync('/usr/bin/sudo',['-n','-u','localcoder','--','/usr/bin/sudo','-n','--','/usr/local/bin/local-coder-escalation-broker','id','-u'],{env:{PATH:'/usr/bin:/bin'},encoding:'utf8',timeout:10000});check(legacy.status!==0,'Legacy broker bypassed revocation');checks.legacy_root_revoked=true;
  for(const command of ['sudo -n id','rm -rf /'])check(denied(await call(first,'run_command',{command})),'Unapproved command was not denied');checks.standard_restrictions=true;
  check((await call(first,'run_command',{command:'pwd'})).structuredContent?.ok,'STANDARD pwd failed after revocation');checks.standard_pwd=true;
  const listed=await call(first,'mcp_list'),data=listed.structuredContent?.data;

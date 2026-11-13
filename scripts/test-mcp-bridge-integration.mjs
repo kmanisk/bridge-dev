@@ -3,7 +3,7 @@
  * Self-contained — spawns child processes on random ports.
  */
 import os from "node:os";
-import net from "node:net";
+import {fixturePorts} from "./test-ports.mjs";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -14,8 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(),"bridge-legacy-integration-"));
 
-const getPort=()=>new Promise(resolve=>{const server=net.createServer();server.listen(0,"127.0.0.1",()=>{const port=server.address().port;server.close(()=>resolve(port));});});
-const mcpPort=await getPort(),adminPort=await getPort(),mockPort=await getPort();
+const [mcpPort,adminPort,mockPort]=await fixturePorts(3);
 const adminToken = randomBytes(32).toString("hex"),mcpToken=randomBytes(32).toString("hex");
 const adminHeaders = { Authorization: "Bearer " + adminToken };
 const tmpDir = path.join(scratch, `run-${mcpPort}`);

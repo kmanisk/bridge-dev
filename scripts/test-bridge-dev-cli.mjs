@@ -8,6 +8,15 @@ import { spawnSync } from "node:child_process";
 import { formatMcpEndpoint, isValidSignedLease, inspectLocalMode,
   validateProjectName, resolveProjectDirectory, verifyAuditProof } from "../dist/lib/cli-security.js";
 import { HashAudit } from "../dist/lib/hash-audit.js";
+import {parseCliArguments,cliOption} from "../dist/lib/cli-arguments.js";
+
+const rootArgs=['operator','exec','--json','--cwd','/fixture','--','/bin/echo','--json','--verbose','--cwd','/other'];
+const parsed=parseCliArguments(rootArgs);
+assert.equal(parsed.json,true);assert.equal(parsed.verbose,false);
+assert.deepEqual(parsed.args.slice(parsed.args.indexOf('--')+1),['/bin/echo','--json','--verbose','--cwd','/other']);
+assert.equal(cliOption(parsed.args,'--cwd'),'/fixture');
+assert.equal(cliOption(['operator','exec','--','/bin/echo','--cwd','/other'],'--cwd'),undefined);
+assert.equal(parseCliArguments(['operator','exec','--','/bin/echo','--json']).json,false);
 
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),"bridge-dev-cli-test-"));
 const cli=path.resolve("dist/cli.js");

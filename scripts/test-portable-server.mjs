@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import net from "node:net";
+import {fixturePorts} from "./test-ports.mjs";
 import { spawn,spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 
@@ -11,20 +11,11 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),"bridge-dev-portable-server-"));
 const workspace=path.join(root,"workspace");
 fs.mkdirSync(workspace);
 fs.writeFileSync(path.join(workspace,"AGENTS.md"),"# Test workspace\nOnly inspect local fixtures.\n");
-const getPort=()=>new Promise((resolve,reject)=>{
-  const server=net.createServer();
-  server.once("error",reject);
-  server.listen(0,"127.0.0.1",()=>{
-    const address=server.address();
-    if(!address || typeof address==="string")return reject(new Error("No ephemeral port"));
-    server.close(()=>resolve(address.port));
-  });
-});
 const token=randomBytes(32).toString("hex");
 const adminToken=randomBytes(32).toString("hex");
 let child,logs="";
 try{
-  const port=await getPort(),adminPort=await getPort();
+  const [port,adminPort]=await fixturePorts(2);
   if(port===adminPort)throw new Error("Port collision");
   const env={...process.env,HOST:"127.0.0.1",PORT:String(port),ADMIN_PORT:String(adminPort),
     MCP_TOKEN:token,ADMIN_TOKEN:adminToken,

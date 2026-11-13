@@ -3,7 +3,7 @@
 import argparse, datetime, hashlib, json, os, pwd, re, shutil, subprocess, tempfile
 from pathlib import Path
 
-FILES=['host-controller.py','controller-entry.py','controller-authorize.mjs','policygate-operator.mjs']
+FILES=['host-controller.py','controller-entry.py','controller-authorize.mjs','policygate-operator.mjs','legacy-escalation.py']
 def manifest(source):
     return {name:hashlib.sha256((Path(source)/'scripts'/name).read_bytes()).hexdigest() for name in FILES}
 
@@ -32,6 +32,11 @@ def main():
     if args.print_manifest: print(json.dumps({'sha256':digest,'files':expected})); return
     if os.geteuid()!=0 or not os.isatty(0): raise RuntimeError('Bootstrap requires an independent root operator terminal')
     if digest!=args.manifest_sha256: raise RuntimeError('Bootstrap manifest hash differs from reviewed source')
+    for process in Path('/proc').iterdir():
+        if not process.name.isdigit(): continue
+        try: argv=(process/'cmdline').read_bytes().split(b'\0')
+        except (FileNotFoundError,PermissionError,ProcessLookupError): continue
+        if b'/usr/local/bin/local-coder-escalation-broker' in argv: raise RuntimeError('Legacy escalation is running; wait for PID '+process.name+' before bootstrap')
     for user in [args.operator_user,args.gateway_user]:
         if not user or not re.fullmatch(r'[a-zA-Z_][a-zA-Z0-9_-]*\$?',user) or pwd.getpwnam(user).pw_uid==0: raise RuntimeError('Explicit non-root operator and gateway users required')
     config=Path('/etc/local-coder-policygate/controller.json')
@@ -43,6 +48,7 @@ def main():
               'ledger':'/var/log/local-coder-policygate/audit.jsonl',
               'preserve':['/etc/local-coder-policygate/service.env','/etc/local-coder-policygate/policy.json','/etc/local-coder-policygate/operator-public.pem',
                           '/etc/local-coder-policygate/operator-private.pem','/etc/local-coder-policygate/audit-anchor.json','/etc/local-coder-policygate/mcp-upstream.json'],
+              'gateway_uid':pwd.getpwnam(args.gateway_user).pw_uid,
               'clients':[pwd.getpwnam(args.operator_user).pw_uid,pwd.getpwnam(args.gateway_user).pw_uid]}
     # Never rewrite existing operator configuration during upgrades.
     if config.exists():
@@ -59,7 +65,8 @@ def main():
     safe_parents(wrapper)
     # Root backup covers only controller files, never credentials or the audit ledger.
     backup=state/'bootstrap-backups'/datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'); backup.mkdir(mode=0o700,parents=True)
-    targets=[base/name for name in FILES]+[wrapper,config,Path('/etc/sudoers.d/bridge-dev-controller')]
+    legacy=Path('/usr/local/bin/local-coder-escalation-broker')
+    targets=[base/name for name in FILES]+[wrapper,config,legacy,Path('/etc/sudoers.d/bridge-dev-controller')]
     for index,target in enumerate(targets):
         safe_parents(target)
         if target.exists():
@@ -72,8 +79,10 @@ def main():
         write_atomic(base/name,payload,0o644)
     if not config.exists(): write_atomic(config,(json.dumps(proposed,indent=2)+'\n').encode(),0o644)
     write_atomic(wrapper,(base/'controller-entry.py').read_bytes(),0o755)
+    # Retain its sudoers path/API, without a separate replayable authority path.
+    write_atomic(legacy,(base/'legacy-escalation.py').read_bytes(),0o755)
     # Sudo authenticates who invoked the fixed helper. It never grants arbitrary sudo itself.
-    sudoers=''.join(user+' ALL=(root) NOPASSWD: /usr/local/bin/bridge-dev-controller *\n' for user in [args.operator_user,args.gateway_user])
+    sudoers=''.join(user+' ALL=(root) NOPASSWD: NOSETENV: /usr/local/bin/bridge-dev-controller *\n' for user in [args.operator_user,args.gateway_user])
     fd,temporary=tempfile.mkstemp(prefix='bridge-controller-',dir='/etc/sudoers.d'); os.write(fd,sudoers.encode()); os.close(fd); os.chmod(temporary,0o440)
     try:
         subprocess.run(['/usr/bin/visudo','-cf',temporary],check=True)

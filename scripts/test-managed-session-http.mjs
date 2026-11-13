@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import net from 'node:net';
+import {fixturePorts} from './test-ports.mjs';
 import {spawn,spawnSync} from 'node:child_process';
 import {randomBytes,randomUUID,generateKeyPairSync,sign} from 'node:crypto';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
@@ -17,8 +17,7 @@ await fs.writeFile(agents,'# Fixture agents\n');await fs.writeFile(context,'# Fi
 const policy=JSON.parse(await fs.readFile('profiles/policy.example.json','utf8'));
 Object.assign(policy,{profile:'standard',context_files:[agents,context],writable_roots:[work],protected_paths:[path.join(work,'protected')],hard_paths:[],secret_paths:[],approval_paths:[],audit_log:audit,proxy_tools:{fixture__echo:'R'}});
 const policyFile=path.join(root,'policy.json');await fs.writeFile(policyFile,JSON.stringify(policy));
-const freePort=()=>new Promise(resolve=>{const server=net.createServer();server.listen(0,'127.0.0.1',()=>{const p=server.address().port;server.close(()=>resolve(p));});});
-const port=await freePort(),adminPort=await freePort(),token=randomBytes(32).toString('hex'),admin=randomBytes(32).toString('hex'),url=new URL(`http://127.0.0.1:${port}/mcp`);
+const [port,adminPort]=await fixturePorts(2),token=randomBytes(32).toString('hex'),admin=randomBytes(32).toString('hex'),url=new URL(`http://127.0.0.1:${port}/mcp`);
 const env={...process.env,POLICYGATE_POLICY_FILE:policyFile,WORKSPACE_PATH:work,LOCAL_CODER_CHEZMOI_SOURCE_DIR:source,BRIDGEDEV_STATE_DIR:path.join(root,'state'),MCP_UPSTREAM_CONFIG:path.join(root,'upstreams.json'),MCP_TOKEN:token,ADMIN_TOKEN:admin,PORT:String(port),ADMIN_PORT:String(adminPort),MCP_SESSION_TTL_MS:'60000',MCP_SESSION_CLEANUP_MS:'60000',MCP_SESSION_DELETE_GRACE_MS:'100',CHATGPT_TOOL_PROFILE:'slim'};
 await fs.writeFile(env.MCP_UPSTREAM_CONFIG,JSON.stringify({servers:[{id:'legacy',transport:'http',url:'https://example.invalid/mcp',enabled:false,reviewed:true,expose:'none'}]}));
 let gateway,logs='',mockHost=false;const clients=[];

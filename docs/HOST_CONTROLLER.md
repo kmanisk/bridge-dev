@@ -17,7 +17,8 @@ sudo /usr/bin/node /opt/bridge-dev/scripts/policygate-operator.mjs yolo --off
 
 With the controller installed, activation also records the signed lease nonce in
 root-only controller state. Replaying a copied lease after revocation cannot
-reactivate that nonce. Activation requires root and a TTY. The remote helper
+reactivate that nonce. The legacy escalation broker path delegates to this same
+controller, with no separate signature-only authorization path. Activation requires root and a TTY. The remote helper
 cannot activate a lease through its sudo entry. Duration is 1–120 whole minutes;
 invalid values fail rather than silently selecting another duration.
 
@@ -49,7 +50,8 @@ reach and independent enforcement. No local controller can promise otherwise.
 The operator must review the source and manifest before bootstrap. The installer
 copies only the controller, verifier and operator script into root-owned
 `/usr/local/libexec/bridge-dev`, installs the fixed helper and narrowly scoped
-sudoers entries, and writes `/etc/local-coder-policygate/controller.json`. Existing
+sudoers entries, replaces the legacy broker with a backed-up compatibility
+adapter, and writes `/etc/local-coder-policygate/controller.json`. Existing
 controller configuration must match; upgrades do not silently rewrite it. It
 does not restart the gateway, issue a lease or modify credentials/keys/ledger.
 
