@@ -1,3 +1,4 @@
+import {childEnvironment} from "../lib/child-environment.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -168,7 +169,7 @@ export function registerShellTools(server: McpServer, defaultCwd: string, timeou
         cwd,
         windowsHide: true,
         env: {
-          ...process.env,
+          ...childEnvironment(),
           CI: "true",
           PAGER: "cat",
           GIT_PAGER: "cat",

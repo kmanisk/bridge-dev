@@ -38,6 +38,7 @@ if (getRuntimeMode() === "portable" && !["127.0.0.1","localhost","::1"].includes
   throw new Error("Portable BridgeDev may listen only on loopback; install a managed gateway for public exposure.");
 }
 if (!MCP_TOKEN || /[\x00-\x20/\\?#]/.test(MCP_TOKEN)) throw new Error("Configure a nonempty MCP_TOKEN without whitespace or URL separators before serving");
+if (process.env.ADMIN_TOKEN?.trim() === MCP_TOKEN) throw new Error("MCP_TOKEN and ADMIN_TOKEN must be independent");
 const ADMIN_PORT = parseInt(process.env.ADMIN_PORT || "3001", 10);
 const SHELL_TIMEOUT = parseInt(process.env.SHELL_TIMEOUT || "120", 10);
 const SESSION_RECOVERY =
@@ -321,6 +322,7 @@ const adminServer = startAdminServer({
   sessionCount: () => sessionManager.count(),
   instructionSummary: () => summarizeInstructionContext(instructionContext),
   instructionsPreview: () => instructionContext.instructionsText,
+  shutdown:()=>shutdown(),
 });
 
 const server = app.listen(PORT, HOST, () => {

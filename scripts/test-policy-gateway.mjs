@@ -111,8 +111,8 @@ async function approvedRequest(matcher = "python3 -c"){
 }
 try{
   await test("classification exact count and closed-world registry",async()=>{
-    assert.equal(Object.keys(NATIVE_TOOL_CLASSES).length,55);
-    assert.equal(EXPECTED_NATIVE_REGISTRATION_COUNT,55);
+    assert.equal(Object.keys(NATIVE_TOOL_CLASSES).length,73);
+    assert.equal(EXPECTED_NATIVE_REGISTRATION_COUNT,73);
     assertRegistryComplete(Object.keys(NATIVE_TOOL_CLASSES));
     assert.throws(()=>classifyTool("new_unknown_tool",{}),/POLICYGATE_UNCLASSIFIED_TOOL/);
     assert.deepEqual([classifyTool("system_job",{action:"status"}).kind,classifyTool("system_job",{action:"start"}).kind],["R","X"]);

@@ -14,6 +14,7 @@ const ENV_KEYS = [
 const TITLES = {
   dashboard: "Overview",
   servers: "MCP Servers",
+  extensions: "Extensions",
   import: "Import",
   activity: "Activity Log",
   project: "Project Context",
@@ -45,8 +46,8 @@ function toast(msg, isError = false) {
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
+    headers: { "Content-Type": "application/json", "Authorization":"Bearer "+document.getElementById("admin-credential").value, ...(options.headers || {}) },
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -325,32 +326,14 @@ function stopActivityStream() {
 
 function startActivityStream() {
   stopActivityStream();
-  const live = document.getElementById("activity-live").checked;
-  if (!live || activityPaused) return;
-
-  activityEventSource = new EventSource("/api/activity/stream");
-  activityEventSource.onmessage = (ev) => {
-    try {
-      const entry = JSON.parse(ev.data);
-      const kind = document.getElementById("activity-kind").value;
-      const status = document.getElementById("activity-status").value;
-      const q = document.getElementById("activity-search").value.trim().toLowerCase();
-      if (kind !== "all" && entry.kind !== kind) return;
-      if (status === "error" && entry.status !== "error" && entry.status !== "blocked") return;
-      if (q) {
-        const hay = [entry.tool, entry.action, entry.target, entry.summary].filter(Boolean).join(" ").toLowerCase();
-        if (!hay.includes(q)) return;
-      }
-      mergeActivityEntries([entry], { prepend: true });
-    } catch {}
-  };
-  activityEventSource.onerror = () => {
-    activityEventSource?.close();
-    activityEventSource = null;
-    if (!activityPollTimer) {
-      activityPollTimer = setInterval(() => loadActivity().catch(() => {}), 2000);
-    }
-  };
+  if (!document.getElementById("activity-live").checked || activityPaused) return;
+  const controller=new AbortController();activityEventSource={close:()=>controller.abort()};
+  void (async()=>{
+    const response=await fetch("/api/activity/stream",{headers:{Authorization:"Bearer "+document.getElementById("admin-credential").value},signal:controller.signal});
+    if(!response.ok||!response.body)throw new Error("Activity authentication failed");
+    const reader=response.body.getReader(),decoder=new TextDecoder();let pending="";
+    while(!controller.signal.aborted){const {value,done}=await reader.read();if(done)break;pending+=decoder.decode(value,{stream:true});let at;while((at=pending.indexOf("\n\n"))>=0){const event=pending.slice(0,at);pending=pending.slice(at+2);const data=event.split("\n").find(line=>line.startsWith("data:"));if(data){try{mergeActivityEntries([JSON.parse(data.slice(5))],{prepend:true});}catch{}}}}
+  })().catch(error=>{if(!controller.signal.aborted)toast(error.message,true);});
 }
 
 function onActivityTabActive() {
@@ -546,7 +529,7 @@ document.getElementById("import-file-btn").addEventListener("click", async () =>
 });
 
 async function refreshAll() {
-  await Promise.all([loadDashboard(), loadServers(), loadImport(), loadEnvForm(), loadProject().catch(() => {})]);
+  await Promise.all([loadManagedExtensions(), loadDashboard(), loadServers(), loadImport(), loadEnvForm(), loadProject().catch(() => {})]);
 }
 
 document.getElementById("refresh-all").addEventListener("click", () => refreshAll().catch((e) => toast(e.message, true)));
@@ -574,3 +557,51 @@ document.getElementById("save-local-tools").addEventListener("click", async () =
   document.getElementById("local-tools-dialog").close();
   toast("Saved. Open a new chat session to apply.");
 });
+
+let reviewedExtensionProposal = null;
+function showExtensionPreview(result) {
+  reviewedExtensionProposal = result.id || null;
+  document.getElementById("extension-preview").textContent = JSON.stringify(result, null, 2);
+  document.getElementById("extension-approve").hidden = !reviewedExtensionProposal;
+  const candidates = document.getElementById("extension-candidates");
+  candidates.replaceChildren();
+  for (const component of result.components || []) {
+    const label=document.createElement("label"),input=document.createElement("input");
+    input.type="checkbox";input.value=component.kind+":"+component.id;input.dataset.component="true";
+    label.append(input,document.createTextNode(input.value+" - "+component.description));candidates.append(label,document.createElement("br"));
+  }
+  document.getElementById("extension-select").hidden=!(result.components?.length);
+}
+async function discoverManagedExtensions(selection) {
+  const response=await api("/api/extensions/discover",{method:"POST",body:JSON.stringify({source:document.getElementById("extension-source").value,scope:document.getElementById("extension-scope").value,...(selection?{selection}:{})})});
+  showExtensionPreview(response.data);
+}
+document.getElementById("extension-discover").addEventListener("click",()=>discoverManagedExtensions().catch(error=>toast(error.message,true)));
+document.getElementById("extension-select").addEventListener("click",()=>discoverManagedExtensions([...document.querySelectorAll("[data-component]:checked")].map(input=>input.value)).catch(error=>toast(error.message,true)));
+document.getElementById("extension-approve").addEventListener("click",async()=>{
+  if(!reviewedExtensionProposal)return;
+  try{await api("/api/extensions/apply",{method:"POST",body:JSON.stringify({id:reviewedExtensionProposal})});reviewedExtensionProposal=null;document.getElementById("extension-approve").hidden=true;document.getElementById("extension-result").textContent="Applied. Imported content and executable providers require separate enabling. Refresh or reconnect clients that cache tool lists.";await loadManagedExtensions();}catch(error){toast(error.message,true);}
+});
+async function loadManagedExtensions(){
+  const response=await api("/api/extensions"),data=response.data;
+  const list=document.getElementById("extension-installed");list.replaceChildren();
+  for(const entry of data.entries){
+    const row=document.createElement("div");row.append(document.createTextNode(`${entry.key} (${entry.scope}${entry.overrides_user?", overrides user":""}) ${entry.enabled?"enabled":"disabled"} `));
+    for(const action of ["enable","disable","update","remove"]){
+      const button=document.createElement("button");button.className="btn ghost";button.textContent=action;
+      button.addEventListener("click",async()=>{try{
+        let result;
+        if(entry.component.kind==="mcp"&&(action==="enable"||action==="disable")){
+          const tools=action==="enable"?(window.prompt("Exact tool names to allow, comma separated (empty exposes no tools)")||"").split(",").map(x=>x.trim()).filter(Boolean):[];
+          const permission=action==="enable"?(window.prompt("Per-tool policy class: R (operator-asserted read-only), W or X","X")||"X"):"X";
+          result=await api("/api/extensions/provider-review",{method:"POST",body:JSON.stringify({name:entry.component.id,enabled:action==="enable",tools,permission})});
+        }else result=await api("/api/extensions/action",{method:"POST",body:JSON.stringify({key:entry.key,scope:entry.scope,action})});
+        showExtensionPreview(result.data);
+      }catch(error){toast(error.message,true);}});row.append(button);
+    }
+    list.append(row);
+  }
+  const state=document.createElement("pre");state.textContent=JSON.stringify(data.providers,null,2);list.append(state);
+  const requests=document.getElementById("extension-requests");requests.replaceChildren();
+  for(const request of data.requests){const button=document.createElement("button");button.className="btn";button.textContent=`Review ${request.action}: ${request.source||request.key}`;button.addEventListener("click",async()=>{try{showExtensionPreview((await api("/api/extensions/review",{method:"POST",body:JSON.stringify({id:request.id})})).data);}catch(error){toast(error.message,true);}});requests.append(button);}
+}

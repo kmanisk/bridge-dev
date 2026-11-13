@@ -25,8 +25,7 @@ export async function atomicJson(filename: string, value: unknown): Promise<void
   } finally { await handle.close(); }
   try {
     // Recovery copy is an inert snapshot; malformed state is never silently restored.
-    if(st)await fs.copyFile(filename, filename + ".bak");
-    if(st)await fs.chmod(filename + ".bak",0o600);
+    if(st){const backup=filename+"."+randomUUID()+".backup";await fs.writeFile(backup,await fs.readFile(filename),{flag:"wx",mode:0o600});await fs.rename(backup,filename+".bak");}
     await fs.rename(temp, filename);
   } finally { await fs.rm(temp,{force:true}); }
 }

@@ -1,7 +1,9 @@
+import {MANAGEMENT_TOOL_CLASSES} from "../tools/extensions.js";
 /** Closed-world native MCP tool registry. Every native registration must appear here. */
 export type ToolClass = "R" | "W" | "X";
 
 export const NATIVE_TOOL_CLASSES = {
+  ...MANAGEMENT_TOOL_CLASSES,
   system_context: "R", system_inspect: "R", chezmoi_inspect: "R",
   read_text_file: "R", read_file_base64: "R", write_file: "W", write_file_base64: "W",
   edit_file: "W", multi_edit: "W", replace_regex: "W", apply_patch: "W",
@@ -20,7 +22,7 @@ export const NATIVE_TOOL_CLASSES = {
   mcp_servers: "X", mcp_tools: "R", mcp_call: "X",
 } as const satisfies Record<string, ToolClass>;
 
-export const EXPECTED_NATIVE_REGISTRATION_COUNT = 55;
+export const EXPECTED_NATIVE_REGISTRATION_COUNT = 73;
 
 export function classifyTool(name: string, args: Record<string, unknown>, overrides: Record<string, ToolClass> = {}):
   { kind: ToolClass; proxy: boolean; requiresProxyApproval: boolean } {
@@ -39,7 +41,7 @@ export function classifyTool(name: string, args: Record<string, unknown>, overri
 }
 
 export function assertRegistryComplete(registeredNames: Iterable<string>, includeBridge = true): void {
-  const expected = Object.keys(NATIVE_TOOL_CLASSES).filter(name => includeBridge || !["mcp_servers","mcp_tools","mcp_call"].includes(name));
+  const expected = Object.keys(NATIVE_TOOL_CLASSES).filter(name => includeBridge || !["mcp_servers","mcp_tools","mcp_call",...Object.keys(MANAGEMENT_TOOL_CLASSES)].includes(name));
   if (Object.keys(NATIVE_TOOL_CLASSES).length !== EXPECTED_NATIVE_REGISTRATION_COUNT) throw new Error("POLICYGATE_CLASSIFICATION_COUNT_MISMATCH: registry changed without updating count");
   const actual = [...registeredNames].filter((name) => !name.includes("__"));
   const missing = actual.filter((name) => !(name in NATIVE_TOOL_CLASSES));

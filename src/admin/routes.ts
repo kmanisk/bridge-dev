@@ -1,3 +1,4 @@
+import {redactAudit} from "../lib/hash-audit.js";
 import fs from "fs/promises";
 import path from "path";
 import { Router, type Request, type Response } from "express";
@@ -74,7 +75,7 @@ export function createAdminRouter(manager: McpUpstreamManager, options: {
   const envPath = path.resolve(process.cwd(), ".env");
 
   router.get("/health", async (_req: Request, res: Response) => {
-    const upstream = await manager.listStatuses();
+    const upstream = manager.listStatusesCached();
     res.json({
       status: "ok",
       name: "bridge-dev-admin",
@@ -104,7 +105,7 @@ export function createAdminRouter(manager: McpUpstreamManager, options: {
   router.get("/api/config/env", async (_req, res) => {
     try {
       const text = await fs.readFile(envPath, "utf-8");
-      res.json({ ok: true, path: envPath, values: parseDotEnv(text) });
+      res.json({ ok: true, path: envPath, values: redactAudit(parseDotEnv(text)) });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         res.json({ ok: true, path: envPath, values: {} });
@@ -117,7 +118,8 @@ export function createAdminRouter(manager: McpUpstreamManager, options: {
   router.put("/api/config/env", async (req, res) => {
     try {
       const values = req.body?.values as Record<string, string>;
-      if (values && Object.keys(values).some(key => /^(POLICYGATE_|SECURITY_MODE$|AUDIT_LOG_PATH$|MCP_TOKEN$|ADMIN_TOKEN$|CHATGPT_AUTO_APPROVE$)/.test(key))) {
+      if(values && Object.entries(values).some(([key,value])=>!/^[_A-Z][_A-Z0-9]*$/.test(key)||typeof value!=="string"||/[\r\n\0]/.test(value))){res.status(400).json({error:"Environment values must be single-line strings with safe variable names"});return;}
+      if (values && Object.keys(values).some(key => /^(POLICYGATE_|BRIDGEDEV_|MCP_UPSTREAM_CONFIG$|POST_EDIT_HOOKS_CONFIG$|WORKSPACE_PATH$|EXTRA_WORKSPACE_PATHS$|SECURITY_MODE$|AUDIT_LOG_PATH$|MCP_TOKEN$|ADMIN_TOKEN$|CHATGPT_AUTO_APPROVE$)/.test(key))) {
         res.status(403).json({ok:false,error:"POLICYGATE_ADMIN_IMMUTABLE: security, dangerous-mode, approval, audit and authentication settings require an offline operator configuration change and restart."});
         return;
       }
@@ -141,7 +143,7 @@ export function createAdminRouter(manager: McpUpstreamManager, options: {
   });
 
   router.get("/api/upstream", async (_req, res) => {
-    res.json({ ok: true, config: manager.getConfig(), path: manager.getConfigPath() });
+    res.json({ ok: true, config: redactAudit(manager.getConfig()), path: manager.getConfigPath() });
   });
 
   router.get("/api/plugins", (_req, res) => {
@@ -221,7 +223,7 @@ export function createAdminRouter(manager: McpUpstreamManager, options: {
         return;
       }
       await manager.upsertServer(server);
-      res.json({ ok: true, config: manager.getConfig() });
+      res.json({ ok: true, config: redactAudit(manager.getConfig()) });
     } catch (err) {
       res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }
@@ -233,7 +235,7 @@ export function createAdminRouter(manager: McpUpstreamManager, options: {
       res.status(404).json({ ok: false, error: "not found" });
       return;
     }
-    res.json({ ok: true, config: manager.getConfig() });
+    res.json({ ok: true, config: redactAudit(manager.getConfig()) });
   });
 
   router.post("/api/upstream/:id/test", async (req, res) => {

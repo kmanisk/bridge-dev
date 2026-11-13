@@ -1,3 +1,4 @@
+import {extensionRouter} from "./extensions.js";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -17,6 +18,7 @@ export interface AdminServerOptions {
   sessionCount: () => number;
   instructionSummary?: () => Record<string, unknown>;
   instructionsPreview?: () => string;
+  shutdown?:()=>Promise<void>;
 }
 
 export function startAdminServer(options: AdminServerOptions): Server {
@@ -31,6 +33,7 @@ export function startAdminServer(options: AdminServerOptions): Server {
   })[char]!);
   app.use(express.json({ limit: "5mb" }));
   app.use(localhostOnly);
+  app.use((_req,res,next)=>{res.setHeader("X-Content-Type-Options","nosniff");res.setHeader("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");next();});
 
   // OAuth callbacks must not require ADMIN_TOKEN: OAuth providers redirect the browser here.
   // The route is still loopback-only and protected by the per-flow OAuth state value.
@@ -56,11 +59,12 @@ export function startAdminServer(options: AdminServerOptions): Server {
     }
   });
 
-  app.use(adminAuth);
-
   const uiDir = path.resolve(__dirname, "../../public/ui");
   app.use("/ui", express.static(uiDir));
   app.get("/", (_req, res) => res.redirect("/ui/"));
+  app.use(adminAuth);
+  app.use(extensionRouter(options.manager));
+  app.post("/api/lifecycle/stop",(_req,res)=>{res.json({ok:true});setTimeout(()=>{void options.shutdown?.();},50);});
 
   app.use(createAdminRouter(options.manager, {
     mcpPort: options.mcpPort,

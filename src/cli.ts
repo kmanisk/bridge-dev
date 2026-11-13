@@ -4,6 +4,7 @@
  * BridgeDev CLI — Self-hosted MCP Development Gateway
  */
 
+import {extensionCli,operatorApi} from "./lib/extension-cli.js";
 import { execSync, spawnSync, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -91,6 +92,7 @@ function fetchHealth(port = 3000): Promise<HealthResponse | null> {
 }
 
 function getActiveMode(): { mode: string; detail: string } {
+  if(getRuntimeMode()==="portable"){try{const mode=JSON.parse(fs.readFileSync(path.join(portableStateDir(),"mode.json"),"utf8"));if(mode.mode==="strict")return {mode:"STRICT",detail:"portable; stdio providers refused"};}catch{}return {mode:"STANDARD",detail:"portable scoped policy; OS account permissions apply"};}
   const libDir = getActivePath("lib");
   const etcDir = getActivePath("etc");
   return inspectLocalMode({
@@ -209,7 +211,7 @@ function runOperator(args: string[]): void {
   }
 }
 
-function cmdMode(args: string[]) {
+async function cmdMode(args: string[]) {
   const target = args[0]?.toLowerCase();
   if (!target) {
     const reading = getActiveMode();
@@ -220,6 +222,7 @@ function cmdMode(args: string[]) {
     return;
   }
   if (target === "strict" || target === "standard") {
+    if(getRuntimeMode()==="portable"){console.log(await operatorApi("/api/mode",{mode:target}));return;}
     runOperator(["mode", target]);
     return;
   }
@@ -279,8 +282,8 @@ function cmdProject(args: string[]) {
   }
 }
 
-function cmdStop() {
-  if (getRuntimeMode() === "portable") throw new Error("Foreground gateway: stop it with Ctrl-C; managed services require explicit managed configuration.");
+async function cmdStop() {
+  if (getRuntimeMode() === "portable") {await operatorApi("/api/lifecycle/stop",{});console.log("Foreground gateway stopping");return;}
   if (process.platform !== "linux") {
     console.error("Service stop is Linux systemd-only. Stop a foreground server with Ctrl-C.");
     process.exitCode = 1;
@@ -302,7 +305,7 @@ function cmdStop() {
 }
 
 async function cmdRestart() {
-  if (getRuntimeMode() === "portable") throw new Error("Foreground gateway: restart the serve command; managed services require explicit managed configuration.");
+  if (getRuntimeMode() === "portable") {await cmdStop();await new Promise(resolve=>setTimeout(resolve,500));await import("./index.js");return;}
   if (process.platform !== "linux") {
     console.error("Service restart is Linux systemd-only. Restart foreground processes manually.");
     process.exitCode = 1;
@@ -441,6 +444,13 @@ function cmdHelp() {
   console.log("  restart               Restart the running BridgeDev service");
   console.log("  stop                  Stop the running BridgeDev service");
   console.log("  serve                 Run the MCP server in foreground");
+  console.log("  add <source>          Discover, select and preview an extension");
+  console.log("  mcp <action>          list/search/info/add/remove/enable/disable/update/test/tools/logs/status/import/export");
+  console.log("  skills <action>       list/search/info/add/remove/enable/disable/update/validate/sources");
+  console.log("  instructions <action> list/add/info/remove/enable/disable/update");
+  console.log("  pack <action>         add/info/list/update/remove");
+  console.log("  approve <id>          Apply exact reviewed proposal using independent operator credentials");
+  console.log("  --json --verbose      Machine-readable output or diagnostic errors");
   console.log("  help, --help          Show this help menu\n");
   console.log("Security Modes:");
   console.log("  STRICT    : Read-only inspection; mutations require signed operator approval.");
@@ -449,7 +459,11 @@ function cmdHelp() {
 }
 
 async function main() {
-  const args = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  const json=rawArgs.includes("--json");
+  const args=rawArgs.filter(arg=>!["--json","--verbose"].includes(arg));
+  if(await extensionCli(args,json))return;
+  if(json){const log=console.log,lines:string[]=[];console.log=(...values:unknown[])=>{lines.push(values.map(String).join(" "));};process.once("beforeExit",()=>{console.log=log;log(JSON.stringify({ok:!process.exitCode,command:args[0]||"status",output:lines}));});}
   const cmd = (args[0] || "").toLowerCase();
 
   switch (cmd) {
@@ -463,13 +477,13 @@ async function main() {
       await cmdConnect(args.includes("--show-token"));
       break;
     case "mode":
-      cmdMode(args.slice(1));
+      await cmdMode(args.slice(1));
       break;
     case "project":
       cmdProject(args.slice(1));
       break;
     case "stop":
-      cmdStop();
+      await cmdStop();
       break;
     case "restart":
       await cmdRestart();

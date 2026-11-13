@@ -1,3 +1,4 @@
+import {registerExtensionTools} from "./tools/extensions.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
@@ -130,6 +131,7 @@ export function createMcpServer(
 
   if (upstreamManager) {
     registerMcpBridgeTools(server, upstreamManager);
+    registerExtensionTools(server,workspaceRoot,upstreamManager);
     upstreamManager.registerMcpServer(server);
   }
 

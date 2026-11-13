@@ -28,7 +28,7 @@ function deny(session:PolicySession,gate:PolicyGate,message:string,contextOnly=f
 export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:string,args:Record<string,unknown>):Promise<PolicyAuthorization> {
   const activeProfile = gate.getActiveProfile();
   const config = activeProfile === gate.config.profile ? gate.config : { ...gate.config, profile: activeProfile };
-  const cls=classifyTool(tool,args,config.proxy_tools);
+  const cls=classifyTool(tool,args,gate.getProxyPermissions());
   if(session.locked) {
     if(store(gate).consumeUnlock(session.id)){session.locked=false;session.consecutiveDenials=0;}
     else throw new Error("POLICYGATE_SESSION_LOCKED: only operator CLI may unlock session "+session.id);
@@ -105,6 +105,7 @@ export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:s
       }
     }
     if(tool==="ponytail_turn"){approval=true;reasons.push("trusted hook may spawn an executable");}
+    if(tool==="mcp_test"){approval=true;reasons.push("operator-approved provider test");}
     if(tool==="mcp_call"){approval=true;reasons.push("arbitrary upstream MCP action");}
     if(tool==="mcp_servers" && args.refresh===true){approval=true;reasons.push("upstream process/reconfiguration");}
     if(tool==="rewind" && args.action==="clear"){approval=true;reasons.push("delete all saved rewind checkpoints");}

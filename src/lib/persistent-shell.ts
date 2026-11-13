@@ -1,3 +1,4 @@
+import {childEnvironment} from "./child-environment.js";
 import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -206,7 +207,7 @@ function runOnce(command: string, cwd: string, timeoutMs: number): Promise<Shell
       cwd,
       windowsHide: true,
       env: {
-        ...process.env,
+        ...childEnvironment(),
         CI: "true",
         PAGER: "cat",
         GIT_PAGER: "cat",

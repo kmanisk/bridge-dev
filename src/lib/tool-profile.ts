@@ -1,3 +1,4 @@
+import {MANAGEMENT_TOOL_CLASSES} from "../tools/extensions.js";
 import fs from "fs";
 import path from "path";
 
@@ -33,6 +34,7 @@ export function saveLocalToolOverrides(next: LocalToolOverrides): void {
 
 /** Core tools for ChatGPT web — smaller tools/list payload, fewer discovery errors. */
 export const SLIM_CHATGPT_TOOLS = new Set([
+  ...Object.keys(MANAGEMENT_TOOL_CLASSES),
   "system_context",
   "system_inspect",
   "system_job",

@@ -4,6 +4,7 @@ import path from "node:path";
 import {atomicJson,withFileLock} from "./atomic-store.js";
 import {SourceCatalog,sha256,safeRelative,componentId,validateSkill,type Discovery,type ExtensionComponent} from "./extension-sources.js";
 import {portableStateDir,portableWorkspace} from "./runtime.js";
+import {normalizeConfig,type UpstreamServerConfig} from "./mcp-upstream-config.js";
 import type {McpUpstreamManager} from "./mcp-upstream-manager.js";
 export type Scope="user"|"project";
 export interface InstalledExtension {
@@ -13,7 +14,7 @@ export interface InstalledExtension {
 export interface ExtensionLock {version:1;entries:InstalledExtension[];}
 export interface Proposal {
  version:1;id:string;action:"add"|"remove"|"enable"|"disable"|"update";
- scope:Scope;key?:string;discovery?:Discovery;selection?:string[];expected?:string;created_at:number;
+ scope:Scope;key?:string;discovery?:Discovery;selection?:string[];expected?:string;provider?:UpstreamServerConfig;provider_expected?:string;created_at:number;
 }
 export class ExtensionStore {
  readonly root:string;
@@ -31,7 +32,7 @@ export class ExtensionStore {
    return raw;
   }catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return {version:1,entries:[]};throw error;}
  }
- contentDirectory(scope:Scope,digest:string,id:string):string{return path.join(this.scopeRoot(scope),"content",digest,id);}
+ contentDirectory(scope:Scope,digest:string,id:string,kind="skill"):string{return path.join(this.scopeRoot(scope),"content",digest,kind+"-"+id);}
  async content(key:string):Promise<{entry:InstalledExtension;files:Record<string,string>;untrusted:true}>{
   const entry=(await this.list()).find(item=>item.key===key&&item.enabled);if(!entry)throw new Error("EXTENSION_DISABLED_OR_MISSING");
   return {entry,files:entry.component.files,untrusted:true};
@@ -66,6 +67,31 @@ export class ExtensionStore {
   }
   return this.saveProposal({version:1,action,scope,key,expected:entry.digest,created_at:Date.now()});
  }
+ async proposeProviderRemoval(id:string):Promise<Proposal>{
+  const current=this.manager?.getServerConfig(id);if(!current)throw new Error("PROVIDER_NOT_FOUND");
+  return this.saveProposal({version:1,action:"remove",scope:"project",key:"mcp:"+id,provider:current,provider_expected:sha256(JSON.stringify(current)),created_at:Date.now()});
+ }
+ async proposeProvider(id:string,changes:Partial<UpstreamServerConfig>):Promise<Proposal>{
+  const current=this.manager?.getServerConfig(id);if(!current)throw new Error("PROVIDER_NOT_FOUND");
+  const provider=normalizeConfig({version:1,servers:[{...current,...changes,id:current.id}]}).servers[0];
+  const installed=(await this.list()).find(entry=>entry.key==="mcp:"+id);
+  return this.saveProposal({version:1,action:provider.enabled?"enable":"disable",scope:installed?.scope||"project",key:"mcp:"+id,provider:provider,provider_expected:sha256(JSON.stringify(current)),created_at:Date.now()});
+ }
+ async request(value:{action:string;source?:string;key?:string;selection?:string[];scope:Scope}):Promise<{id:string;operator_review_required:true}>{
+  if(!["add","remove","update","disable"].includes(value.action)||!["user","project"].includes(value.scope)||JSON.stringify(value).length>4096)throw new Error("EXTENSION_REQUEST_INVALID");
+  const data={...value,created_at:Date.now()},id=sha256(JSON.stringify(data));await atomicJson(path.join(this.root,"requests",id+".json"),data);return {id,operator_review_required:true};
+ }
+ async requests():Promise<unknown[]>{
+  const directory=path.join(this.root,"requests");const files=await fs.readdir(directory).catch(()=>[]);
+  return Promise.all(files.filter(file=>/^[a-f0-9]{64}\.json$/.test(file)).slice(0,100).map(async file=>({id:file.slice(0,-5),...JSON.parse(await fs.readFile(path.join(directory,file),"utf8"))})));
+ }
+ async reviewRequest(id:string):Promise<Proposal|Discovery>{
+  if(!/^[a-f0-9]{64}$/.test(id))throw new Error("REQUEST_ID_INVALID");
+  const request=JSON.parse(await fs.readFile(path.join(this.root,"requests",id+".json"),"utf8"));
+  if(sha256(JSON.stringify(request))!==id)throw new Error("REQUEST_CHANGED");
+  const result=request.action==="add"?await this.propose(request.source,request.selection,request.scope):await this.proposeAction(request.action,request.key,request.scope);
+  await fs.rm(path.join(this.root,"requests",id+".json"));return result;
+ }
  private async saveProposal(value:Omit<Proposal,"id">):Promise<Proposal>{
   const id=sha256(JSON.stringify(value));const proposal={...value,id};
   await atomicJson(path.join(this.root,"proposals",id+".json"),proposal);return proposal;
@@ -82,6 +108,13 @@ export class ExtensionStore {
   const proposal=await this.proposal(id);
   return withFileLock(path.join(this.root,"transaction"),async()=>{
    const current=await this.read(proposal.scope);
+   if(proposal.provider){
+     if(!this.manager || sha256(JSON.stringify(this.manager.getServerConfig(proposal.provider.id)))!==proposal.provider_expected)throw new Error("PROVIDER_PROPOSAL_STALE");
+     if(proposal.action==="remove")await this.manager.removeServer(proposal.provider.id);else await this.manager.upsertServer(proposal.provider);
+     const next={version:1 as const,entries:current.entries.map(entry=>entry.key===proposal.key?{...entry,component:{...entry.component,provider:proposal.provider},enabled:proposal.provider!.enabled}:entry)};
+     await atomicJson(this.lockPath(proposal.scope),next);
+     await fs.rename(path.join(this.root,"proposals",id+".json"),path.join(this.root,"proposals",id+".used.json"));return next;
+   }
    const old=current.entries.find(entry=>entry.key===proposal.key);
    if(proposal.expected && old?.digest!==proposal.expected)throw new Error("PROPOSAL_STALE: regenerate against current state");
    let entries=structuredClone(current.entries);
@@ -99,7 +132,7 @@ export class ExtensionStore {
      if(proposal.action==="add" && entries.some(entry=>entry.key===key))throw new Error("EXTENSION_EXISTS: use update");
      if(component.kind==="skill")validateSkill(component.files["SKILL.md"],component.files);
      if(component.kind!=="mcp"){
-       const destination=this.contentDirectory(proposal.scope,discovery.digest,component.id);
+       const destination=this.contentDirectory(proposal.scope,discovery.digest,component.id,component.kind);
        await fs.mkdir(destination,{recursive:true,mode:0o700});
        for(const [filename,text]of Object.entries(component.files)){
         safeRelative(filename);const target=path.join(destination,filename);await fs.mkdir(path.dirname(target),{recursive:true,mode:0o700});
@@ -128,7 +161,7 @@ export class ExtensionStore {
     catch(error){await this.manager.updateConfig(config);throw error;}
    }else await atomicJson(this.lockPath(proposal.scope),{version:1,entries});
    for(const removed of current.entries.filter(entry=>!entries.some(next=>next.key===entry.key&&next.digest===entry.digest))){
-    await fs.rm(this.contentDirectory(removed.scope,removed.digest,removed.component.id),{recursive:true,force:true});
+    await fs.rm(this.contentDirectory(removed.scope,removed.digest,removed.component.id,removed.component.kind),{recursive:true,force:true});
     await fs.rm(path.join(this.scopeRoot(removed.scope),"packages",removed.digest,removed.component.id),{recursive:true,force:true});
    }
    await fs.rename(path.join(this.root,"proposals",id+".json"),path.join(this.root,"proposals",id+".used.json"));

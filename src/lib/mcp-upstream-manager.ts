@@ -71,8 +71,23 @@ export class McpUpstreamManager {
   async init(): Promise<void> {
     try { this.config = await loadUpstreamConfig(this.configPath); }
     catch (error) { this.initializationError = String(error); this.config = {version:1,servers:[]}; }
+    if(!this.initializationError){
+      try{
+        const {ExtensionStore}=await import("./extension-store.js");
+        const owned=(await new ExtensionStore().list()).filter(entry=>entry.component.kind==="mcp"&&entry.component.provider);
+        const map=new Map(this.config.servers.map(server=>[server.id,server]));
+        for(const entry of owned)map.set(entry.component.id,entry.component.provider!);
+        this.config=normalizeConfig({version:1,servers:[...map.values()]});
+      }catch(error){this.initializationError="Optional extension registry: "+String(error);}
+    }
+    this.syncPermissions();
   }
 
+  private syncPermissions():void{
+    const permissions:Record<string,"R"|"W"|"X">={};
+    for(const config of this.config.servers)if(config.enabled)for(const [name,kind]of Object.entries(config.tool_permissions||{}))if(config.expose==="all"||config.tools?.includes(name))permissions[proxyToolName(config.tool_prefix||config.id,name)]=kind;
+    getPolicyGate().setProviderPermissions(permissions);
+  }
   registerMcpServer(server: McpServer): void {
     this.servers.add(server);
   }
@@ -101,6 +116,7 @@ export class McpUpstreamManager {
     await this.shutdown();
     this.config = await loadUpstreamConfig(this.configPath);
     this.oauthProviders.clear();
+    this.syncPermissions();
     await this.refreshAllProxies();
     return structuredClone(this.config);
   }
@@ -111,6 +127,7 @@ export class McpUpstreamManager {
     await this.shutdown();
     this.config = structuredClone(next);
     this.oauthProviders.clear();
+    this.syncPermissions();
     await this.refreshAllProxies();
     return structuredClone(this.config);
   }
@@ -348,7 +365,7 @@ export class McpUpstreamManager {
         }
 
         const oldClose=client.onclose;
-        client.onclose=()=>{conn.connected=false;oldClose?.();};
+        client.onclose=()=>{conn.connected=false;conn.lastError="PROVIDER_CONNECTION_CLOSED";oldClose?.();};
         this.failures.delete(serverId);
         this.connections.set(serverId, conn);
         this.toolsCache.set(serverId, { tools, expiresAt: Date.now() + this.toolsCacheTtlMs });
@@ -405,7 +422,7 @@ export class McpUpstreamManager {
       const conn = this.connections.get(config.id);
       const connected = Boolean(config.enabled && conn?.connected);
       return this.buildStatus(config, !config.enabled ? "disabled" : connected ? "connected" : "unknown",
-        connected, connected ? conn!.tools : [], undefined, connected ? conn : undefined);
+        connected, connected ? conn!.tools : [], conn?.lastError || this.failures.get(config.id)?.error, connected ? conn : undefined);
     });
   }
 
@@ -425,6 +442,7 @@ export class McpUpstreamManager {
   async callTool(serverId: string, toolName: string, args: Record<string, unknown> = {}): Promise<unknown> {
     const config=this.getServerConfig(serverId);
     if(!config?.enabled || !this.getProxiedToolNames(config,[{name:toolName,inputSchema:{type:"object"}}]).length)throw new Error("PROVIDER_TOOL_DENIED");
+    if(config.transport==="stdio"&&getPolicyGate().getActiveProfile()==="strict")throw new Error("STRICT_PROVIDER_REFUSED");
     const conn = await this.connect(serverId);
     const tool=conn.tools.find(item=>item.name===toolName);
     if(!tool)throw new Error("PROVIDER_UNKNOWN_TOOL");
@@ -437,6 +455,23 @@ export class McpUpstreamManager {
 
   }
 
+  providerLogs(serverId:string):{origin:string;last_error?:string;stderr_tail:string}{
+    const config=this.getServerConfig(serverId);if(!config)throw new Error("PROVIDER_NOT_FOUND");
+    const conn=this.connections.get(serverId),transport=conn?.transport;
+    let stderr=transport instanceof ProviderTransport?transport.stderr:"";
+    for(const value of [...Object.values(config.env||{}),process.env[config.bearer_token_env_var||""]||"",process.env.ADMIN_TOKEN||"",process.env.MCP_TOKEN||""])if(value.length>3)stderr=stderr.split(value).join("[REDACTED]");
+    return {origin:"Untrusted provider "+serverId,last_error:conn?.lastError||this.failures.get(serverId)?.error,stderr_tail:stderr.slice(-8192)};
+  }
+  inspectCachedTools(serverId:string):Tool[]{return structuredClone(this.toolsCache.get(serverId)?.tools||[]);}
+  async testProvider(serverId:string):Promise<{status:UpstreamServerStatus;tools:Tool[]}>{
+    const config=this.getServerConfig(serverId);if(!config)throw new Error("PROVIDER_NOT_FOUND");
+    const {client,transport}=await this.createTransport(config);
+    try{
+      const tools=validateToolMetadata((await this.withConnectTimeout(client.listTools(undefined,{timeout:15000}),serverId)).tools);
+      this.toolsCache.set(serverId,{tools,expiresAt:Date.now()+this.toolsCacheTtlMs});
+      return {status:this.buildStatus(config,"reachable",false,tools),tools};
+    }finally{await client.close().catch(()=>{});await transport.close().catch(()=>{});}
+  }
   async checkHealth(serverId: string): Promise<UpstreamServerStatus> {
     const config = this.getServerConfig(serverId);
     if (!config) throw new Error(`Unknown upstream server: ${serverId}`);

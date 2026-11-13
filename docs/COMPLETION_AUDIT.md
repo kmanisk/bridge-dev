@@ -115,3 +115,35 @@ the existing interface, Markdown loading, validation, user/project precedence,
 update pinning, fresh enable, disable, stale-proposal denial and removal. Test
 scripts now receive separate disposable state from one another. Full, policy,
 CLI, portable, provider, source and inventory gates pass. No dependencies added.
+
+## Phase 5
+
+Added one CLI interface for add/mcp/skills/instructions/pack with structured output,
+component selection, scope, previews and exact proposal IDs. Applying proposals
+requires the independent authenticated admin API; MCP has no approval/signing tool.
+MCP proposal tools create inert requests without downloading code. Read-only tools
+inspect cached metadata; mcp_test binds a provider fingerprint and requires signed
+policy approval. CLI/admin tests run under explicit operator authentication.
+
+The admin login assets are loopback-only and public; data and actions require the
+independent bearer admin token. Tokens stay in browser memory. Host/origin guards,
+CSP and safe DOM rendering protect the interface. It supports source discovery,
+selection, full proposal review, exact apply, pending model requests, scoped content
+management and provider permissions. Existing provider forms remain available.
+Activity streaming uses authenticated fetch without polling fallback. Configuration
+editing rejects newline injection and runtime changes to immutable security paths.
+Native shell children no longer inherit gateway authentication/approval authority.
+
+Portable tools may receive operator-declared per-tool R/W/X permissions. Managed
+Linux deployments continue to require their root-owned proxy policy classifications.
+Portable strict/standard changes and lifecycle stop require admin authentication;
+YOLO remains managed Linux-only. Registration, enabling, connection and exposure
+are reported separately. Native inventory is now 51 slim / 73 full registrations.
+
+Verified by independent HTTP MCP client and real CLI subprocesses: no-provider
+startup, preview without installation, operator approval, disabled registration,
+provider test, allowlist and permission review, forwarded calls, skills loading,
+inert model requests, self-approval rejection, stale-call refusal, persistence after
+restart and removal. All required baseline and new suites pass; admin JavaScript
+syntax checks pass. Browser visual/interaction acceptance has not been executed.
+No dependencies added; production unchanged.

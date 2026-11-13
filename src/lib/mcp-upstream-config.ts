@@ -32,6 +32,7 @@ export interface UpstreamServerConfig {
   disabled_tools?: string[];
   idle_timeout_sec?: number;
   allow_private_network?: boolean;
+  tool_permissions?: Record<string,"R"|"W"|"X">;
 }
 
 export interface UpstreamConfigFile {
@@ -60,6 +61,9 @@ function normalizeServer(raw: UpstreamServerConfig): UpstreamServerConfig {
   if(raw.expose && !["none","meta_only","allowlist","all"].includes(raw.expose))throw new Error("Invalid exposure");
   if(raw.tool_prefix && !/^[a-zA-Z0-9_-]{1,48}$/.test(raw.tool_prefix))throw new Error("Invalid tool prefix");
 
+  for(const [tool,permission]of Object.entries(raw.tool_permissions||{}))if(!tool||!["R","W","X"].includes(permission))throw new Error("Invalid per-tool permission");
+  if(raw.url){const url=new URL(raw.url);if(url.username||url.password||!["https:","http:"].includes(url.protocol))throw new Error("Invalid provider URL or embedded credentials");}
+  for(const value of Object.values(raw.env||{}))if(typeof value!=="string")throw new Error("Invalid provider environment");
   const transport = raw.transport;
   if (transport !== "stdio" && transport !== "http") {
     throw new Error(`Invalid transport for ${id}: ${String(raw.transport)}`);
@@ -93,6 +97,7 @@ function normalizeServer(raw: UpstreamServerConfig): UpstreamServerConfig {
     disabled_tools: raw.disabled_tools ?? [],
     idle_timeout_sec: raw.idle_timeout_sec ?? 600,
     allow_private_network: raw.allow_private_network === true,
+    tool_permissions: raw.tool_permissions ?? {},
   };
 }
 

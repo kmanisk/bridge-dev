@@ -104,6 +104,9 @@ export class PolicyGate {
   readonly configPath: string;
   private nativeRegistrations = new Set<string>();
   readonly audit: HashAudit;
+  private providerPermissions:Record<string,ToolClass>={};
+  setProviderPermissions(value:Record<string,ToolClass>):void{this.providerPermissions=value;}
+  getProxyPermissions():Record<string,ToolClass>{return getRuntimeMode()==="portable"?{...this.providerPermissions,...this.config.proxy_tools}:this.config.proxy_tools;}
   constructor(file?: string) {
     if (!file && getRuntimeMode() === "portable") {
       this.configPath = path.join(portableStateDir(), "portable-policy.json");
@@ -129,7 +132,10 @@ export class PolicyGate {
     return digester.digest("hex");
   }
   getActiveProfile(): "strict" | "standard" | "dangerous" {
-    if (this.config.context_files.length === 0) return "standard"; // portable cannot activate a privileged operator lease
+    if (this.config.context_files.length === 0) {
+      try{const mode=JSON.parse(fs.readFileSync(path.join(portableStateDir(),"mode.json"),"utf8"));if(mode.mode==="strict")return "strict";}catch{}
+      return "standard";
+    } // portable cannot activate a privileged operator lease
     const yoloPath = process.env.POLICYGATE_YOLO_LEASE || (fs.existsSync("/var/lib/bridge-dev/yolo-lease.json") ? "/var/lib/bridge-dev/yolo-lease.json" : "/var/lib/local-coder-policygate/yolo-lease.json");
     const pubKeyPath = process.env.POLICYGATE_APPROVAL_PUBLIC_KEY || (fs.existsSync("/etc/bridge-dev/operator-public.pem") ? "/etc/bridge-dev/operator-public.pem" : "/etc/local-coder-policygate/operator-public.pem");
     try {

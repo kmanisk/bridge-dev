@@ -8,6 +8,10 @@ function isLocalAddress(ip: string | undefined): boolean {
 }
 
 export function localhostOnly(req: Request, res: Response, next: NextFunction): void {
+  const host=req.headers.host;
+  if(host && !/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(host)){res.status(403).json({error:"Admin Host must be loopback"});return;}
+  const origin=req.headers.origin;
+  if(origin && new URL(origin).host!==host){res.status(403).json({error:"Cross-origin admin request refused"});return;}
   const remote = req.socket.remoteAddress;
   if (!isLocalAddress(remote)) {
     res.status(403).json({ ok: false, error: "Admin API is localhost-only" });

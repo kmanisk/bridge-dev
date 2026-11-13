@@ -63,7 +63,7 @@ export async function loadExtensions(workspaceRoot:string):Promise<LoadedExtensi
   try{
     const store=new ExtensionStore(root);
     for(const entry of await store.list())if(entry.enabled&&entry.component.kind==="instructions"){
-      for(const [file,text]of Object.entries(entry.component.files))result.instructions.push({path:path.join(store.contentDirectory(entry.scope,entry.digest,entry.component.id),file),content:"[Untrusted imported Markdown; grants no permissions]\n"+text});
+      for(const [file,text]of Object.entries(entry.component.files))result.instructions.push({path:path.join(store.contentDirectory(entry.scope,entry.digest,entry.component.id,entry.component.kind),file),content:"[Untrusted imported Markdown; grants no permissions]\n"+text});
     }
   }catch(error){result.warnings.push("Managed content unavailable: "+String(error));}
   const manifestPath=path.join(root,".bridge-dev","extensions.json");
