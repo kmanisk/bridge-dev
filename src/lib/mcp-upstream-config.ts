@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { getRuntimeMode } from "./runtime.js";
 
 export type UpstreamTransport = "stdio" | "http";
 export type UpstreamExposeMode = "none" | "meta_only" | "allowlist" | "all";
@@ -45,7 +46,9 @@ export function defaultUpstreamConfig(): UpstreamConfigFile {
 export function resolveUpstreamConfigPath(): string {
   const configured = process.env.MCP_UPSTREAM_CONFIG?.trim();
   if (configured) return path.resolve(configured);
-  return path.resolve(process.cwd(), "profiles", "mcp-upstream.json");
+  return getRuntimeMode() === "portable"
+    ? path.resolve(process.env.WORKSPACE_PATH?.split(";")[0] || process.cwd(), ".bridge-dev", "mcp.json")
+    : path.resolve(process.cwd(), "profiles", "mcp-upstream.json");
 }
 
 function normalizeServer(raw: UpstreamServerConfig): UpstreamServerConfig {
@@ -99,8 +102,7 @@ export async function loadUpstreamConfig(configPath = resolveUpstreamConfigPath(
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       const defaults = defaultUpstreamConfig();
-      await saveUpstreamConfig(defaults, configPath);
-      return defaults;
+      return defaults; // read-only discovery; never write configuration on startup
     }
     throw err;
   }

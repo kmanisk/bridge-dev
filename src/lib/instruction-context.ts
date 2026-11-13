@@ -14,6 +14,8 @@ import { appendAutoMemory, formatAutoMemoryForInstructions, loadAutoMemory } fro
 import { formatSkillsForInstructions, loadProjectSkills } from "./skills-loader.js";
 import { getChatGptToolProfile } from "./tool-profile.js";
 import { buildServerInstructions } from "./quickstart.js";
+import { getRuntimeMode } from "./runtime.js";
+import { loadExtensions, formatExtensionsForInstructions } from "./user-extensions.js";
 import { systemBootstrapInstructions } from "./system-context.js";
 
 export interface InstructionContextOptions {
@@ -33,11 +35,12 @@ export interface InstructionContext {
 export async function buildInstructionContext(
   opts: InstructionContextOptions
 ): Promise<InstructionContext> {
-  const [projectMemory, git, skills, autoMemory] = await Promise.all([
+  const [projectMemory, git, skills, autoMemory, extensions] = await Promise.all([
     loadProjectMemory(opts.workspaceRoot, { workspaceRoots: opts.workspaceRoots }),
     collectGitSnapshot(opts.workspaceRoot),
     loadProjectSkills(opts.workspaceRoot),
-    loadAutoMemory(opts.workspaceRoot),
+    getRuntimeMode() === "portable" ? Promise.resolve(null) : loadAutoMemory(opts.workspaceRoot),
+    loadExtensions(opts.workspaceRoot),
   ]);
 
   const profile = getChatGptToolProfile();
@@ -54,9 +57,10 @@ export async function buildInstructionContext(
       nodeVersion: process.version,
     }),
     formatGitSnapshotForInstructions(git),
-    formatAutoMemoryForInstructions(autoMemory),
+    getRuntimeMode() === "portable" ? "" : formatAutoMemoryForInstructions(autoMemory),
     formatProjectMemoryForInstructions(projectMemory),
     formatSkillsForInstructions(skills),
+    formatExtensionsForInstructions(extensions),
   ].filter(Boolean);
 
   const projectMemoryBlock = blocks.join("\n\n");

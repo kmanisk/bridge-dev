@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { resolveComputerUseSkillPath } from "./plugin-config.js";
+import { loadExtensions } from "./user-extensions.js";
 
 export interface SkillSummary {
   name: string;
@@ -14,48 +15,66 @@ function parseFrontmatter(content: string): { name?: string; description?: strin
   if (!match) return {};
   const block = match[1];
   const name = block.match(/^name:\s*(.+)$/m)?.[1]?.trim();
-  const description = block.match(/^description:\s*(.+)$/m)?.[1]?.trim();
-  return { name, description };
-}
-
-export async function loadProjectSkills(workspaceRoot: string): Promise<SkillSummary[]> {
-  const skillsDir = path.join(workspaceRoot, ".claude", "skills");
-  const out: SkillSummary[] = [];
-
-  async function walk(dir: string, depth: number): Promise<void> {
-    if (depth > 3) return;
+  const description = block.match(/^description:\s*(.+export async function loadProjectSkills(workspaceRoot: string): Promise<SkillSummary[]> {
+  const root = await fs.realpath(path.resolve(workspaceRoot));
+  const within = (target:string):boolean => {
+    const rel=path.relative(root,target);
+    return rel==="" || (rel!==".." && !rel.startsWith(".."+path.sep) && !path.isAbsolute(rel));
+  };
+  const extra=await loadExtensions(root);
+  const directories=[
+    path.join(root,".bridge-dev","skills"),
+    path.join(root,".agents","skills"),
+    path.join(root,".claude","skills"),
+    ...extra.skillDirectories,
+  ];
+  const out:SkillSummary[]=[];
+  const seen=new Set<string>();
+  async function walk(directory:string,depth:number):Promise<void> {
+    if(depth>3 || out.length>=64)return;
+    let real:string;
+    try{real=await fs.realpath(directory);}catch{return;}
+    if(!within(real))return;
     let entries;
-    try {
-      entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        const skillFile = path.join(full, "SKILL.md");
-        try {
-          const content = await fs.readFile(skillFile, "utf-8");
-          const fm = parseFrontmatter(content);
-          const name = fm.name || entry.name;
-          const description = fm.description || content.split("\n").find((l) => l.trim() && !l.startsWith("#"))?.trim() || name;
-          out.push({ name, description: description.slice(0, 200), path: skillFile });
-        } catch {
-          await walk(full, depth + 1);
-        }
+    try{entries=await fs.readdir(real,{withFileTypes:true});}catch{return;}
+    for(const entry of entries){
+      if(!entry.isDirectory() || entry.isSymbolicLink() || out.length>=64)continue;
+      const child=path.join(real,entry.name);
+      const file=path.join(child,"SKILL.md");
+      try {
+        const realFile=await fs.realpath(file);
+        if(!within(realFile))continue;
+        const st=await fs.stat(realFile);
+        if(!st.isFile() || st.size>131072)continue;
+        const content=await fs.readFile(realFile,"utf8");
+        const fm=parseFrontmatter(content);
+        const name=fm.name || entry.name;
+        if(!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(name)||seen.has(name))continue;
+        seen.add(name);
+        const description=fm.description||content.split("\n").find(line=>line.trim()&&!line.startsWith("#"))?.trim()||name;
+        out.push({name,description:description.slice(0,200),path:realFile,source:"project"});
+      }catch{
+        await walk(child,depth+1);
       }
     }
   }
+  for(const dir of directories)await walk(dir,0);
+  const computerUseSkill=await resolveComputerUseSkillPath();
+  if(computerUseSkill){
+    try{
+      const content=await fs.readFile(computerUseSkill,"utf8");
+      const frontmatter=parseFrontmatter(content);
+      const name=frontmatter.name||"computer-use";
+      if(!seen.has(name))out.push({
+        name,description:(frontmatter.description||"Optional Computer Use plugin").slice(0,200),
+        path:computerUseSkill,source:"plugin",
+      });
+    }catch{}
+  }
+  return out;
+}
 
-  await walk(skillsDir, 0);
-  const computerUseSkill = await resolveComputerUseSkillPath();
-  if (computerUseSkill) {
-    const content = await fs.readFile(computerUseSkill, "utf-8");
-    const frontmatter = parseFrontmatter(content);
-    out.push({
-      name: frontmatter.name || "computer-use",
-      description: (frontmatter.description || "Control Windows apps from ChatGPT").slice(0, 200),
-      path: computerUseSkill,
+,
       source: "plugin",
     });
   }

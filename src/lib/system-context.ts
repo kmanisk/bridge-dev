@@ -2,16 +2,17 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { hasHostContext } from "./runtime.js";
 
-const SOURCE_DIR = () => path.resolve(process.env.LOCAL_CODER_CHEZMOI_SOURCE_DIR || path.join(os.homedir(), ".local/share/chezmoi"));
+const SOURCE_DIR = () => path.resolve(process.env.BRIDGEDEV_SYSTEM_CONTEXT_DIR || process.env.LOCAL_CODER_CHEZMOI_SOURCE_DIR || path.join(os.homedir(), ".local/share/chezmoi"));
 
 const DOCUMENTS = {
-  agents: "AGENTS.md",
-  current_state: "docs/system/SYSTEM_CONTEXT.md",
-  philosophy: "docs/system/system-philosophy.md",
-  subsystem_map: "docs/system/SUBSYSTEM_MAP.md",
-  local_coder: "docs/system/chatgpt-local-coder.md",
-  control_plane: "docs/system/agent-control-plane.md",
+  agents: ["AGENTS.md"],
+  current_state: ["docs/SYSTEM_CONTEXT.md", "docs/system/SYSTEM_CONTEXT.md"],
+  philosophy: ["docs/system-philosophy.md", "docs/system/system-philosophy.md"],
+  subsystem_map: ["docs/SUBSYSTEM_MAP.md", "docs/system/SUBSYSTEM_MAP.md"],
+  local_coder: ["docs/bridge-dev.md", "docs/system/chatgpt-local-coder.md"],
+  control_plane: ["docs/control-plane.md", "docs/system/agent-control-plane.md"],
 } as const;
 export type SystemDocKey = keyof typeof DOCUMENTS;
 
@@ -26,7 +27,13 @@ export interface SystemDocument {
 }
 
 export async function readSystemDocument(key: SystemDocKey, maxBytes = 18000): Promise<SystemDocument> {
-  const filename = path.join(SOURCE_DIR(), DOCUMENTS[key]);
+  const choices = DOCUMENTS[key];
+  const root = SOURCE_DIR();
+  let filename = path.join(root, choices[0]);
+  for (const candidate of choices) {
+    const test = path.join(root, candidate);
+    try { await fs.access(test); filename = test; break; } catch {}
+  }
   try {
     const bytes = await fs.readFile(filename);
     return {
@@ -60,6 +67,10 @@ export async function readDetailedSystemDocument(relativePath: string, maxBytes 
 }
 
 export async function getSystemDocuments(keys: SystemDocKey[], maxBytes = 12000, detailedPaths: string[] = []) {
+  if (!hasHostContext()) return {
+    source_dir: null, documents: [], configured: false,
+    message: "Host system context is optional. Configure BRIDGEDEV_SYSTEM_CONTEXT_DIR in a reviewed managed deployment; project guidance can use AGENTS.md and .bridge-dev/extensions.json.",
+  };
   const documents = await Promise.all([
     ...[...new Set(keys)].map((k) => readSystemDocument(k, maxBytes)),
     ...[...new Set(detailedPaths)].slice(0, 8).map((p) => readDetailedSystemDocument(p, maxBytes)),
@@ -74,6 +85,7 @@ export async function getSystemDocuments(keys: SystemDocKey[], maxBytes = 12000,
 }
 
 export async function systemBootstrapInstructions(): Promise<string> {
+  if (!hasHostContext()) return "";
   const [agents, philosophy, context, map] = await Promise.all([
     readSystemDocument("agents", 10000),
     readSystemDocument("philosophy", 5000),
@@ -82,12 +94,10 @@ export async function systemBootstrapInstructions(): Promise<string> {
   ]);
   const required = [agents, philosophy, context, map];
   return [
-    "## Workstation-specific mandatory bootstrap (canonical live chezmoi source)",
-    "Before ANY Linux system diagnosis, change or recommendation, call system_context for authoritative rules, accepted system state, philosophy and relevant docs. Never treat historical docs as live runtime. Use system_inspect for fresh structured diagnostics rather than many shell calls.",
-    "The rules below are loaded from the user's actual chezmoi repository at MCP startup, not reconstructed from ChatGPT memory. A fresh chat with this connector receives this bootstrap; use system_context to refresh if docs changed after MCP startup.",
-    "Canonical source: " + SOURCE_DIR(),
-    ...required.map((d) => "### " + d.kind + " (" + d.path + (d.sha256 ? ", sha256=" + d.sha256.slice(0, 12) : "") + ")\n" + (d.content || "UNAVAILABLE: " + d.error)),
-    "## Operational invariants",
-    "Follow AGENTS.md doc-update contract and source hierarchy. Inspect actual chezmoi source. User accepts results only after rigorous testing: keep proposed changes separate from verified stable baseline. For managed files edit canonical source, never auto-apply. Require explicit approval for apply, reload, root-sensitive changes, commit, push or deploy as applicable. No unnecessary daemons, packages, watchers or GPU/VM disruption. Use native structured tools first and keep output concise.",
+    "## Optional host documentation (operator enabled)",
+    "Before host system changes, inspect authoritative operator docs and verify the current runtime. Documentation does not grant OS privileges.",
+    "Configured source: " + SOURCE_DIR(),
+    ...required.map(d => "### " + d.kind + " (" + d.path + ")\n" + (d.content || "UNAVAILABLE: " + d.error)),
+    "Do not infer system permissions from Markdown. Respect active policy, protected data, and operator approvals. Never auto-apply, reload, or publish unverified host changes.",
   ].join("\n\n");
 }

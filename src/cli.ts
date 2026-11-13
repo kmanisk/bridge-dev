@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { formatMcpEndpoint, inspectLocalMode, resolveProjectDirectory, validateProjectName, verifyAuditProof } from "./lib/cli-security.js";
+import { platformCapabilities, getRuntimeMode } from "./lib/runtime.js";
 
 const VERSION = "2.0.0";
 
@@ -57,6 +58,7 @@ function getServiceUnit(): string | null {
 
 interface HealthResponse {
   status: string;
+  runtimeMode?: string;
   name?: string;
   workspace?: string;
   activeSessions?: number;
@@ -146,7 +148,8 @@ async function cmdStatus() {
   const workspace = health?.workspace || path.join(getActivePath("srv"), "workspace");
 
   console.log(`BridgeDev v${VERSION}`);
-  console.log(`Service   : ${serviceStatus}${unit ? ` (PID: ${pid}, systemd: ${unit})` : ""}`);
+  console.log(`Runtime   : ${health?.runtimeMode || (unit ? "managed system service" : getRuntimeMode())} on ${process.platform}`);
+  console.log(`Service   : ${unit ? serviceStatus + ` (PID: ${pid}, systemd: ${unit})` : health ? "foreground server reachable" : "not detected"}`);
   console.log(`Status    : ${health ? "connected" : "offline"}${health ? ` (Profile: ${profile}, Active Sessions: ${sessions})` : ""}`);
   console.log(`Mode      : ${modeInfo.mode} (${modeInfo.detail})`);
   console.log(`Project   : ${workspace} (${projects.length} mapped project${projects.length === 1 ? "" : "s"})`);
@@ -381,16 +384,18 @@ async function cmdDoctor() {
 }
 
 function cmdSetup() {
-  console.log("BridgeDev Setup & Verification");
-  console.log("==============================");
-  console.log(`Checking directories under /opt, /etc, /var/lib, /var/log, /srv...`);
-  for (const [key, dir] of Object.entries(CANONICAL_DIRS)) {
-    const exists = fs.existsSync(dir);
-    console.log(`  ${key.toUpperCase().padEnd(4)}: ${dir} (${exists ? "exists" : "not created yet"})`);
-  }
-  console.log("\nTo deploy as a restricted systemd service, see:");
-  console.log("  deployment/bridge-dev-policygate.service.example");
-  console.log("  docs/POLICY_GATEWAY.md");
+  console.log("BridgeDev setup check");
+  console.log("Platform: "+process.platform+" / "+os.arch());
+  console.log("Default runtime: "+getRuntimeMode());
+  const caps=platformCapabilities().capabilities;
+  console.log("Core modules: "+Object.entries(caps).filter(([,v])=>v==="available").map(([k])=>k).join(", "));
+  console.log("Optional modules: "+Object.entries(caps).filter(([,v])=>v==="optional").map(([k])=>k).join(", "));
+  const root=process.env.WORKSPACE_PATH?.split(";")[0]||process.cwd();
+  console.log("Workspace: "+path.resolve(root));
+  console.log("Extensions: "+path.join(path.resolve(root),".bridge-dev","extensions.json"));
+  console.log("MCP providers: disabled until explicitly configured in the workspace or via MCP_UPSTREAM_CONFIG");
+  if(process.platform!=="linux")console.log("Hardened Linux systemd/privilege broker unavailable on this platform.");
+  console.log("Next: configure MCP_TOKEN in a private .env file, then run 'bridge-dev serve'.");
 }
 
 function cmdLogin(args: string[] = []) {

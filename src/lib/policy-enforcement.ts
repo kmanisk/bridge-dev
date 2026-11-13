@@ -38,7 +38,7 @@ export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:s
     return deny(session,gate,"POLICYGATE_PAYLOAD_LIMIT: reduce the tool arguments.");
   if(cls.kind!=="R"){
     const current=await gate.contextHash().catch(()=>"");
-    if(!session.contextHash || session.contextHash!==current)
+    if(config.context_files.length > 0 && (!session.contextHash || session.contextHash!==current))
       return deny(session,gate,"POLICYGATE_CONTEXT_REQUIRED: call system_context with agents and current_state in this session, then retry.",true);
   }
   let approval=cls.requiresProxyApproval;
@@ -52,7 +52,7 @@ export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:s
       if(checked.approval && target.kind!=="R"){approval=true;reasons.push("approval_path: "+checked.resolved);}
       // Editing a chezmoi-managed target redirects to its canonical source.
       // Authorize that real write destination BEFORE the handler executes.
-      if(target.kind==="W" && REDIRECTABLE_EDIT_TOOLS.has(tool)) {
+      if(config.context_files.length > 0 && target.kind==="W" && REDIRECTABLE_EDIT_TOOLS.has(tool)) {
         const inspection=await inspectChezmoiPath(checked.resolved);
         if(inspection.kind==="unavailable")
           throw new Error("POLICYGATE_CHEZMOI_UNAVAILABLE: "+inspection.explanation);

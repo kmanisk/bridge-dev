@@ -27,12 +27,16 @@ import {
 } from "./lib/instruction-context.js";
 import { getChatGptToolProfile } from "./lib/tool-profile.js";
 import { getPolicyGate } from "./lib/policy-gateway.js";
+import { getRuntimeMode, platformCapabilities } from "./lib/runtime.js";
 
 // Policy is loaded once before listening or registering handlers.
 getPolicyGate();
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const HOST = process.env.HOST || "127.0.0.1";
 const MCP_TOKEN = (process.env.MCP_TOKEN || "").trim();
+if (getRuntimeMode() === "portable" && !["127.0.0.1","localhost","::1"].includes(HOST)) {
+  throw new Error("Portable BridgeDev may listen only on loopback; install a managed gateway for public exposure.");
+}
 const ADMIN_PORT = parseInt(process.env.ADMIN_PORT || "3001", 10);
 const SHELL_TIMEOUT = parseInt(process.env.SHELL_TIMEOUT || "120", 10);
 const SESSION_RECOVERY =
@@ -167,6 +171,8 @@ app.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     name: "bridge-dev",
+    runtimeMode: getRuntimeMode(),
+    platform: platformCapabilities(),
     workspace: workspaceRoot,
     defaultCwd: getDefaultCwd(),
     fullMachineAccess: getPolicyGate().getActiveProfile() === "dangerous",

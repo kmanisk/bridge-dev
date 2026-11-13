@@ -10,8 +10,8 @@ const sections = ["resources", "gpu", "storage", "services", "sway", "audio", "b
 
 export function registerSystemTools(server: McpServer): void {
   server.registerTool("system_context", {
-    title: "Canonical Linux System Context",
-    description: "One-call bootstrap for Linux system tasks: live kmanisk/dots AGENTS.md rules, verified SYSTEM_CONTEXT.md, system philosophy, subsystem map and relevant detailed docs. Read before any system change; refreshes after documentation edits, unlike startup instructions. Does not change anything.",
+    title: "Optional Host System Context",
+    description: "Read optional operator-configured host documentation. Portable installs return not-configured; project guidance loads separately.",
     inputSchema: {
       docs: z.array(z.enum(systemDocNames)).optional().default(["agents", "current_state", "philosophy", "subsystem_map"]),
       max_bytes_each: z.number().int().positive().max(100000).optional().default(12000),
@@ -23,8 +23,8 @@ export function registerSystemTools(server: McpServer): void {
   );
 
   server.registerTool("system_inspect", {
-    title: "Linux System Inspector",
-    description: "Compact read-only JSON diagnostics without numerous shell calls. Select resource usage, NVIDIA GPU, storage, failed services, Sway focused window and outputs, PipeWire audio, Bluetooth event logs, or chezmoi/git drift with documentation routing. Unavailable sections are reported rather than guessed.",
+    title: "Optional Linux System Inspector",
+    description: "Optional Linux diagnostics. Unsupported platforms and unavailable sections report explicit limitations.",
     inputSchema: {
       sections: z.array(z.enum(sections)).min(1).max(8).optional().default(["resources", "services"]),
     },

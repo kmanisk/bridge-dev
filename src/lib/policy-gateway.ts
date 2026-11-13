@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { assertRegistryComplete, classifyTool, type ToolClass } from "./tool-classification.js";
 import { enforcePolicy } from "./policy-enforcement.js";
 import { HashAudit } from "./hash-audit.js";
+import { getRuntimeMode, makePortablePolicy, portableStateDir } from "./runtime.js";
 
 export interface PolicyLimits {
   max_payload_bytes: number;
@@ -103,9 +104,14 @@ export class PolicyGate {
   readonly configPath: string;
   private nativeRegistrations = new Set<string>();
   readonly audit: HashAudit;
-  constructor(file = process.env.POLICYGATE_POLICY_FILE || policyExamplePath) {
-    this.configPath = expandPath(file);
-    this.config = loadPolicyConfig(this.configPath);
+  constructor(file?: string) {
+    if (!file && getRuntimeMode() === "portable") {
+      this.configPath = path.join(portableStateDir(), "portable-policy.json");
+      this.config = makePortablePolicy();
+    } else {
+      this.configPath = expandPath(file || process.env.POLICYGATE_POLICY_FILE || policyExamplePath);
+      this.config = loadPolicyConfig(this.configPath);
+    }
     this.audit = new HashAudit(this.config.audit_log);
   }
   register(name: string): void {
@@ -123,6 +129,7 @@ export class PolicyGate {
     return digester.digest("hex");
   }
   getActiveProfile(): "strict" | "standard" | "dangerous" {
+    if (this.config.context_files.length === 0) return "standard"; // portable cannot activate a privileged operator lease
     const yoloPath = process.env.POLICYGATE_YOLO_LEASE || (fs.existsSync("/var/lib/bridge-dev/yolo-lease.json") ? "/var/lib/bridge-dev/yolo-lease.json" : "/var/lib/local-coder-policygate/yolo-lease.json");
     const pubKeyPath = process.env.POLICYGATE_APPROVAL_PUBLIC_KEY || (fs.existsSync("/etc/bridge-dev/operator-public.pem") ? "/etc/bridge-dev/operator-public.pem" : "/etc/local-coder-policygate/operator-public.pem");
     try {

@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import { getRuntimeMode } from "./runtime.js";
 
 const ROOT_MEMORY_FILES = [
   "CLAUDE.md",
@@ -124,6 +125,27 @@ async function expandMemoryImportsAsync(
     }
 
     const resolved = path.resolve(importPath);
+    if (getRuntimeMode() === "portable") {
+      const workspace=path.resolve(process.env.WORKSPACE_PATH?.split(";")[0] || process.cwd());
+      const relative=path.relative(workspace,resolved);
+      const inRoot=relative!== ".." && !relative.startsWith(".."+path.sep) && !path.isAbsolute(relative);
+      const parts=relative.replace(/\\/g,"/").split("/");
+      if (!inRoot || parts.some(x=>/^(?:\.ssh|\.gnupg|\.aws|\.kube|\.env(?:\..*)?|credentials\.json|id_.*)$/i.test(x))) {
+        out.push("<!-- import refused: outside approved workspace or sensitive file -->");
+        continue;
+      }
+      try {
+        const real=await fs.realpath(resolved);
+        const relativeReal=path.relative(workspace,real);
+        if (relativeReal===".." || relativeReal.startsWith(".."+path.sep) || path.isAbsolute(relativeReal)) {
+          out.push("<!-- import refused: symlink escapes workspace -->");
+          continue;
+        }
+      } catch {
+        out.push("<!-- import unavailable -->");
+        continue;
+      }
+    }
     if (visited.has(resolved)) {
       out.push(`<!-- skipped circular import ${resolved} -->`);
       continue;
@@ -207,7 +229,7 @@ export async function loadProjectMemory(
   const sections: ProjectMemorySection[] = [];
   const totalBytes = { value: 0 };
 
-  for (const userPath of USER_MEMORY_CANDIDATES) {
+  for (const userPath of getRuntimeMode() === "portable" ? [] : USER_MEMORY_CANDIDATES) {
     if (!(await fileExists(userPath))) continue;
     await appendSection(sections, totalBytes, maxBytes, maxLines, userPath, "user");
     break;

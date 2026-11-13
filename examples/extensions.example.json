@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "instructions": [
+    "AGENTS.md",
+    ".bridge-dev/instructions.md"
+  ],
+  "skill_directories": [
+    ".bridge-dev/skills"
+  ],
+  "links": [
+    {
+      "title": "Optional Markdown reference (never fetched automatically)",
+      "url": "https://example.com/guide.md"
+    }
+  ]
+}

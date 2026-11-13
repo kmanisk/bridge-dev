@@ -188,6 +188,10 @@ async function drift() {
   };
 }
 export async function inspectSections(sections: InspectionSection[]) {
+  if (process.platform !== "linux") return {
+    timestamp:new Date().toISOString(), platform:process.platform,read_only:true,
+    sections:Object.fromEntries(sections.map(name=>[name,{unavailable:"Linux-specific inspector; this section is optional on "+process.platform}]))
+  };
   const methods: Record<InspectionSection, () => Promise<any>> = { resources, gpu, storage, services, sway, audio, bluetooth, drift };
   const selected = [...new Set(sections)].filter((x) => x in methods);
   const results = await Promise.all(selected.map(async (name) => {

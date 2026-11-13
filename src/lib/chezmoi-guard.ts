@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { getRuntimeMode } from "./runtime.js";
 
 export type ChezmoiPathKind = "source" | "managed_target" | "generated_target" | "unmanaged" | "outside_destination" | "unavailable";
 
@@ -94,6 +95,14 @@ async function generatedComment(filePath: string): Promise<string | undefined> {
 
 export async function inspectChezmoiPath(input: string, options: ChezmoiOptions = {}): Promise<ChezmoiInspection> {
   const requestedPath = path.resolve(input);
+  if (getRuntimeMode() === "portable" && !options.sourceDir && !options.destinationDir && !options.executable) {
+    const canonical = await canonicalPath(requestedPath);
+    const marker = await generatedComment(canonical);
+    if (marker) return {requestedPath,canonicalPath:canonical,kind:"generated_target",generatedMarker:marker,
+      explanation:"Generated output: do not edit directly"};
+    return {requestedPath,canonicalPath:canonical,kind:"unmanaged",
+      explanation:"Chezmoi integration is optional and not enabled for this portable workspace"};
+  }
   const sourceDir = await canonicalPath(options.sourceDir || process.env.LOCAL_CODER_CHEZMOI_SOURCE_DIR || path.join(os.homedir(), ".local/share/chezmoi"));
   const destinationDir = await canonicalPath(options.destinationDir || process.env.LOCAL_CODER_CHEZMOI_DESTINATION_DIR || os.homedir());
   const canonical = await canonicalPath(requestedPath);

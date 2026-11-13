@@ -28,3 +28,7 @@ log_console.txt
 *.log
 .DS_Store
 Thumbs.db
+
+# Optional local MCP registry may contain credentials and host-specific paths
+/.bridge-dev/mcp.json
+/.bridge-dev/state/

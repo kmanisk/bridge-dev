@@ -2,16 +2,11 @@
   "profile": "standard",
   "dangerous_enabled": false,
   "context_files": [
-    "$HOME/.local/share/chezmoi/AGENTS.md",
-    "$HOME/.local/share/chezmoi/docs/system/SYSTEM_CONTEXT.md"
+    "$HOME/.bridge-dev/host/AGENTS.md",
+    "$HOME/.bridge-dev/host/CURRENT_STATE.md"
   ],
   "writable_roots": [
-    "$HOME/Projects",
-    "$HOME/.local/share/chezmoi",
-    "$HOME/Downloads",
-    "$HOME/Documents",
-    "$HOME/.codex/projects",
-    "/tmp"
+    "$HOME/BridgeDevWorkspaces"
   ],
   "protected_paths": [
     "$HOME/.ssh",
@@ -25,6 +20,7 @@
   "secret_paths": [
     "$HOME/.ssh",
     "$HOME/.gnupg",
+    "$HOME/.aws",
     "$HOME/.config/age"
   ],
   "secret_names": [
@@ -37,8 +33,7 @@
     "credentials.json"
   ],
   "approval_paths": [
-    "$HOME/.local/share/chezmoi/AGENTS.md",
-    "$HOME/.local/share/chezmoi/docs/system/SYSTEM_CONTEXT.md"
+    "$HOME/.bridge-dev/host"
   ],
   "sensitive_segments": [
     ".ssh",
@@ -49,12 +44,8 @@
     "private"
   ],
   "hard_paths": [
-    "$HOME/Projects/chatgpt-local-coder/src",
-    "$HOME/Projects/chatgpt-local-coder-policygate/src",
-    "$HOME/Projects/chatgpt-local-coder/deployment",
-    "$HOME/Projects/chatgpt-local-coder-policygate/deployment",
-    "$HOME/Projects/chatgpt-local-coder/scripts/policygate-operator.mjs",
-    "$HOME/Projects/chatgpt-local-coder-policygate/scripts/policygate-operator.mjs"
+    "$HOME/.bridge-dev/host",
+    "$HOME/.bridge-dev/secure-runtime"
   ],
   "allowed_commands": [
     "ls",
@@ -97,7 +88,11 @@
     "netcat",
     "python -c",
     "node -e",
-    "curl"
+    "curl",
+    "apt",
+    "dnf",
+    "brew",
+    "winget"
   ],
   "denied_commands": [
     "mkfs",
@@ -113,5 +108,5 @@
     "max_denials": 5,
     "approval_timeout_ms": 30000
   },
-  "audit_log": "./.policygate-dev.audit.jsonl"
+  "audit_log": "$HOME/.bridge-dev/host/audit.jsonl"
 }
