@@ -166,7 +166,7 @@ if (MCP_TOKEN) {
 app.get("/health", (_req, res) => {
   res.json({
     status: "ok",
-    name: "codex-mcp-server",
+    name: "bridge-dev",
     workspace: workspaceRoot,
     defaultCwd: getDefaultCwd(),
     fullMachineAccess: true,

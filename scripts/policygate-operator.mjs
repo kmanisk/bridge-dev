@@ -9,11 +9,11 @@ const args = process.argv.slice(2);
 const action = args[0];
 const id = args[1];
 
-const base = path.resolve(process.env.POLICYGATE_APPROVAL_DIR || "/var/lib/local-coder-policygate/approvals");
-const keyFile = path.resolve(process.env.POLICYGATE_OPERATOR_PRIVATE_KEY || "/etc/local-coder-policygate/operator-private.pem");
-const pubFile = path.resolve(process.env.POLICYGATE_APPROVAL_PUBLIC_KEY || "/etc/local-coder-policygate/operator-public.pem");
-const yoloLeasePath = path.resolve(process.env.POLICYGATE_YOLO_LEASE || "/var/lib/local-coder-policygate/yolo-lease.json");
-const modeFilePath = path.resolve(process.env.POLICYGATE_MODE_FILE || "/var/lib/local-coder-policygate/mode.json");
+const base = path.resolve(process.env.POLICYGATE_APPROVAL_DIR || (fs.existsSync("/var/lib/bridge-dev/approvals") ? "/var/lib/bridge-dev/approvals" : "/var/lib/local-coder-policygate/approvals"));
+const keyFile = path.resolve(process.env.POLICYGATE_OPERATOR_PRIVATE_KEY || (fs.existsSync("/etc/bridge-dev/operator-private.pem") ? "/etc/bridge-dev/operator-private.pem" : "/etc/local-coder-policygate/operator-private.pem"));
+const pubFile = path.resolve(process.env.POLICYGATE_APPROVAL_PUBLIC_KEY || (fs.existsSync("/etc/bridge-dev/operator-public.pem") ? "/etc/bridge-dev/operator-public.pem" : "/etc/local-coder-policygate/operator-public.pem"));
+const yoloLeasePath = path.resolve(process.env.POLICYGATE_YOLO_LEASE || (fs.existsSync("/var/lib/bridge-dev/yolo-lease.json") ? "/var/lib/bridge-dev/yolo-lease.json" : "/var/lib/local-coder-policygate/yolo-lease.json"));
+const modeFilePath = path.resolve(process.env.POLICYGATE_MODE_FILE || (fs.existsSync("/var/lib/bridge-dev/mode.json") ? "/var/lib/bridge-dev/mode.json" : "/var/lib/local-coder-policygate/mode.json"));
 
 if (action !== "status") {
   if (process.getuid?.() !== 0 && process.env.POLICYGATE_TEST_OPERATOR !== "1") {
@@ -43,7 +43,7 @@ if (action === "keygen") {
 }
 
 if (action === "status") {
-  console.log("=== Local Coder Policy Gate Operator Status ===");
+  console.log("=== BridgeDev Policy Gate Operator Status ===");
   if (fs.existsSync(yoloLeasePath)) {
     try {
       const lease = JSON.parse(fs.readFileSync(yoloLeasePath, "utf8"));

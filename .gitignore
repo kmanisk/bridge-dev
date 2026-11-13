@@ -12,6 +12,11 @@ profiles/*
 !profiles/policy.example.json
 !profiles/native-tool-counts.json
 !profiles/chatgpt-connector-description.txt
+!profiles/bridge-dev-connector-description.txt
+.research/
+.tools/
+coverage/
+test-output/
 .mcp-state/
 .mcp-oauth/
 .codex-remote-attachments/

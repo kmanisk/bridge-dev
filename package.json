@@ -14,7 +14,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "bridge-dev": "dist/index.js"
+    "bridge-dev": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",

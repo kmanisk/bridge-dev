@@ -98,7 +98,7 @@ export function createMcpServer(
 ): McpServer {
   const server = new McpServer(
     {
-      name: "codex-mcp-server",
+      name: "bridge-dev",
       version: "2.0.0",
     },
     {

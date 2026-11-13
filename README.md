@@ -1,129 +1,201 @@
 # BridgeDev
 
-**Self-hosted MCP development gateway for ChatGPT, Codex, and other coding agents.**
+**Self-hosted Model Context Protocol (MCP) development gateway with policy enforcement, scoped workspaces, and signed operator approvals.**
 
-BridgeDev connects AI coding clients to tools on a machine you control: files, patches, Git, shell commands, process supervision, system inspection, and upstream MCP integrations. Its **policy gateway** provides scoped access, independently signed operator approvals, and an auditable execution boundary.
+BridgeDev connects AI coding assistants (ChatGPT, Claude Code, Codex, and other MCP clients) to developer tools on your own machines: files, patches, Git, shell execution, process supervision, system inspection, and upstream MCP integrations. Its policy gateway enforces strict isolation boundaries, audit logging, and out-of-band operator control.
 
 [![Policy Tests](https://github.com/kmanisk/bridge-dev/actions/workflows/policy-tests.yml/badge.svg)](https://github.com/kmanisk/bridge-dev/actions/workflows/policy-tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Language: TypeScript](https://img.shields.io/badge/TypeScript%20%2F%20Node.js-2.0-blue)](package.json)
+[![Runtime: Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-green.svg)](package.json)
 
-> **Current implementation:** TypeScript / Node.js, not Go. This source replaces the original BridgeDev Go prototype. The old prototype remains recoverable in Git history.
+---
 
-## How it works
+## Quick Links
 
-```text
-ChatGPT / Codex / MCP client
-            |
-      MCP over HTTPS
-            |
-    Operator-managed tunnel (optional)
-            |
-    BridgeDev MCP server (:3000 loopback)
-            |
-      Policy gateway
-      |-- Session context + scoped path rules
-      |-- Strict / Standard / YOLO modes
-      |-- Single-use Ed25519 operator approvals
-      |-- Protected, hash-chained audit log
-      |-- Files, patches, Git, shell + jobs
-      |-- Upstream MCP tool bridge
-            |
-    Restricted OS account + approved projects
+- [Platform Support](#platform-support)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Essential Commands](#essential-commands)
+- [Configuration](#configuration)
+- [Security Architecture](#security-architecture)
+- [Documentation Links](#documentation-links)
+- [License and Credits](#license-and-credits)
+
+---
+
+## Platform Support
+
+| Platform | Tier | Runtime & Notes |
+|---|---|---|
+| **Linux** (Arch, CachyOS, Ubuntu/Debian, Fedora) | **Supported** | Native Node.js 20+, systemd service isolation (`ProtectHome=yes`, `ProtectSystem=strict`), append-only audit ledger (`chattr +a`), ACLs. |
+| **Windows** (10 / 11) | **Supported** | Native Node.js 20+, PowerShell management (`start.ps1`, `stop.ps1`, `tunnel.ps1`), Cloudflare / Tailscale tunnels. |
+| **macOS** (12+ Intel & Apple Silicon) | **Supported** | Native Node.js 20+, zsh/bash foreground or launchd agent. |
+| **Android** (Termux) | **Experimental** | Userland Node.js in Termux. Systemd is unsupported; filesystem isolation relies on PRoot containerization. |
+
+---
+
+## Installation
+
+### Prerequisites
+- **Node.js:** version 20.0.0 or higher
+- **Package Manager:** `pnpm` (recommended) or `npm`
+- **Git:** for repository clone and version control operations
+
+### 1. Linux (Arch / Debian / Ubuntu / Fedora)
+```bash
+# Clone repository
+git clone https://github.com/kmanisk/bridge-dev.git
+cd bridge-dev
+
+# Install dependencies and build
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm run build
 ```
 
-The admin interface is a **separate, authenticated, localhost-only** service, normally on port `3001`. Do not expose it through a public tunnel.
+For production deployment with a dedicated systemd service and sandboxing, see [Hardened Linux Systemd Deployment](docs/SYSTEMD_DEPLOYMENT.md).
 
-## What you can do
-
-| Capability | Examples |
-| --- | --- |
-| Files and code | Read, write, edit, multi-edit, apply patches, search |
-| Git | Inspect status, diffs, commits and branches; gate risky mutations |
-| Commands | Run diagnostics, builds and tests; supervise process output |
-| System context | Load canonical system docs, inspect runtime, resolve chezmoi sources |
-| MCP integrations | Inspect configured upstream servers; authorize tool execution |
-| Audit and recovery | Hash-chained records, explicit approvals, checkpoints and rewind |
-
-The verified native registration inventory is **33 tools in the slim MCP profile / 55 in the full profile**. Some tools are intentionally gated or retired; discovery does not imply permission to execute arbitrary actions. See [the tool inventory](profiles/native-tool-counts.json).
-
-## Three security modes
-
-| Mode | Intended use | Restrictions |
-| --- | --- | --- |
-| **STRICT** | Audits and sensitive inspection | Read-only by default; writes/commands need operator approval, and sudo is denied |
-| **STANDARD** (default) | Everyday development | Approved workspaces and routine commands work; privileged and destructive operations require signed approval |
-| **YOLO / Full Access** | Deliberately authorized system maintenance | A time-limited, root-operator-signed lease enables a privileged broker; expiry returns to STANDARD |
-
-**YOLO is not a permanent root daemon.** Mode activation requires an independent local operator action; a model or MCP client cannot issue its own trusted signing key or turn ordinary chat text into privileged authorization. Protect and verify your host OS account, key permissions, sudo broker, mount namespace, and audit storage.
-
-For an *existing* operator-installed instance, mode commands use its installed `policygate-operator.mjs`, for example:
-
-```sh
-# From an independently controlled local operator terminal:
-sudo node /opt/local-coder-policygate/scripts/policygate-operator.mjs mode standard
-sudo node /opt/local-coder-policygate/scripts/policygate-operator.mjs mode strict
-sudo node /opt/local-coder-policygate/scripts/policygate-operator.mjs yolo --duration 15
-sudo node /opt/local-coder-policygate/scripts/policygate-operator.mjs yolo --off
-```
-
-These historical on-host paths are retained for **installed-version compatibility** until a separately tested BridgeDev service migration. They are not part of the public package's branding.
-
-## Development
-
-**Requirements:** Node.js, pnpm and Git. Tested CI uses **Node.js 24** and **pnpm 12**.
-
-```sh
+### 2. Windows (PowerShell)
+```powershell
 git clone https://github.com/kmanisk/bridge-dev.git
 cd bridge-dev
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm run build
-pnpm run test:policy
-pnpm run test:all
-node scripts/sync-tool-counts.mjs --check-manifest profiles/native-tool-counts.json
+Copy-Item .env.example .env
 ```
 
-Policy checks exercise isolated fixtures rather than changing your laptop's live services. CI validates the policy tests and tool manifest. The full local integration suite is separate from that CI gate.
-
-The example [environment file](.env.example), [deployment unit](deployment/bridge-dev-policygate.service.example), and [security documentation](docs/POLICY_GATEWAY.md) are **reference material**, not a safe one-command production installer. A production gateway requires separately provisioned root-owned policy, signing keys, an append-only audit ledger, and a restricted service identity; production preflight rejects an incomplete setup.
-
-## Connecting a client
-
-The MCP listener defaults to `127.0.0.1:3000`. Once an operator has installed and started the gateway, a configured MCP client can use:
-
-```text
-http://127.0.0.1:3000/mcp/<MCP_TOKEN>
+### 3. macOS (Terminal)
+```bash
+brew install node pnpm
+git clone https://github.com/kmanisk/bridge-dev.git
+cd bridge-dev
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm run build
 ```
 
-The token in this example is a placeholder. Remote clients require an appropriately secured **HTTPS** route and the same authorization controls. Keep the admin port loopback-only. Do not reuse sample tokens, expose the operator key, or start an unsandboxed production process.
-
-The gateway enforces a `system_context` bootstrap for protected actions. Your client must discover and call it before edits or command execution when policy requires it.
-
-## Repository structure
-
-```text
-src/                 Server, native MCP tools, policies, audit and utilities
-scripts/             Operator tooling, preflight, verification and test fixtures
-profiles/            Tool profiles and example configurations
-public/ui/           Localhost admin UI
-deployment/          Operator-reviewed systemd examples
-docs/POLICY_GATEWAY.md  Security and deployment model
-.github/workflows/   CI policy checks
+### 4. Android (Termux — Experimental)
+```bash
+pkg install nodejs-lts git
+git clone https://github.com/kmanisk/bridge-dev.git
+cd bridge-dev
+npm install
+npm run build
 ```
 
-## Safety and operational boundaries
+---
 
-- A privileged broker is intentionally separate from the MCP daemon; the daemon should run as a restricted non-login account.
-- Canonical documentation can be mounted read-only, and writable projects should be explicitly mapped per project. Avoid exposing an entire home directory or granting broad recursive ACLs.
-- Protected paths, operator keys and authentication secrets must not be writable by the MCP process.
-- Audit records use SHA-256 chaining, a trusted anchor and OS append-only permissions.
-- Source repository changes **do not automatically deploy** to an existing machine. Review and validate release upgrades, root-owned paths, connector URLs and rollback independently.
-- Never commit `.env`, OAuth credentials, signing keys, audit ledgers or host-specific secrets.
+## Quick Start
 
-## History and license
+### 1. Configure Environment
+```bash
+cp .env.example .env
+```
+Generate a secure authentication token and set it in `.env`:
+```bash
+node dist/cli.js login
+# Copy the token and set MCP_TOKEN in your .env file
+```
 
-BridgeDev began as an experimental **Go** MCP prototype. That implementation has been replaced in the current source tree and remains available in the repository's Git history.
+### 2. Start the Gateway
+```bash
+# Start foreground development server (defaults to port 3000)
+pnpm start
+```
 
-The TypeScript gateway is derived from the MIT-licensed [chatgpt-local-coder](https://github.com/hoangcoderr/chatgpt-local-coder) by **hoangcoderr**, with additional development and policy-gateway work. The original copyright notice is preserved in [LICENSE](LICENSE).
+### 3. Connect Your Coding Assistant
+BridgeDev exposes an authenticated MCP endpoint at `/mcp`:
 
-See [Policy Gateway documentation](docs/POLICY_GATEWAY.md) for the security model and [GitHub Actions](https://github.com/kmanisk/bridge-dev/actions) for current test status.
+- **Endpoint URL:** `http://127.0.0.1:3000/mcp` (or your HTTPS tunnel URL)
+- **Authentication:** Bearer token (`MCP_TOKEN`)
+
+Run the built-in helper to view full connection parameters:
+```bash
+node dist/cli.js connect
+```
+
+---
+
+## Essential Commands
+
+BridgeDev provides a compact CLI (`bridge-dev` or `node dist/cli.js`):
+
+| Command | Purpose | Description |
+|---|---|---|
+| `bridge-dev` | Status overview | Displays product version, daemon state, mode, project, and endpoint. |
+| `bridge-dev status` | Detailed status | Queries process state, active sessions, and health status. |
+| `bridge-dev connect` | Connection parameters | Prints MCP URL and client configuration blocks (use `--show-token` to reveal). |
+| `bridge-dev mode` | View/Switch mode | Inspects or sets security mode (`strict`, `standard`, `yolo`). |
+| `bridge-dev project` | Workspace management | Maps or unmaps local project directories into the sandbox. |
+| `bridge-dev doctor` | Diagnostics | Validates Node runtime, port listeners, keypairs, and audit ledger. |
+| `bridge-dev login` | Authentication | Inspects current token or generates a cryptographically secure token. |
+| `bridge-dev setup` | Environment check | Verifies directory paths, permissions, and configuration. |
+| `bridge-dev restart` | Restart daemon | Restarts the running service and confirms health recovery. |
+| `bridge-dev stop` | Stop daemon | Stops the running service cleanly. |
+| `bridge-dev help` | Help menu | Shows all CLI commands and available options. |
+
+---
+
+## Configuration
+
+BridgeDev reads configuration from `.env` in local development, or `/etc/bridge-dev/service.env` in production.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCP_TOKEN` | *(Required)* | Secret Bearer authentication token for MCP clients. |
+| `PORT` | `3000` | Port for the main MCP gateway listener. |
+| `ADMIN_PORT` | `3001` | Port for the localhost-only admin UI and status API. |
+| `WORKSPACE_PATH` | `cwd` | Default directory root for client tool actions. |
+| `CHATGPT_TOOL_PROFILE` | `slim` | Native tool profile: `slim` (33 tools) or `full` (55 tools). |
+| `SHELL_TIMEOUT` | `120` | Command execution timeout in seconds. |
+| `CHECKPOINT_ENABLED` | `false` | Enable snapshot and rollback checkpoints before file modifications. |
+| `POLICYGATE_POLICY_FILE`| `/etc/bridge-dev/policy.json` | Path to JSON security policy file. |
+| `POLICYGATE_APPROVAL_DIR`| `/var/lib/bridge-dev/approvals`| Storage directory for signed operator approvals. |
+
+The admin web interface is available at **`http://127.0.0.1:3001`** (loopback only). Never expose port 3001 through a public tunnel.
+
+---
+
+## Security Architecture
+
+BridgeDev uses a multi-tiered security gateway to protect the host machine:
+
+### Three Operational Modes
+
+1. **STRICT:**
+   - Read-only inspection by default.
+   - Any file modification, patch, or command execution requires out-of-band operator approval.
+   - `sudo` and root escalation are completely blocked.
+
+2. **STANDARD (Default):**
+   - Designed for daily development inside approved project directories.
+   - Routine file edits, Git inspection, and approved shell commands execute without friction.
+   - Privilege escalation (`sudo`) and sensitive system mutations require signed operator approval.
+
+3. **YOLO / Full Access:**
+   - Time-limited emergency maintenance mode (maximum 120 minutes).
+   - Requires explicit local interactive root confirmation to sign an Ed25519 lease.
+   - Automatically expires and reverts to STANDARD mode upon lease timeout.
+
+### Security Guarantees
+- **No Unrestricted Sudo:** The MCP daemon runs under an unprivileged user and cannot grant itself root privileges.
+- **Single-Use Signed Approvals:** Operator approvals bind the exact SHA-256 hash of the command or patch arguments and expire quickly.
+- **Append-Only Forensic Audit:** Every tool call and decision is logged to an immutable, append-only ledger (`chattr +a`) with SHA-256 chain integrity.
+- **Context Bootstrap:** AI clients must bootstrap system context before executing sensitive mutations.
+
+---
+
+## Documentation Links
+
+- [Security Policy & Gateway Architecture](docs/POLICY_GATEWAY.md)
+- [Hardened Linux Systemd Deployment](docs/SYSTEMD_DEPLOYMENT.md)
+- [Upstream MCP Tool Integrations](docs/MCP_INTEGRATIONS.md)
+- [Troubleshooting & Rollback Runbook](docs/TROUBLESHOOTING.md)
+
+---
+
+## License and Credits
+
+BridgeDev is open-source software licensed under the [MIT License](LICENSE).
+
+Copyright (c) 2026 kmanisk.
+
+Derived from the MIT-licensed `chatgpt-local-coder` project by hoangcoderr, extended with a hardened TypeScript policy gateway, three-tier security modes, cryptographic approvals, and system sandboxing.

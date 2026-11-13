@@ -123,8 +123,8 @@ export class PolicyGate {
     return digester.digest("hex");
   }
   getActiveProfile(): "strict" | "standard" | "dangerous" {
-    const yoloPath = process.env.POLICYGATE_YOLO_LEASE || "/var/lib/local-coder-policygate/yolo-lease.json";
-    const pubKeyPath = process.env.POLICYGATE_APPROVAL_PUBLIC_KEY || "/etc/local-coder-policygate/operator-public.pem";
+    const yoloPath = process.env.POLICYGATE_YOLO_LEASE || (fs.existsSync("/var/lib/bridge-dev/yolo-lease.json") ? "/var/lib/bridge-dev/yolo-lease.json" : "/var/lib/local-coder-policygate/yolo-lease.json");
+    const pubKeyPath = process.env.POLICYGATE_APPROVAL_PUBLIC_KEY || (fs.existsSync("/etc/bridge-dev/operator-public.pem") ? "/etc/bridge-dev/operator-public.pem" : "/etc/local-coder-policygate/operator-public.pem");
     try {
       if (fs.existsSync(yoloPath) && fs.existsSync(pubKeyPath)) {
         const content = fs.readFileSync(yoloPath, "utf8");
@@ -145,7 +145,7 @@ export class PolicyGate {
       // Ignore lease parse or verification error, fall back to configured/override profile
     }
 
-    const modeOverridePath = process.env.POLICYGATE_MODE_FILE || "/var/lib/local-coder-policygate/mode.json";
+    const modeOverridePath = process.env.POLICYGATE_MODE_FILE || (fs.existsSync("/var/lib/bridge-dev/mode.json") ? "/var/lib/bridge-dev/mode.json" : "/var/lib/local-coder-policygate/mode.json");
     try {
       if (fs.existsSync(modeOverridePath)) {
         const raw = JSON.parse(fs.readFileSync(modeOverridePath, "utf8")) as { mode?: string };

@@ -8,30 +8,30 @@ After=network.target
 Type=exec
 User=localcoder
 Group=localcoder
-WorkingDirectory=/opt/local-coder
-EnvironmentFile=/etc/local-coder-policygate/service.env
-Environment=HOME=/var/lib/local-coder-policygate/home
-Environment=CODEX_HOME=/var/lib/local-coder-policygate/home/.codex
-Environment=MCP_SHELL_STATE_DIR=/var/lib/local-coder-policygate/home/.mcp-state
-Environment=MCP_OAUTH_STORE=/var/lib/local-coder-policygate/home/.mcp-oauth
-Environment=WORKSPACE_PATH=/srv/local-coder/workspace
-Environment=LOCAL_CODER_CHEZMOI_SOURCE_DIR=/srv/local-coder/context
-Environment=POLICYGATE_POLICY_FILE=/etc/local-coder-policygate/policy.json
-Environment=POLICYGATE_APPROVAL_PUBLIC_KEY=/etc/local-coder-policygate/operator-public.pem
-Environment=POLICYGATE_OPERATOR_PRIVATE_KEY=/etc/local-coder-policygate/operator-private.pem
-Environment=POLICYGATE_APPROVAL_DIR=/var/lib/local-coder-policygate/approvals
-Environment=POLICYGATE_AUDIT_ANCHOR_FILE=/etc/local-coder-policygate/audit-anchor.json
-Environment=POLICYGATE_ENV_FILE=/etc/local-coder-policygate/service.env
-Environment=MCP_UPSTREAM_CONFIG=/etc/local-coder-policygate/mcp-upstream.json
-Environment=POST_EDIT_HOOKS_CONFIG=/etc/local-coder-policygate/post-edit-hooks.json
+WorkingDirectory=/opt/bridge-dev
+EnvironmentFile=/etc/bridge-dev/service.env
+Environment=HOME=/var/lib/bridge-dev/home
+Environment=CODEX_HOME=/var/lib/bridge-dev/home/.codex
+Environment=MCP_SHELL_STATE_DIR=/var/lib/bridge-dev/home/.mcp-state
+Environment=MCP_OAUTH_STORE=/var/lib/bridge-dev/home/.mcp-oauth
+Environment=WORKSPACE_PATH=/srv/bridge-dev/workspace
+Environment=LOCAL_CODER_CHEZMOI_SOURCE_DIR=/srv/bridge-dev/context
+Environment=POLICYGATE_POLICY_FILE=/etc/bridge-dev/policy.json
+Environment=POLICYGATE_APPROVAL_PUBLIC_KEY=/etc/bridge-dev/operator-public.pem
+Environment=POLICYGATE_OPERATOR_PRIVATE_KEY=/etc/bridge-dev/operator-private.pem
+Environment=POLICYGATE_APPROVAL_DIR=/var/lib/bridge-dev/approvals
+Environment=POLICYGATE_AUDIT_ANCHOR_FILE=/etc/bridge-dev/audit-anchor.json
+Environment=POLICYGATE_ENV_FILE=/etc/bridge-dev/service.env
+Environment=MCP_UPSTREAM_CONFIG=/etc/bridge-dev/mcp-upstream.json
+Environment=POST_EDIT_HOOKS_CONFIG=/etc/bridge-dev/post-edit-hooks.json
 Environment=CHECKPOINT_ENABLED=false
 Environment=CHATGPT_TOOL_PROFILE=slim
 Environment=POLICYGATE_DANGEROUS=no
 Environment=HOST=127.0.0.1
-Environment=PORT=44910
-Environment=ADMIN_PORT=44911
-ExecStartPre=/usr/bin/node /opt/local-coder/scripts/production-preflight.mjs
-ExecStart=/usr/bin/node /opt/local-coder/dist/index.js
+Environment=PORT=3000
+Environment=ADMIN_PORT=3001
+ExecStartPre=/usr/bin/node /opt/bridge-dev/scripts/production-preflight.mjs
+ExecStart=/usr/bin/node /opt/bridge-dev/dist/index.js
 Restart=no
 NoNewPrivileges=yes
 RestrictSUIDSGID=yes
@@ -40,12 +40,12 @@ AmbientCapabilities=
 UMask=0077
 ProtectSystem=strict
 ProtectHome=yes
-ReadOnlyPaths=/opt/local-coder
-ReadOnlyPaths=/srv/local-coder/context
-ReadWritePaths=/srv/local-coder/workspace
-ReadWritePaths=/var/log/local-coder-policygate
-ReadWritePaths=/var/lib/local-coder-policygate/home
-ReadWritePaths=/var/lib/local-coder-policygate/approvals
+ReadOnlyPaths=/opt/bridge-dev
+ReadOnlyPaths=/srv/bridge-dev/context
+ReadWritePaths=/srv/bridge-dev/workspace
+ReadWritePaths=/var/log/bridge-dev
+ReadWritePaths=/var/lib/bridge-dev/home
+ReadWritePaths=/var/lib/bridge-dev/approvals
 IPAddressDeny=any
 IPAddressAllow=localhost
 PrivateDevices=yes
@@ -60,4 +60,7 @@ SystemCallArchitectures=native
 StandardOutput=journal
 StandardError=journal
 
+# Note on backward-compatibility:
+# Installed instances using /opt/local-coder-policygate and /etc/local-coder-policygate
+# remain operational through runtime fallback detection.
 # No [Install] section: operator-started only, never enable at boot.

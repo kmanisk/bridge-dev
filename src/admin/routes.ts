@@ -77,7 +77,7 @@ export function createAdminRouter(manager: McpUpstreamManager, options: {
     const upstream = await manager.listStatuses();
     res.json({
       status: "ok",
-      name: "codex-mcp-admin",
+      name: "bridge-dev-admin",
       pid: options.pid,
       mcp_port: options.mcpPort,
       active_sessions: options.sessionCount(),

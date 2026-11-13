@@ -40,7 +40,7 @@ All tools return JSON: { ok, tool, summary, data }
 *** End Patch
 
 ## Paths & Privileges
-Policy Gateway active: Workspace and mapped projects under /srv/local-coder. Privileged actions and out-of-boundary paths require operator approval. Full machine access is granted only when an authorized YOLO lease is active.
+BridgeDev Policy Gateway active: Workspace and mapped projects under /srv/bridge-dev (or /srv/local-coder). Privileged actions and out-of-boundary paths require operator approval. Full machine access is granted only when an authorized YOLO lease is active.
 `.trim();
 
 export function buildServerInstructions(
@@ -54,7 +54,7 @@ export function buildServerInstructions(
     `Default project: ${workspaceRoot}`,
     fullDiskAccess
       ? "Full machine & root access: ON (YOLO mode active). Tag this connector in ChatGPT before every task."
-      : "Policy Gateway: STANDARD mode (UID: localcoder). Tag this connector in ChatGPT before every task.",
+      : "BridgeDev Policy Gateway: STANDARD mode (UID: localcoder). Tag this connector in ChatGPT before every task.",
   ].join("\n");
 
   const footer = [
