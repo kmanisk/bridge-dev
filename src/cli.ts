@@ -247,10 +247,13 @@ async function cmdMode(args: string[]) {
   if (!target || target === "status") {
     const reading = getActiveMode();
     const label = reading.mode === "YOLO" ? "Full System (sudo)" :
-      reading.mode === "STANDARD" ? "Read & Write" : "Unavailable (internal safety lock)";
+      reading.mode === "STANDARD" ? "Read & Write" :
+      reading.mode === "STRICT" ? "Unavailable (internal safety lock)" : "Operator-only / unverified";
     console.log("Mode: " + label + " (" + reading.detail + ")");
-    if (reading.mode === "STRICT" || reading.mode === "UNKNOWN")
+    if (reading.mode === "STRICT")
       console.log("Protected state prevents Read & Write. Use 'bridge-dev mode read-write' from your own terminal.");
+    if (reading.mode === "UNKNOWN")
+      console.log("Mode state is not readable here. Verify with the independent operator and MCP agent_status.");
     return;
   }
   if (["read-write","readwrite","rw","standard"].includes(target)) {
@@ -271,10 +274,16 @@ async function cmdMode(args: string[]) {
     // An issued operator lease is not evidence that the local controller
     // state actually authorizes Full System.
     const mode = getActiveMode();
-    if (mode.mode !== "YOLO") {
-      console.error("Full System not confirmed by local signed lease and controller state: " + mode.detail);
-      console.error("Inspect 'bridge-dev mode status' and MCP 'agent_status'; do not assume remote root access.");
+    if (mode.mode === "STRICT" || mode.mode === "STANDARD") {
+      console.error("Full System not confirmed: protected state reports " + mode.mode);
+      console.error("Inspect the independent operator and MCP agent_status; do not assume remote root access.");
       process.exitCode = 1;
+    } else if (mode.mode === "UNKNOWN") {
+      // Normal user accounts may not read root-owned lease files. The root
+      // operator verified its own activation record, but only the running
+      // gateway's agent_status can confirm remote host-root authorization.
+      console.log("Local lease state is operator-only (" + mode.detail + ").");
+      console.log("Check MCP agent_status for full_machine_access=true before relying on Full System.");
     }
     return;
   }
