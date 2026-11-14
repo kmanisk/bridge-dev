@@ -53,5 +53,14 @@ try{
   assert.equal(fs.readFileSync(envPath,'utf8'),initial,'Reinstall rotated private credentials');
   assert.ok(fs.readdirSync(install).some(f=>f.startsWith('app.previous-')),'Previous version was lost');
   assert.ok(!fs.readdirSync(install).some(f=>f.startsWith('.stage-')),'Staging files remain');
+  // Exercise the actual public shell/PowerShell entry point without network access.
+  const entryEnv={...env,BRIDGEDEV_INSTALL_SOURCE_DIR:source};
+  const entry=process.platform==='win32'
+    ?spawnSync('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(root,'install.ps1')],
+      {env:entryEnv,encoding:'utf8',timeout:90000})
+    :spawnSync('sh',[path.join(root,'install.sh')],
+      {env:entryEnv,encoding:'utf8',timeout:90000});
+  assert.equal(entry.status,0,'Platform installation entry failed: '+(entry.stderr||entry.stdout||entry.error));
+  assert.equal(fs.readFileSync(envPath,'utf8'),initial,'Platform install changed existing credentials');
   console.log('BridgeDev one-command installer: PASS');
 }finally{fs.rmSync(tmp,{recursive:true,force:true});}
