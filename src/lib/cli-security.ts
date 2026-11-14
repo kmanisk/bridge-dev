@@ -35,7 +35,12 @@ export function inspectLocalMode(options: {
   try {
     if (fs.existsSync(leaseFile)) {
       const lease = JSON.parse(fs.readFileSync(leaseFile,"utf8"));
-      if (isActiveLease(lease, options.now ?? Date.now())) {
+      // An unexpired or until-off lease with a bad signature/scope is UNKNOWN,
+      // not an implicit fallback to the protected base mode.
+      const now=options.now ?? Date.now();
+      const present=(typeof lease.expires_at==="number"&&Number.isFinite(lease.expires_at)&&lease.expires_at>now) ||
+        lease.expires_at===null || lease.lifetime==="until_off";
+      if (present) {
         if (!isValidSignedLease(lease,fs.readFileSync(options.publicKeyFile),options.now ?? Date.now())) {
           return {mode:"UNKNOWN",detail:"unverified signed lease; operator investigation required"};
         }
