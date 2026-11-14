@@ -4,8 +4,10 @@ $ProgressPreference = 'SilentlyContinue'
 function Fail([string]$Message) { throw "BridgeDev: $Message" }
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Fail 'Node.js 22+ required.' }
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Fail 'npm required.' }
-$major = (& node -p 'Number(process.versions.node.split(".")[0])')
-if ($LASTEXITCODE -ne 0 -or [int]$major -lt 22) { Fail 'Node.js 22+ required.' }
+$versionText = (& node --version)
+if ($LASTEXITCODE -ne 0 -or -not $versionText) { Fail 'Node.js version check failed.' }
+$major = [int](($versionText -replace '^v', '').Split('.')[0])
+if ($major -lt 22) { Fail 'Node.js 22+ required.' }
 if ($env:BRIDGEDEV_INSTALL_SOURCE_DIR) {
   & node (Join-Path $env:BRIDGEDEV_INSTALL_SOURCE_DIR 'scripts/install-portable.mjs') --source $env:BRIDGEDEV_INSTALL_SOURCE_DIR
   if ($LASTEXITCODE -ne 0) { Fail 'Local install failed.' }

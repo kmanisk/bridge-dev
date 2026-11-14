@@ -118,7 +118,7 @@ try{
   run(win?'npm.cmd':'npm',['prune','--omit=dev','--ignore-scripts','--no-audit','--no-fund'],staged);
   run(process.execPath,[path.join(staged,'dist','cli.js'),'help'],staged);
   if(fs.existsSync(app)){
-    backup=path.join(dataDir,'app.previous-'+new Date().toISOString().replaceAll(/[^0-9]/g,'').slice(0,14));
+    backup=path.join(dataDir,'app.previous-'+new Date().toISOString().replaceAll(/[^0-9]/g,'').slice(0,14)+'-'+randomBytes(4).toString('hex'));
     fs.renameSync(app,backup);
   }
   try{fs.renameSync(staged,app);staged='';}
