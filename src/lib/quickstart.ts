@@ -7,7 +7,7 @@ export const MCP_QUICKSTART = `
 5. Host-specific system_context, system_inspect, system_job and chezmoi_inspect are optional platform integrations.
 6. Upstream MCP servers are optional; imported configs are not automatic execution permission.
 7. Do not assume root privileges, unrestricted disk access, or YOLO approval.
-8. Load system_context with agents and current_state before execution. If the connector does not retain its session, copy the returned context_token into each subsequent tool call. Reload on expiry or context change; this token never approves privileged work.
+8. Before commands/writes in managed mode call system_context with docs=[agents,current_state]. Its result includes context_token and context_expires_at. If your MCP client opens a new session per tool call, copy context_token into the optional context_token argument of EACH later gated tool (including run_command). Otherwise retain Mcp-Session-Id. Reload when expired or source documents change. Never disclose the token; it does not approve sudo or privileged work.
 `.trim();
 
 export function buildServerInstructions(

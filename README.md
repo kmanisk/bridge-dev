@@ -96,7 +96,7 @@ http://127.0.0.1:3000/mcp/<MCP_TOKEN>
 
 Use the **actual trial port** or your selected production port. `node dist/cli.js connect` prints a redacted connection example.
 
-**ChatGPT Web cannot reach a local-only address.** Remote clients need an independently configured HTTPS route to the authenticated MCP port. Never forward the Admin UI. Tool-list caching may require refreshing the connector or starting a new chat when providers change.
+**ChatGPT Web cannot reach a local-only address.** Remote clients need an independently configured HTTPS route to the authenticated MCP port. Never forward the Admin UI. Tool-list caching may require refreshing the connector or starting a new chat when providers change. ChatGPT may use a new MCP session for each tool call: load `system_context` with `agents` and `current_state` first, then pass its short-lived `context_token` to gated tools such as `run_command` if needed. The token is not sudo approval. A shared `MCP_TOKEN` cannot safely identify different ChatGPT connections; automatic cross-session authorization is deliberately disabled. Reconnect and open a new chat if a tool's optional `context_token` argument is missing. [Policy details](docs/POLICY_GATEWAY.md).
 
 ## Add MCP providers and skills
 

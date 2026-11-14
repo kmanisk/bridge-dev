@@ -39,7 +39,15 @@ tool-list notifications were sent.
 ## Policy and cleanup
 
 `POLICYGATE_CONTEXT_REQUIRED` means the session needs `system_context` before a
-mutation/executable. Managed signed approvals remain out-of-band; neither an MCP
+mutation/executable. Load `system_context` with `docs:["agents","current_state"]`.
+If the client does not retain `Mcp-Session-Id`, pass the returned `context_token`
+in each later gated tool call (including `run_command`). Reload if it expired
+or the underlying documents changed. The token is private and cannot grant sudo
+approval. If the optional field is absent from ChatGPT's tool arguments,
+refresh/reconnect the plugin and open a new chat: tool schemas can be cached.
+The server cannot force a cached client to refresh its manifest. With a single
+shared static MCP credential there is no safe automatic cross-session
+authorization fallback. Managed signed approvals remain out-of-band; neither an MCP
 client nor a skill can sign itself. Use the independently installed operator CLI
 for managed privileged requests. Portable mode has no root-privilege lease.
 

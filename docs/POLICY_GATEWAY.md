@@ -67,7 +67,7 @@ unavailable. Provider tools advertise a separate `_bridge_context_token` argumen
 (with another leading underscore if the provider already owns that name); the
 gateway removes only its capability field before forwarding arguments.
 
-The HMAC capability binds the authenticated HTTP credential fingerprint, exact
+The HMAC-SHA256 capability binds the authenticated HTTP credential fingerprint, exact
 context digest, issuing policy session and expiry (at most five minutes). It is
 request-scoped: using it never authorizes the recipient transport's later
 tokenless calls. An unrelated client without the explicit capability stays denied.
@@ -75,6 +75,16 @@ The issuer's DELETE, expiry, context invalidation or gateway restart revokes it.
 Reload after expiry/context changes; stale tokens remain invalid when old context
 bytes are restored. Audit records omit tokens. This capability proves context
 loading only and never approves a privileged operation or changes permissions.
+
+**Shared-credential limitation:** The authenticated subject is currently the SHA-256
+fingerprint of the single configured `MCP_TOKEN`, not a unique ChatGPT OAuth
+grant. Connections sharing that secret are not independently identified. BridgeDev
+therefore does not automatically inherit context authorization across unrelated
+sessions. An explicit `context_token` is a short-lived bearer capability for the
+authenticated subject; another connection holding both the shared MCP credential
+and that explicit token can use it until expiry/revocation. Keep both private.
+Any future grant-scoped automatic continuity first requires verified, distinct,
+revocable authentication identities per client connection.
 
 See [HOST_CONTROLLER.md](HOST_CONTROLLER.md) for optional host-root YOLO execution,
 signed STANDARD execution, detached jobs, rollback and the limits of root leases.

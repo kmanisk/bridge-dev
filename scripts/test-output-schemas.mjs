@@ -55,6 +55,18 @@ try{
  assert.equal(tools.filter(t=>!t.name.startsWith('schema__')).length,73);
  const proxy=tools.filter(t=>t.name.startsWith('schema__'));assert.equal(proxy.length,names.length,JSON.stringify((await client.callTool({name:'mcp_status',arguments:{}})).structuredContent));
  const byName=name=>tools.find(t=>t.name===name);
+ // Real MCP tools/list, not local registry metadata, must expose context proof.
+ for(const tool of tools){
+  const key=tool.name.includes('__')?'_bridge_context_token':'context_token';
+  const field=tool.inputSchema?.properties?.[key];
+  assert.ok(field,'MCP tools/list omitted '+key+' for '+tool.name);
+  assert.equal(field.type,'string','Context token must be string: '+tool.name);
+  assert.equal(tool.inputSchema?.required?.includes(key)??false,false,'Context token must be optional: '+tool.name);
+  assert.match(field.description||'',/context_token/i,'Missing token guidance: '+tool.name);
+ }
+ const contextSchema=byName('system_context').outputSchema?.properties?.data;
+ assert.ok(contextSchema?.properties?.context_token,'system_context output schema must declare context_token');
+ assert.ok(contextSchema?.properties?.context_expires_at,'system_context output schema must declare token expiry');
  for(const name of ['open','closed','empty','dictionary','union','nested','error']){
   const tool=byName('schema__'+name);assert.ok(tool.outputSchema,'Provider output schema dropped: '+name);
   const result=await checked(client,tool,name==='union'?{value:4}:{});assert.equal(Boolean(result.isError),name==='error');

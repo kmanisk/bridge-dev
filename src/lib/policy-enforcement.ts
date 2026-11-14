@@ -43,7 +43,7 @@ export async function enforcePolicy(gate:PolicyGate,session:PolicySession,tool:s
     if(config.context_files.length > 0 && !capability && (!session.contextHash || session.contextHash!==current)) {
       if(session.contextHash)await gate.invalidateContext(session,"source_changed_or_unavailable");
       await gate.audit.append({phase:"context_authorization",status:"denied",session_id:session.id,mcp_session_id:session.transportSessionId,reason:"context_required"});
-      return deny(session,gate,"POLICYGATE_CONTEXT_REQUIRED: call system_context with agents and current_state, then retry. Retain Mcp-Session-Id or supply the returned context_token explicitly for reconnecting/stateless calls.",true);
+      return deny(session,gate,"POLICYGATE_CONTEXT_REQUIRED: call system_context with docs=[agents,current_state], then pass its returned context_token into this tool call if your client changes MCP sessions. Otherwise retain Mcp-Session-Id. If the token expired or context changed, call system_context again. The token never grants privileged approval.",true);
     }
   }
   let approval=cls.requiresProxyApproval;

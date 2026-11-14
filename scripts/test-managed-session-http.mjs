@@ -56,7 +56,9 @@ try{
  const retained=await rawCall('run_command',{command:'pwd'},adopted.id);assert.equal(retained.body.result.structuredContent.ok,true);
  const dropped=await rawCall('run_command',{command:'pwd'});assert.match(JSON.stringify(dropped.body),/POLICYGATE_CONTEXT_REQUIRED/);
  const contextToken=adopted.body.result.structuredContent.data.context_token;
+ const expires=adopted.body.result.structuredContent.data.context_expires_at;
  assert.equal(typeof contextToken,'string');
+ assert.ok(Number.isFinite(expires)&&expires>Date.now()&&expires<=Date.now()+300000,'Context token expiry must be within five minutes');
  const stateless=await rawCall('run_command',{command:'pwd',context_token:contextToken});assert.equal(stateless.body.result.structuredContent.ok,true,JSON.stringify(stateless));
  const noImplicitGrant=await rawCall('run_command',{command:'pwd'},stateless.id);assert.match(JSON.stringify(noImplicitGrant.body),/POLICYGATE_CONTEXT_REQUIRED/);
  const concurrent=await Promise.all(Array.from({length:4},()=>rawCall('run_command',{command:'pwd',context_token:contextToken})));assert.ok(concurrent.every(r=>r.body.result.structuredContent.ok));
