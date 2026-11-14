@@ -66,6 +66,11 @@ bridge-dev mode sudo
 bridge-dev mode sudo --off
 ```
 
+For a **single local shell helper** with explicit verification and recovery
+instructions, use [scripts/bridge-dev-recover.sh](scripts/bridge-dev-recover.sh):
+`sh bridge-dev-recover.sh check`, `on 60`, or `off`.
+It does not deploy code or replace the independent operator.
+
 Full System displays `Enable Full System (sudo)? [Y/n]`. Press Enter or `y` to approve, or `n` to decline. Use `--duration 60` for an optional timed session. **The portable installer does not install the privileged host controller or automatically activate sudo.** [Linux controller setup](docs/HOST_CONTROLLER.md).
 
 ## Platforms
