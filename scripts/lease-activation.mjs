@@ -3,6 +3,9 @@ import path from 'node:path';
 
 // The deployment's policy/public-key owner is the activation authority. In the
 // hardened installation that is root; isolated fixtures own their own policy.
+// Only a literal Y from an independent operator TTY confirms root access.
+export function operatorConfirmedYes(answer){return typeof answer==='string'&&answer.trim().toLowerCase()==='y';}
+
 export function readLeaseActivation(filename,authorityFile){
  try{
   const authority=fs.lstatSync(authorityFile),file=fs.lstatSync(filename),parent=fs.lstatSync(path.dirname(filename));

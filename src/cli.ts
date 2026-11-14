@@ -218,24 +218,30 @@ function runOperator(args: string[]): void {
 
 async function cmdMode(args: string[]) {
   const target = args[0]?.toLowerCase();
-  if (!target) {
+  if (!target || target === "status") {
     const reading = getActiveMode();
-    console.log("Mode: " + reading.mode + " (" + reading.detail + ")");
-    if (reading.mode === "UNKNOWN") {
-      console.log("For an authoritative status use the installed operator's status command.");
+    const label = reading.mode === "YOLO" ? "Full System (sudo)" :
+      reading.mode === "STANDARD" ? "Read & Write" : "Unavailable (internal safety lock)";
+    console.log("Mode: " + label + " (" + reading.detail + ")");
+    if (reading.mode === "STRICT" || reading.mode === "UNKNOWN")
+      console.log("Protected state prevents Read & Write. Use 'bridge-dev mode read-write' from your own terminal.");
+    return;
+  }
+  if (["read-write","readwrite","rw","standard"].includes(target)) {
+    if(getRuntimeMode()==="portable"){console.log(await operatorApi("/api/mode",{mode:"standard"}));return;}
+    runOperator(["mode","standard"]);
+    return;
+  }
+  if (["sudo","full-system","yolo"].includes(target)) {
+    if(getRuntimeMode()==="portable") {
+      console.error("Full System (sudo) needs the optional Linux host controller; portable mode cannot elevate.");
+      process.exitCode=1;return;
     }
+    if(args.includes("--off")) runOperator(["mode","standard"]);
+    else runOperator(["yolo", ...args.slice(1)]);
     return;
   }
-  if (target === "strict" || target === "standard") {
-    if(getRuntimeMode()==="portable"){console.log(await operatorApi("/api/mode",{mode:target}));return;}
-    runOperator(["mode", target]);
-    return;
-  }
-  if (target === "yolo") {
-    runOperator(["yolo", ...args.slice(1)]);
-    return;
-  }
-  console.error("Usage: bridge-dev mode [strict | standard | yolo --duration <minutes> | yolo --off]");
+  console.error("Usage: bridge-dev mode [read-write | sudo --duration <1-120> | sudo --off]");
   process.exitCode = 1;
 }
 
@@ -452,7 +458,10 @@ function cmdHelp() {
   console.log("  (no args)             Display compact status report");
   console.log("  status                Detailed connection, service and project status");
   console.log("  connect               Show token-in-URL MCP connection instructions (--show-token)");
-  console.log("  mode [name]           Operator-controlled mode (strict, standard, yolo)");
+  console.log("  mode [status]         Show Read & Write or Full System (sudo) state");
+  console.log("  mode read-write       Enable normal scoped work (no blanket sudo)");
+  console.log("  mode sudo --duration 60  Ask [y/N] for temporary host-root access");
+  console.log("  mode sudo --off       Revoke root access and return to Read & Write");
   console.log("  project <subcommand>  Linux only: operator-controlled project mappings");
   console.log("  doctor                Run system diagnostics and verify environment health");
   console.log("  setup                 Verify directory paths and installation prerequisites");
@@ -471,10 +480,10 @@ function cmdHelp() {
   console.log("  deploy plan|start|status|logs|verify|rollback|cleanup  Recoverable cutover jobs");
   console.log("  --json --verbose      Machine-readable output or diagnostic errors");
   console.log("  help, --help          Show this help menu\n");
-  console.log("Security Modes:");
-  console.log("  STRICT    : Read-only inspection; mutations require signed operator approval.");
-  console.log("  STANDARD  : Default everyday dev; routine project edits permitted; sudo gated.");
-  console.log("  YOLO      : Time-limited, root-operator-signed lease for maintenance.");
+  console.log("Managed Linux modes:");
+  console.log("  Read & Write : Approved workspace files, Git, ordinary shell; no blanket sudo.");
+  console.log("  Full System  : Time-limited root commands; requires local operator [y/N].");
+  console.log("  Invalid protected authorization stays in the internal STRICT safety lock.");
 }
 
 async function main() {

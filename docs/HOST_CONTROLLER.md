@@ -6,6 +6,17 @@ the host systemd manager. It adds no permanent daemon. Python 3, Node.js, system
 sudo and the existing Ed25519 operator public key are required; no npm dependency
 is added. Windows/macOS portable gateways do not install this component.
 
+## Two user-facing modes
+
+- `bridge-dev mode read-write`: ordinary scoped filesystem, Git and command work.
+- `bridge-dev mode sudo --duration 60`: asks `Enable Full System (sudo)? [y/N]` in the operator's own terminal. Only `y` (case-insensitive) authorizes root access for 1–120 minutes.
+- `bridge-dev mode sudo --off`: revokes the lease and returns to Read & Write.
+
+This requires the separately installed root-owned controller. The internal STRICT
+profile remains a **fail-closed safety lock**, not a third user-facing choice.
+If the controller is installed but the protected mode is STRICT, explicitly
+select `read-write` locally; never silently downgrade that safety lock.
+
 ## Authority and limits
 
 An independently opened root terminal issues the existing signed YOLO lease:

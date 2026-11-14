@@ -30,6 +30,10 @@ try {
   assert.equal(formatMcpEndpoint("https://test.example/","secret"),"https://test.example/mcp/<MCP_TOKEN>");
   assert.equal(formatMcpEndpoint("https://test.example","abc",true),"https://test.example/mcp/abc");
   const invalid=run(["unknown-command","--json"]);assert.equal(invalid.status,1);assert.equal(JSON.parse(invalid.stderr).code,"BRIDGEDEV_ERROR");
+  const help=run(["help"]);assert.equal(help.status,0,help.stderr);
+  assert.match(help.stdout,/mode read-write/);assert.match(help.stdout,/mode sudo --duration 60/);
+  const denied=run(["mode","sudo"]);assert.notEqual(denied.status,0);
+  assert.match(denied.stderr,/portable mode cannot elevate/);
   const conn=run(["connect"]);
   assert.equal(conn.status,0,conn.stderr);
   assert.match(conn.stdout,/\/mcp\/<MCP_TOKEN>/);

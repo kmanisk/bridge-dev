@@ -4,7 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {generateKeyPairSync,sign,verify,randomUUID,createHash} from 'node:crypto';
+import {operatorConfirmedYes} from './lease-activation.mjs';
 if(!process.env.BRIDGEDEV_TEST_ROOT)throw Error('Use isolated-tests.mjs');
+for(const [answer,expected] of [['y',true],['Y',true],[' y ',true],['n',false],['N',false],['yes',false],['ENABLE YOLO',false],['',false]])
+ assert.equal(operatorConfirmedYes(answer),expected,'Unexpected root confirmation acceptance: '+JSON.stringify(answer));
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'bridge-controller-'));
 try{
  const keys=generateKeyPairSync('ed25519',{publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:{type:'pkcs8',format:'pem'}});

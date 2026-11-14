@@ -5,10 +5,11 @@ import { createHash, sign, verify, generateKeyPairSync, randomUUID } from "node:
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import {spawnSync} from "node:child_process";
-import {readLeaseActivation,verifyLeaseActivation} from "./lease-activation.mjs";
+import {readLeaseActivation,verifyLeaseActivation,operatorConfirmedYes} from "./lease-activation.mjs";
 
 const args = process.argv.slice(2);
-if(args[0]==="mode"&&args[1]==="yolo")args.splice(0,2,"yolo");
+if(args[0]==="mode"&&["yolo","sudo"].includes(args[1]))args.splice(0,2,"yolo");
+if(args[0]==="mode"&&["read-write","rw"].includes(args[1]))args.splice(0,2,"mode","standard");
 const action = args[0];
 const id = args[1];
 
@@ -117,7 +118,7 @@ if (action === "yolo") {
   const privateKey = fs.readFileSync(keyFile);
 
   console.log("\n=======================================================");
-  console.log("WARNING: YOLO / FULL ACCESS MODE");
+  console.log("Full System (sudo) — independent operator confirmation");
   console.log("This grants unrestricted system-wide administration capabilities.");
   console.log(`Duration: ${durationMin} minutes. Reverts automatically to the protected base mode.`);
   console.log("=======================================================\n");
@@ -127,14 +128,17 @@ if (action === "yolo") {
     let answer = "", timer;
     try {
       answer = await Promise.race([
-        rl.question("Type ENABLE YOLO to confirm activation: "),
+        rl.question("Enable Full System (sudo)? [y/N]: "),
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Confirmation timeout")), 30000); }),
       ]);
     } finally {
       clearTimeout(timer);
       rl.close();
     }
-    if (answer.trim() !== "ENABLE YOLO") throw new Error("Operator cancelled YOLO activation");
+    if (!operatorConfirmedYes(answer)) {
+      console.log("Full System declined. No root lease created.");
+      process.exit(0);
+    }
   }
 
   const expires_at = Date.now() + durationMin * 60 * 1000;
@@ -169,24 +173,21 @@ if (action === "yolo") {
 
 if (action === "mode") {
   const targetMode = id?.toLowerCase();
-  if (!["strict", "standard", "yolo"].includes(targetMode)) {
+  if (!["strict", "standard"].includes(targetMode)) {
     throw new Error("Usage: policygate-operator.mjs mode <strict|standard|yolo>");
   }
-  if (targetMode === "yolo") {
-    // Re-dispatch to yolo activation
-    process.argv = [process.argv[0], process.argv[1], "yolo", ...args.slice(2)];
-    // Will be handled above
-  } else {
+  {
     // If YOLO active, deactivate it
-    if (fs.existsSync(yoloLeasePath)) {
-      fs.unlinkSync(yoloLeasePath);
-    }
-    revokeJobs();
-    fs.mkdirSync(path.dirname(modeFilePath), { recursive: true, mode: 0o755 });
-    fs.writeFileSync(modeFilePath, JSON.stringify({ mode: targetMode, updated_at: Date.now() }, null, 2) + "\n", { mode: 0o644 });
+    // Commit protected controller state first. Never leave a misleading
+    // service-writable legacy mode record if the root controller rejects it.
     if(process.env.POLICYGATE_TEST_OPERATOR!=="1"&&fs.existsSync("/usr/local/bin/bridge-dev-controller")){
       const changed=spawnSync("/usr/local/bin/bridge-dev-controller",["mode",targetMode],{stdio:"inherit",env:{PATH:"/usr/bin:/bin"},timeout:30000});
-      if(changed.status!==0)throw new Error("Protected controller mode update failed; operator review required");
+      if(changed.status!==0)throw new Error("Protected controller mode update failed; mode unchanged");
+    } else {
+      if (fs.existsSync(yoloLeasePath)) fs.unlinkSync(yoloLeasePath);
+      revokeJobs();
+      fs.mkdirSync(path.dirname(modeFilePath), { recursive: true, mode: 0o755 });
+      fs.writeFileSync(modeFilePath, JSON.stringify({ mode: targetMode, updated_at: Date.now() }, null, 2) + "\n", { mode: 0o644 });
     }
     console.log(`Active mode switched to ${targetMode.toUpperCase()}.`);
     process.exit(0);

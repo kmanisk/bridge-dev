@@ -102,7 +102,8 @@ def main():
         if os.path.exists(temporary): os.unlink(temporary)
     print('Installed inactive on-demand host controller. Gateway, credentials and audit ledger unchanged.')
     print('Verified controller backup: '+str(backup))
-    print('Activate once from this independent operator terminal:')
-    print('sudo /usr/bin/node /usr/local/libexec/bridge-dev/policygate-operator.mjs yolo --duration 60')
+    print('Select Read & Write from the independent operator terminal: bridge-dev mode read-write')
+    print('To request Full System (sudo): bridge-dev mode sudo --duration 60')
+    print('Full System asks: Enable Full System (sudo)? [y/N]')
 
 if __name__=='__main__': main()
