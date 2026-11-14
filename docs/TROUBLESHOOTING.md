@@ -36,6 +36,28 @@ break native gateway tools. After disable/remove, stale manifests cannot authori
 calls. Clients that cache tools may require reconnecting or a new chat even after
 tool-list notifications were sent.
 
+## Full System (sudo) CLI and verification
+
+On managed Linux, `bridge-dev mode sudo` requests independent operator
+confirmation. Prefer `bridge-dev mode sudo --duration 60` to a permanent
+lease; `bridge-dev mode sudo --off` deactivates it. The portable installer
+does not provision the privileged controller.
+
+If `bridge-dev mode sudo` prints the outdated
+`strict | standard | yolo` usage, inspect the executable selected by
+`type -a bridge-dev` (fish) or `command -v bridge-dev` (POSIX shells).
+The managed launcher is `/usr/local/bin/bridge-dev`, which forwards to
+`/opt/bridge-dev/dist/cli.js`. An older user-local executable can shadow
+it. Inspect before changing anything; **do not** overwrite the managed
+gateway with the portable installer.
+
+An operator-signed lease and verified controller activation are not proof
+that the running gateway accepted Full System. Check `bridge-dev mode
+status` in the independent terminal and the actual MCP `agent_status`.
+Require `full_machine_access: true` before relying on host-root access.
+A mismatch is a failed acceptance, not a reason to bypass policy or issue
+another permanent lease.
+
 ## Policy and cleanup
 
 `POLICYGATE_CONTEXT_REQUIRED` means the session needs `system_context` before a
