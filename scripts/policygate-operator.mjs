@@ -137,7 +137,7 @@ if (action === "yolo") {
     const rl = createInterface({ input: stdin, output: stdout });
     let answer = "";
     try {
-      answer = await rl.question("Enable Full System (sudo)? [y/N]: ");
+      answer = await rl.question("Enable Full System (sudo)? [Y/n]: ");
     } finally {
       rl.close();
     }

@@ -9,7 +9,7 @@ is added. Windows/macOS portable gateways do not install this component.
 ## Two user-facing modes
 
 - `bridge-dev mode read-write`: ordinary scoped filesystem, Git and command work.
-- `bridge-dev mode sudo`: asks `Enable Full System (sudo)? [y/N]` in the operator's own terminal. Only `y` enables Full System **until manually disabled**, including after reboot.
+- `bridge-dev mode sudo`: asks `Enable Full System (sudo)? [Y/n]` in the operator's own terminal. Press **Enter** (default Yes) or type `y` to enable Full System **until manually disabled**, including after reboot. Type `n` to decline.
 - `bridge-dev mode sudo --duration 60`: optional time-limited access for 1–120 minutes.
 - `bridge-dev mode sudo --off`: revokes the lease and returns to Read & Write.
 

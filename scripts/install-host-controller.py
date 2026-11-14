@@ -125,6 +125,6 @@ def main():
     print('Verified controller backup: '+str(backup))
     print('Select Read & Write from the independent operator terminal: bridge-dev mode read-write')
     print('To request Full System (sudo): bridge-dev mode sudo --duration 60')
-    print('Full System asks: Enable Full System (sudo)? [y/N]')
+    print('Full System asks: Enable Full System (sudo)? [Y/n] (Enter or y = Yes; n = No)')
 
 if __name__=='__main__': main()

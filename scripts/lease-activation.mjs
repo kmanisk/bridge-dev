@@ -3,8 +3,13 @@ import path from 'node:path';
 
 // The deployment's policy/public-key owner is the activation authority. In the
 // hardened installation that is root; isolated fixtures own their own policy.
-// Only a literal Y from an independent operator TTY confirms root access.
-export function operatorConfirmedYes(answer){return typeof answer==='string'&&answer.trim().toLowerCase()==='y';}
+// User-facing Full System prompt defaults to Yes on explicit Enter.
+// No input object/EOF/cancel and any nonempty answer other than 'y' decline.
+export function operatorConfirmedYes(answer){
+ if(typeof answer!=='string')return false;
+ const normalized=answer.trim().toLowerCase();
+ return normalized===''||normalized==='y';
+}
 
 export function isPermanentLease(lease){
  return lease?.mode==='dangerous'&&lease.scope==='host-root-v1'&&lease.lifetime==='until_off'&&

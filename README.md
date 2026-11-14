@@ -56,10 +56,10 @@ The two user-facing modes for a **managed Linux host** are:
 Full System asks in **your own local terminal**:
 
 ```text
-Enable Full System (sudo)? [y/N]:
+Enable Full System (sudo)? [Y/n]:
 ```
 
-- Enter **y** to activate the lease, or **n** / Enter to decline.
+- Press **Enter** (default Yes) or type **y** to activate; type **n** to decline.
 - Full System stays active until manually disabled, including across reboots. Optional timed mode: `bridge-dev mode sudo --duration 60` (1–120 minutes).
 - Run `bridge-dev mode sudo --off` to revoke it and return to Read & Write.
 - The host controller must first be installed by an independent root operator. See [installation and setup](docs/HOST_CONTROLLER.md).
