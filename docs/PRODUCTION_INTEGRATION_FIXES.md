@@ -1,3 +1,12 @@
+# Historical production integration evidence
+
+The initial audit and proposed procedure below are historical. The executed
+f909c32 cutover and later rollback receipts supersede the original pending plan.
+Use [DEPLOYMENT.md](DEPLOYMENT.md) and the versioned acceptance harness for current
+physical-directory cutovers; do not use the old symlink proposal below. Current
+source supports explicit short-lived context capabilities for stateless clients.
+Real ChatGPT account acceptance is always reported separately.
+
 # Production integration fixes and pending cutover
 
 ## Evidence and baseline (2026-11-14)
@@ -54,7 +63,7 @@ MCP session header. Shared bearer credentials, client names, IP or User-Agent ar
 not a safe substitute. Actual ChatGPT acceptance remains a cutover gate; isolated
 client success must not be reported as production connector success.
 
-## Approval-required production procedure
+## Historical initial proposed procedure (superseded)
 
 This is a plan, not an executed deployment. Use the final published, CI-green SHA
 from the completion report as RELEASE_SHA. Stage at

@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import { spawn } from "child_process";
 import path from "path";
+import {readPermissionError} from "./read-errors.js";
 
 export function isPermissionError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -57,9 +58,10 @@ export async function readFileSafe(filePath: string, encoding: "utf-8" | "buffer
     return await fs.readFile(filePath, "utf-8");
   } catch (err) {
     if (isPermissionError(err) && canUseSudo()) {
-      const buf = await sudoExec("cat", [filePath]);
+      const buf = await sudoExec("cat", [filePath]).catch(() => { throw readPermissionError("file", path.basename(filePath)); });
       return encoding === "buffer" ? buf : buf.toString("utf-8");
     }
+    if (isPermissionError(err)) throw readPermissionError("file", path.basename(filePath));
     throw err;
   }
 }

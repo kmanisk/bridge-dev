@@ -62,3 +62,12 @@ and actual root verification require an independent operator bootstrap/lease.
 Unrestricted host root can modify local enforcement/signing keys: do not claim a
 tamper-proof lease or automatic undo of arbitrary root changes. Preserve normal
 STRICT/STANDARD checks and report real ChatGPT acceptance separately.
+
+## Versioned deployment acceptance
+
+See scripts/deploy-acceptance/README.md and docs/DEPLOYMENT.md. Acceptance fixtures
+now have explicit modes and actual service-namespace/UID preflight; root rehearsal
+uses synthetic state and tests inaccessible files/parents before positive MCP
+acceptance. Skill/file/document permission errors are sanitized and fail closed.
+Local and CI results must be checked on the final SHA; source changes alone do not
+prove deployment or real ChatGPT account acceptance.

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { hasHostContext } from "./runtime.js";
+import {isReadPermissionError,readPermissionError} from "./read-errors.js";
 
 const SOURCE_DIR = () => path.resolve(process.env.BRIDGEDEV_SYSTEM_CONTEXT_DIR || process.env.LOCAL_CODER_CHEZMOI_SOURCE_DIR || path.join(os.homedir(), ".local/share/chezmoi"));
 
@@ -45,7 +46,7 @@ export async function readSystemDocument(key: SystemDocKey, maxBytes = 18000): P
       truncated: bytes.length > maxBytes,
     };
   } catch (err) {
-    return { kind: key, path: filename, error: err instanceof Error ? err.message : String(err) };
+    return { kind: key, path: filename, error: isReadPermissionError(err) ? readPermissionError("document", key).message : err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -62,7 +63,7 @@ export async function readDetailedSystemDocument(relativePath: string, maxBytes 
     return { kind: "detail", path: canonical, content: bytes.subarray(0, maxBytes).toString("utf8"),
       sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length, truncated: bytes.length > maxBytes };
   } catch (err) {
-    return { kind: "detail", path: desired, error: err instanceof Error ? err.message : String(err) };
+    return { kind: "detail", path: desired, error: isReadPermissionError(err) ? readPermissionError("document", path.basename(relativePath)).message : err instanceof Error ? err.message : String(err) };
   }
 }
 
