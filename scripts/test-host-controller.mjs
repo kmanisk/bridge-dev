@@ -16,7 +16,7 @@ try{
  await fs.writeFile(config.public_key,keys.publicKey);
  const configFile=path.join(root,'controller.json');await fs.writeFile(configFile,JSON.stringify(config));
  const check=(input={},ok=true)=>{const r=spawnSync(process.execPath,['scripts/controller-authorize.mjs',configFile],{input:JSON.stringify(input),encoding:'utf8',timeout:10000});assert.equal(r.status,ok?0:1,r.stderr);return r.status===0?JSON.parse(r.stdout):null;};
- const makeLease=async(expires=Date.now()+60_000)=>{const lease={mode:'dangerous',expires_at:expires,nonce:randomUUID(),scope:'host-root-v1'};lease.signature=sign(null,Buffer.from(JSON.stringify(lease)),keys.privateKey).toString('base64');await fs.writeFile(config.lease,JSON.stringify(lease));return lease;};
+ const makeLease=async(expires=Date.now()+60_000)=>{const lease={mode:'dangerous',expires_at:expires,nonce:randomUUID(),scope:'host-root-v1',...(expires===null?{lifetime:'until_off'}:{})};lease.signature=sign(null,Buffer.from(JSON.stringify(lease)),keys.privateKey).toString('base64');await fs.writeFile(config.lease,JSON.stringify(lease));return lease;};
  let lease=await makeLease();await fs.writeFile(config.activation_file,JSON.stringify({mode:'standard'}));check({},false);
  check({operator_activation:true});await fs.writeFile(config.activation_file,JSON.stringify({mode:'standard',nonce:lease.nonce,expires:lease.expires_at}));assert.equal(check().kind,'yolo');
  assert.equal(verify(null,Buffer.from(JSON.stringify({mode:lease.mode,expires_at:lease.expires_at,nonce:lease.nonce})),keys.publicKey,Buffer.from(lease.signature,'base64')),false,'Legacy gateways must not accept host-scoped leases');
@@ -26,6 +26,19 @@ try{
  await fs.writeFile(config.activation_file,JSON.stringify({mode:'standard'}));check({},false); // revocation defeats replay of still-signed lease
  lease=await makeLease(Date.now()-1);await fs.writeFile(config.activation_file,JSON.stringify({mode:'standard',nonce:lease.nonce,expires:lease.expires_at}));check({},false);
  lease=await makeLease();lease.expires_at+=1000;await fs.writeFile(config.lease,JSON.stringify(lease));check({},false);
+ // A signed until-off lease is revoked by changing its protected nonce.
+ lease=await makeLease(null);
+ await fs.writeFile(config.activation_file,JSON.stringify({mode:'standard',nonce:lease.nonce,expires:null,lifetime:'until_off'}));
+ const forever=check();assert.equal(forever.kind,'yolo');assert.equal(forever.lifetime,'until_off');assert.equal(forever.expires,null);
+ await fs.writeFile(config.activation_file,JSON.stringify({mode:'standard',nonce:lease.nonce,expires:null}));
+ check({},false);
+ await fs.writeFile(config.activation_file,JSON.stringify({mode:'standard'}));
+ check({},false);
+ lease=await makeLease(null);
+ await fs.writeFile(config.activation_file,JSON.stringify({mode:'standard',nonce:lease.nonce,expires:null,lifetime:'until_off'}));
+ lease.lifetime='tampered';await fs.writeFile(config.lease,JSON.stringify(lease));
+ check({},false);
+ await fs.writeFile(config.activation_file,JSON.stringify({mode:'standard'}));
  const args={command:'sudo -n id',working_directory:'/fixture'},session_id=randomUUID();
  const fingerprint=createHash('sha256').update(JSON.stringify({sessionId:session_id,tool:'run_command',args})).digest('hex');
  const request={id:fingerprint.slice(0,24),fingerprint,session_id,expires_at:Date.now()+60_000,tool:'run_command',args};
@@ -43,6 +56,12 @@ try{
  const activated=spawnSync(process.execPath,['scripts/policygate-operator.mjs','mode','yolo','--duration','1'],{env:operatorEnv,encoding:'utf8'});assert.equal(activated.status,0,activated.stderr);
  const issued=JSON.parse(await fs.readFile(config.lease,'utf8'));assert.ok(issued.expires_at>Date.now()&&issued.expires_at<=Date.now()+60_000);
  const revoked=spawnSync(process.execPath,['scripts/policygate-operator.mjs','yolo','--off'],{env:operatorEnv,encoding:'utf8'});assert.equal(revoked.status,0,revoked.stderr);
+ const foreverCommand=spawnSync(process.execPath,['scripts/policygate-operator.mjs','yolo'],{env:operatorEnv,encoding:'utf8'});
+ assert.equal(foreverCommand.status,0,foreverCommand.stderr);
+ const untilOff=JSON.parse(await fs.readFile(config.lease,'utf8'));
+ assert.equal(untilOff.expires_at,null);assert.equal(untilOff.lifetime,'until_off');
+ const ended=spawnSync(process.execPath,['scripts/policygate-operator.mjs','yolo','--off'],{env:operatorEnv,encoding:'utf8'});
+ assert.equal(ended.status,0,ended.stderr);
  const python=spawnSync('python3',['-B','scripts/test-host-controller.py',root],{encoding:'utf8',timeout:60000});assert.equal(python.status,0,python.stdout+python.stderr);console.log(python.stdout.trim());
  console.log('Controller cryptographic lease, independent activation anchor, replay revocation, expiry, exact signed approval and tampering checks PASS (unprivileged fixtures)');
 }finally{await fs.rm(root,{recursive:true,force:true});}

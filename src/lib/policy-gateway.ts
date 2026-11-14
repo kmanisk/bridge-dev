@@ -5,7 +5,7 @@ import os from "node:os";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual, verify } from "node:crypto";
 import { requestIdentity } from "./request-identity.js";
 import {hostControllerAvailable} from "./host-controller.js";
-import {readLeaseActivation,verifyLeaseActivation} from "../../scripts/lease-activation.mjs";
+import {readLeaseActivation,verifyLeaseActivation,isActiveLease} from "../../scripts/lease-activation.mjs";
 import { fileURLToPath } from "node:url";
 import { assertRegistryComplete, classifyTool, type ToolClass } from "./tool-classification.js";
 import { enforcePolicy } from "./policy-enforcement.js";
@@ -156,13 +156,14 @@ export class PolicyGate {
         const content = fs.readFileSync(yoloPath, "utf8");
         const lease = JSON.parse(content) as {
           mode: string;
-          expires_at: number;
+          expires_at: number | null;
           signature: string;
           nonce?: string;
           scope?: string;
+          lifetime?: string;
         };
-        if (lease.mode === "dangerous" && typeof lease.expires_at === "number" && Date.now() < lease.expires_at) {
-          const msg = JSON.stringify({ mode: lease.mode, expires_at: lease.expires_at, ...(lease.nonce ? { nonce: lease.nonce } : {}),...(lease.scope?{scope:lease.scope}:{}) });
+        if (isActiveLease(lease)) {
+          const msg = JSON.stringify({ mode: lease.mode, expires_at: lease.expires_at, ...(lease.nonce ? { nonce: lease.nonce } : {}),...(lease.scope?{scope:lease.scope}:{}),...(lease.lifetime?{lifetime:lease.lifetime}:{}) });
           const pubKey = fs.readFileSync(pubKeyPath, "utf8");
           const ok = verify(null, Buffer.from(msg), pubKey, Buffer.from(lease.signature, "base64"));
           if (ok && controllerAvailable && activationFile && verifyLeaseActivation(activationFile,lease,this.configPath)) return "dangerous";

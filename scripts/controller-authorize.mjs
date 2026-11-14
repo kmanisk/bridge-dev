@@ -1,17 +1,19 @@
 // Invoked by the installed root controller with a protected configuration.
 import fs from 'node:fs';
 import {verify,createHash} from 'node:crypto';
-import {readLeaseActivation,verifyLeaseActivation} from './lease-activation.mjs';
+import {readLeaseActivation,verifyLeaseActivation,isActiveLease} from './lease-activation.mjs';
 const [configFile]=process.argv.slice(2),config=JSON.parse(fs.readFileSync(configFile));
 const input=JSON.parse(fs.readFileSync(0,'utf8'));
 const key=fs.readFileSync(config.public_key);
 function signed(payload,signature){return typeof signature==='string'&&verify(null,Buffer.from(JSON.stringify(payload)),key,Buffer.from(signature,'base64'));}
 try {
  const lease=JSON.parse(fs.readFileSync(config.lease));
- if(lease.mode==='dangerous'&&lease.scope==='host-root-v1'&&Number.isSafeInteger(lease.expires_at)&&lease.expires_at>Date.now()&&lease.expires_at<=Date.now()+120*60_000&&typeof lease.nonce==='string'&&
+ if(isActiveLease(lease)&&
    (input.operator_activation===true || verifyLeaseActivation(config.activation_file,lease,config.public_key))&&
-   signed({mode:lease.mode,expires_at:lease.expires_at,nonce:lease.nonce,scope:lease.scope},lease.signature)){
-   console.log(JSON.stringify({kind:'yolo',expires:lease.expires_at,nonce:lease.nonce}));process.exit(0);
+   signed({mode:lease.mode,expires_at:lease.expires_at,nonce:lease.nonce,scope:lease.scope,
+     ...(lease.lifetime?{lifetime:lease.lifetime}:{})},lease.signature)){
+   console.log(JSON.stringify({kind:'yolo',expires:lease.expires_at,nonce:lease.nonce,
+     ...(lease.lifetime?{lifetime:lease.lifetime}:{})}));process.exit(0);
  }
 }catch{}
 if(input.approval_id&&/^[a-f0-9]{24}$/.test(input.approval_id)&&input.kind==='exec'){

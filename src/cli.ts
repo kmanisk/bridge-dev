@@ -241,7 +241,7 @@ async function cmdMode(args: string[]) {
     else runOperator(["yolo", ...args.slice(1)]);
     return;
   }
-  console.error("Usage: bridge-dev mode [read-write | sudo --duration <1-120> | sudo --off]");
+  console.error("Usage: bridge-dev mode [read-write | sudo [--duration <1-120>] | sudo --off]");
   process.exitCode = 1;
 }
 
@@ -460,7 +460,8 @@ function cmdHelp() {
   console.log("  connect               Show token-in-URL MCP connection instructions (--show-token)");
   console.log("  mode [status]         Show Read & Write or Full System (sudo) state");
   console.log("  mode read-write       Enable normal scoped work (no blanket sudo)");
-  console.log("  mode sudo --duration 60  Ask [y/N] for temporary host-root access");
+  console.log("  mode sudo             Ask [y/N] to enable Full System until manually off");
+  console.log("  mode sudo --duration 60  Optional time-limited Full System access");
   console.log("  mode sudo --off       Revoke root access and return to Read & Write");
   console.log("  project <subcommand>  Linux only: operator-controlled project mappings");
   console.log("  doctor                Run system diagnostics and verify environment health");
@@ -482,7 +483,7 @@ function cmdHelp() {
   console.log("  help, --help          Show this help menu\n");
   console.log("Managed Linux modes:");
   console.log("  Read & Write : Approved workspace files, Git, ordinary shell; no blanket sudo.");
-  console.log("  Full System  : Time-limited root commands; requires local operator [y/N].");
+  console.log("  Full System  : Root commands until switched off, or optional timed; local [y/N].");
   console.log("  Invalid protected authorization stays in the internal STRICT safety lock.");
 }
 

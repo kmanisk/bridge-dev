@@ -59,6 +59,11 @@ with patch.object(c,'authorize',return_value=auth),patch.object(c,'protected'),p
     path=job(); c.worker(config,path.name)
     assert json.loads((path/'result.json').read_text())['exit_code']==0
     assert (path/'stdout').read_text()=='fixture'
+    # Non-expiring authorization does not remove the per-command deadline.
+    forever={'kind':'yolo','nonce':'fixture','expires':None,'lifetime':'until_off'}
+    path=job()
+    with patch.object(c,'authorize',return_value=forever): c.worker(config,path.name)
+    assert json.loads((path/'result.json').read_text())['exit_code']==0
     # Multi-command shell operations run verbatim, as the unprivileged fixture UID.
     path=job(argv=['/bin/sh','-c','id -u; mkdir -p fixture-dir; printf data > fixture-dir/file; cat fixture-dir/file; rm -r fixture-dir'])
     c.worker(config,path.name); assert (path/'stdout').read_text().strip()==str(os.getuid())+'\ndata'

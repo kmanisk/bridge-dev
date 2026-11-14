@@ -14,7 +14,7 @@ BridgeDev is a self-hosted MCP gateway for inspecting and editing files, executi
 - **One MCP endpoint:** Connect ChatGPT, Codex, Claude and compatible clients to your machine.
 - **Extensions:** Discover and review MCP servers, `SKILL.md` skills and instructions from GitHub, URLs and local folders.
 - **Admin UI:** Inspect integrations, permissions and enabled tools.
-- **Two modes:** Read & Write for normal development; optional time-limited Full System (sudo) for managed Linux.
+- **Two modes:** Read & Write for normal development; Full System (sudo) until you switch it off on managed Linux.
 
 ## Install and try
 
@@ -51,7 +51,7 @@ The two user-facing modes for a **managed Linux host** are:
 | Mode | Access | Command |
 | --- | --- | --- |
 | **Read & Write** | Normal file, Git and shell operations within approved workspaces; no unrestricted sudo | `bridge-dev mode read-write` |
-| **Full System (sudo)** | Unrestricted host-root shell commands for a limited, operator-approved interval | `bridge-dev mode sudo --duration 60` |
+| **Full System (sudo)** | Unrestricted host-root commands until switched off | `bridge-dev mode sudo` |
 
 Full System asks in **your own local terminal**:
 
@@ -60,12 +60,12 @@ Enable Full System (sudo)? [y/N]:
 ```
 
 - Enter **y** to activate the lease, or **n** / Enter to decline.
-- Valid lease duration: **1–120 minutes**; it expires automatically.
+- Full System stays active until manually disabled, including across reboots. Optional timed mode: `bridge-dev mode sudo --duration 60` (1–120 minutes).
 - Run `bridge-dev mode sudo --off` to revoke it and return to Read & Write.
 - The host controller must first be installed by an independent root operator. See [installation and setup](docs/HOST_CONTROLLER.md).
 - If authorization is damaged or missing, an internal **STRICT safety lock** prevents writes. It is not another user-selectable mode.
 
-The network-facing gateway remains under a restricted account even when its separately authorized host controller performs sudo operations. A time-limited root grant is still **genuinely unrestricted** during its lifetime: agents may change packages, services and protected data. Revocation cannot undo past changes or guarantee recovery from deliberately persistent root activity. Do not activate it for untrusted chats or integrations.
+The gateway remains under its restricted service account; authorized root commands execute through its host controller. Full System permits unrestricted host changes until switched off; revoking access does not reverse earlier commands.
 
 On Windows, macOS and experimental Android/Termux, portable BridgeDev retains the permissions of the OS account running it; Linux-specific host-sudo mode is not available. [Platform support](docs/PLATFORM_SUPPORT.md).
 

@@ -189,7 +189,7 @@ def worker(config, identifier):
             with open(Path(config['state'])/'deployment.lock','a+') as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB); deploy(config,job,spec)
         else:
-            deadline = min(auth['expires']/1000,time.time()+spec['timeout'])
+            deadline = min(auth['expires']/1000,time.time()+spec['timeout']) if auth['expires'] is not None else time.time()+spec['timeout']
             with (job/'stdout').open('wb') as stdout, (job/'stderr').open('wb') as stderr:
                 child = subprocess.Popen(spec['argv'],cwd=spec['cwd'],env=CLEAN,stdin=subprocess.DEVNULL,stdout=stdout,stderr=stderr,start_new_session=True)
                 revoked = False
@@ -234,7 +234,8 @@ def dispatch(config, action, args):
             audit(config,{'phase':'mode','status':args[0]}); return {'mode':args[0]}
         mode=base_mode(config); atomic(config['activation_file'],{'mode':mode},0o644)
         auth=authorize(config,{'operator_activation':True})
-        atomic(config['activation_file'],{'mode':mode,'nonce':auth['nonce'],'expires':auth['expires']},0o644)
+        atomic(config['activation_file'],{'mode':mode,'nonce':auth['nonce'],'expires':auth['expires'],
+                                                **({'lifetime':'until_off'} if auth.get('lifetime')=='until_off' else {})},0o644)
         audit(config,{'phase':'lease','status':'activated','expires':auth['expires']})
         return {'activated':True,'expires':auth['expires']}
     if action=='revoke':
@@ -299,7 +300,12 @@ def dispatch(config, action, args):
         result=state(job,job_id=identifier,request_id=key,request_sha256=request_hash,owner=caller,kind=request['kind'],status='PENDING',exit_code=None,log_path=str(job))
         audit(config,{'phase':'authorization','job_id':identifier,'status':'granted','kind':auth['kind'],'owner':caller,'request_sha256':request_hash})
         try:
-            runtime = 300 if request['kind']=='deploy' else max(1,min(request['timeout'],int((auth['expires']/1000-time.time()))))
+            if request['kind']=='deploy':
+                runtime = 300
+            elif auth['expires'] is None:
+                runtime = request['timeout']
+            else:
+                runtime = max(1,min(request['timeout'],int(auth['expires']/1000-time.time())))
             run(['/usr/bin/systemd-run','--quiet','--collect','--unit=bridge-dev-job-'+identifier,'--property=Type=exec','--property=KillMode=control-group',
                  '--property=TimeoutStopSec=5s','--property=RuntimeMaxSec='+str(runtime)+'s', '/usr/bin/python3','-I',IMPLEMENTATION,'_worker',identifier])
         except Exception:

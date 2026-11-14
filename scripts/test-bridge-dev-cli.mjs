@@ -79,6 +79,17 @@ try {
     fs.writeFileSync(activationFile,JSON.stringify({mode:"standard",nonce:lease.nonce,expires:lease.expires_at}));
     fs.writeFileSync(path.join(state,"yolo-lease.json"),JSON.stringify(scopedSigned));
     assert.equal(inspectLocalMode({stateDir:state,publicKeyFile:pub,activationFile,now}).mode,"YOLO");
+    const permanent={mode:"dangerous",expires_at:null,nonce:"manual-toggle",scope:"host-root-v1",lifetime:"until_off"};
+    const signedPermanent={...permanent,signature:sign(null,Buffer.from(JSON.stringify(permanent)),kp.privateKey).toString("base64")};
+    assert.equal(isValidSignedLease(signedPermanent,pem,now),true);
+    assert.equal(isValidSignedLease({...signedPermanent,lifetime:"fake"},pem,now),false);
+    assert.equal(isValidSignedLease({...signedPermanent,expires_at:undefined},pem,now),false);
+    fs.writeFileSync(activationFile,JSON.stringify({mode:"standard",nonce:permanent.nonce,expires:null,lifetime:"until_off"}));
+    fs.writeFileSync(path.join(state,"yolo-lease.json"),JSON.stringify(signedPermanent));
+    assert.equal(inspectLocalMode({stateDir:state,publicKeyFile:pub,activationFile,now}).mode,"YOLO");
+    fs.writeFileSync(activationFile,JSON.stringify({mode:"standard"}));
+    assert.equal(inspectLocalMode({stateDir:state,publicKeyFile:pub,activationFile,now}).mode,"STANDARD");
+    fs.writeFileSync(path.join(state,"yolo-lease.json"),JSON.stringify(scopedSigned));
     fs.writeFileSync(activationFile,JSON.stringify({mode:"standard"}));
     assert.equal(inspectLocalMode({stateDir:state,publicKeyFile:pub,activationFile,now}).mode,"STANDARD");
     fs.writeFileSync(activationFile,JSON.stringify({mode:"strict"}));

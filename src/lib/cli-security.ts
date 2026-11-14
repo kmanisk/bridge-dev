@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { verify } from "node:crypto";
 import { verifyAuditFile } from "./hash-audit.js";
-import {readLeaseActivation,verifyLeaseActivation} from "../../scripts/lease-activation.mjs";
+import {readLeaseActivation,verifyLeaseActivation,isActiveLease} from "../../scripts/lease-activation.mjs";
 
 export type CliMode = "STRICT" | "STANDARD" | "YOLO" | "UNKNOWN";
 export interface ModeReading { mode: CliMode; detail: string; }
@@ -13,13 +13,15 @@ export function formatMcpEndpoint(baseUrl: string, token = "", reveal = false): 
 export function isValidSignedLease(lease: unknown, publicKeyPem: string | Buffer, now = Date.now()): boolean {
   if (!lease || typeof lease !== "object") return false;
   const x = lease as Record<string, unknown>;
-  if (x.mode !== "dangerous" || typeof x.expires_at !== "number" ||
-      !Number.isFinite(x.expires_at) || x.expires_at <= now ||
+  if (!(isActiveLease(x,now) ||
+        (x.mode==="dangerous" && x.scope===undefined && x.lifetime===undefined &&
+          Number.isSafeInteger(x.expires_at) && (x.expires_at as number)>now &&
+          typeof x.nonce==="string" && x.nonce.length>0)) ||
       typeof x.signature !== "string" || !/^[A-Za-z0-9+/]{86}==$/.test(x.signature) ||
       (x.scope!==undefined&&x.scope!=="host-root-v1") ||
       (x.nonce !== undefined && (typeof x.nonce !== "string" || !x.nonce.length))) return false;
   try {
-    const message = JSON.stringify({mode:x.mode,expires_at:x.expires_at,...(x.nonce?{nonce:x.nonce}:{}),...(x.scope?{scope:x.scope}:{})});
+    const message = JSON.stringify({mode:x.mode,expires_at:x.expires_at,...(x.nonce?{nonce:x.nonce}:{}),...(x.scope?{scope:x.scope}:{}),...(x.lifetime?{lifetime:x.lifetime}:{})});
     return verify(null,Buffer.from(message),publicKeyPem,Buffer.from(x.signature,"base64"));
   } catch { return false; }
 }
@@ -33,14 +35,14 @@ export function inspectLocalMode(options: {
   try {
     if (fs.existsSync(leaseFile)) {
       const lease = JSON.parse(fs.readFileSync(leaseFile,"utf8"));
-      if (typeof lease.expires_at !== "number") return {mode:"UNKNOWN",detail:"invalid lease state"};
-      if (lease.expires_at > (options.now ?? Date.now())) {
+      if (isActiveLease(lease, options.now ?? Date.now())) {
         if (!isValidSignedLease(lease,fs.readFileSync(options.publicKeyFile),options.now ?? Date.now())) {
           return {mode:"UNKNOWN",detail:"unverified signed lease; operator investigation required"};
         }
         if(options.activationFile&&verifyLeaseActivation(options.activationFile,lease,options.publicKeyFile)){
-          const minutes=Math.max(1,Math.ceil((lease.expires_at-(options.now??Date.now()))/60000));
-          return {mode:"YOLO",detail:"verified signed lease; "+minutes+" minute(s) remaining"};
+          const desc=lease.lifetime==="until_off"?"until manually disabled":
+            Math.max(1,Math.ceil((lease.expires_at-(options.now??Date.now()))/60000))+" minute(s) remaining";
+          return {mode:"YOLO",detail:"verified signed lease; "+desc};
         }
       }
     }

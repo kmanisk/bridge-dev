@@ -18,7 +18,7 @@ BridgeDev is a self-hosted Model Context Protocol server with server-side author
 | --- | --- |
 | STRICT | Read-only by default; writes and executable actions require independent signed approval; sudo denied |
 | STANDARD | Routine development inside explicitly approved roots; privileged/destructive commands need operator approval |
-| YOLO | Explicit temporary operator-signed lease enables privileged broker operations until expiry; never persistent |
+| YOLO (Full System) | Explicit operator-signed lease enables host-root commands until manually disabled; timed leases remain optional |
 
 Do not assume that application-level checks alone protect the host. Shell and upstream code may be indirect execution channels. Linux UID separation, filesystem permissions, namespace restrictions and operator independence remain essential.
 

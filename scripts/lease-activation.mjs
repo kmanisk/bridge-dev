@@ -6,6 +6,17 @@ import path from 'node:path';
 // Only a literal Y from an independent operator TTY confirms root access.
 export function operatorConfirmedYes(answer){return typeof answer==='string'&&answer.trim().toLowerCase()==='y';}
 
+export function isPermanentLease(lease){
+ return lease?.mode==='dangerous'&&lease.scope==='host-root-v1'&&lease.lifetime==='until_off'&&
+   lease.expires_at===null&&typeof lease.nonce==='string'&&lease.nonce.length>0;
+}
+export function isActiveLease(lease,now=Date.now()){
+ if(isPermanentLease(lease))return true;
+ return lease?.mode==='dangerous'&&lease.scope==='host-root-v1'&&lease.lifetime===undefined&&
+   Number.isSafeInteger(lease.expires_at)&&lease.expires_at>now&&lease.expires_at<=now+120*60_000&&
+   typeof lease.nonce==='string'&&lease.nonce.length>0;
+}
+
 export function readLeaseActivation(filename,authorityFile){
  try{
   const authority=fs.lstatSync(authorityFile),file=fs.lstatSync(filename),parent=fs.lstatSync(path.dirname(filename));
@@ -13,11 +24,16 @@ export function readLeaseActivation(filename,authorityFile){
     !parent.isDirectory()||parent.isSymbolicLink()||file.uid!==authority.uid||parent.uid!==authority.uid||(file.mode&0o022)||(parent.mode&0o022))return null;
   const value=JSON.parse(fs.readFileSync(filename,'utf8'));
   if(!value||!['strict','standard'].includes(value.mode))return null;
-  if(value.nonce!==undefined&&(typeof value.nonce!=='string'||value.nonce.length>128||!Number.isSafeInteger(value.expires)))return null;
+  if(value.nonce!==undefined){
+   if(typeof value.nonce!=='string'||!value.nonce.length||value.nonce.length>128)return null;
+   if(value.lifetime==='until_off'){if(value.expires!==null)return null;}
+   else if(value.lifetime!==undefined||!Number.isSafeInteger(value.expires))return null;
+  }else if(value.expires!==undefined||value.lifetime!==undefined)return null;
   return value;
  }catch{return null;}
 }
 export function verifyLeaseActivation(filename,lease,authorityFile){
  const value=readLeaseActivation(filename,authorityFile);
- return Boolean(value&&lease.scope==='host-root-v1'&&typeof lease.nonce==='string'&&lease.nonce.length&&value.nonce===lease.nonce&&value.expires===lease.expires_at&&value.expires>Date.now());
+ return Boolean(value&&isActiveLease(lease)&&value.nonce===lease.nonce&&
+    value.expires===lease.expires_at&&value.lifetime===lease.lifetime);
 }

@@ -5,7 +5,7 @@ import { createHash, sign, verify, generateKeyPairSync, randomUUID } from "node:
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import {spawnSync} from "node:child_process";
-import {readLeaseActivation,verifyLeaseActivation,operatorConfirmedYes} from "./lease-activation.mjs";
+import {readLeaseActivation,verifyLeaseActivation,operatorConfirmedYes,isActiveLease} from "./lease-activation.mjs";
 
 const args = process.argv.slice(2);
 if(args[0]==="mode"&&["yolo","sudo"].includes(args[1]))args.splice(0,2,"yolo");
@@ -60,11 +60,12 @@ if (action === "status") {
     try {
       const lease = JSON.parse(fs.readFileSync(yoloLeasePath, "utf8"));
       const pubKey = fs.readFileSync(pubFile, "utf8");
-      const msg = JSON.stringify({ mode: lease.mode, expires_at: lease.expires_at, ...(lease.nonce ? { nonce: lease.nonce } : {}),...(lease.scope?{scope:lease.scope}:{}) });
+      const msg = JSON.stringify({ mode: lease.mode, expires_at: lease.expires_at, ...(lease.nonce ? { nonce: lease.nonce } : {}),...(lease.scope?{scope:lease.scope}:{}),...(lease.lifetime?{lifetime:lease.lifetime}:{}) });
       const ok = verify(null, Buffer.from(msg), pubKey, Buffer.from(lease.signature, "base64"));
-      if (ok && Date.now() < lease.expires_at && activationFile && verifyLeaseActivation(activationFile,lease,pubFile)) {
-        const remainingMin = Math.round((lease.expires_at - Date.now()) / 60000);
-        console.log(`Current Mode : YOLO / FULL ACCESS (ACTIVE, ${remainingMin}m remaining, expires: ${new Date(lease.expires_at).toISOString()})`);
+      if (ok && isActiveLease(lease) && activationFile && verifyLeaseActivation(activationFile,lease,pubFile)) {
+        const detail=lease.lifetime==='until_off'?'ACTIVE until manually disabled':
+          `ACTIVE, ${Math.round((lease.expires_at - Date.now()) / 60000)}m remaining, expires: ${new Date(lease.expires_at).toISOString()}`;
+        console.log(`Current Mode : FULL SYSTEM / sudo (${detail})`);
         process.exit(0);
       } else {
         console.log("YOLO lease is inactive; the protected base mode applies.");
@@ -103,12 +104,18 @@ if (action === "yolo") {
 
   // Parse duration
   if(process.env.POLICYGATE_TEST_OPERATOR!=="1"&&!fs.existsSync("/usr/local/bin/bridge-dev-controller"))throw new Error("HOST_CONTROLLER_UNAVAILABLE: install the reviewed host controller before activating full-root YOLO");
-  let durationMin = 30;
-  const durIdx = args.indexOf("--duration");
-  if (durIdx !== -1) {
-    const parsed = Number(args[durIdx + 1]);
-    if(!Number.isSafeInteger(parsed)||parsed<1||parsed>120)throw new Error("Duration must be an integer from 1 to 120 minutes");
-    durationMin = parsed;
+  // No --duration means a persistent, independently authorized lease.
+  // --duration N retains the legacy bounded option.
+  const durIdx=args.indexOf("--duration");
+  if (durIdx!==-1 && args.includes("--until-off"))
+    throw new Error("Select either --duration or --until-off, not both.");
+  const permanent=durIdx===-1;
+  let durationMin=null;
+  if(!permanent){
+    const parsed=Number(args[durIdx+1]);
+    if(!Number.isSafeInteger(parsed)||parsed<1||parsed>120)
+      throw new Error("Duration must be an integer from 1 to 120 minutes");
+    durationMin=parsed;
   }
 
   const keyStat = fs.statSync(keyFile);
@@ -120,19 +127,15 @@ if (action === "yolo") {
   console.log("\n=======================================================");
   console.log("Full System (sudo) — independent operator confirmation");
   console.log("This grants unrestricted system-wide administration capabilities.");
-  console.log(`Duration: ${durationMin} minutes. Reverts automatically to the protected base mode.`);
+  console.log(permanent?"Duration: until manually disabled, including after reboot. Persistent remote root access is enabled.":`Duration: ${durationMin} minutes. Reverts automatically to the protected base mode.`);
   console.log("=======================================================\n");
 
   if (process.env.POLICYGATE_TEST_OPERATOR !== "1") {
     const rl = createInterface({ input: stdin, output: stdout });
-    let answer = "", timer;
+    let answer = "";
     try {
-      answer = await Promise.race([
-        rl.question("Enable Full System (sudo)? [y/N]: "),
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Confirmation timeout")), 30000); }),
-      ]);
+      answer = await rl.question("Enable Full System (sudo)? [y/N]: ");
     } finally {
-      clearTimeout(timer);
       rl.close();
     }
     if (!operatorConfirmedYes(answer)) {
@@ -141,10 +144,11 @@ if (action === "yolo") {
     }
   }
 
-  const expires_at = Date.now() + durationMin * 60 * 1000;
+  const expires_at = permanent?null:Date.now() + durationMin * 60 * 1000;
   const nonce = randomUUID();
   const scope="host-root-v1";
-  const leaseMsg = JSON.stringify({ mode: "dangerous", expires_at, nonce,scope });
+  const leaseMsg = JSON.stringify({ mode: "dangerous", expires_at, nonce,scope,
+    ...(permanent?{lifetime:"until_off"}:{}) });
   const signature = sign(null, Buffer.from(leaseMsg), privateKey).toString("base64");
   const leaseData = {
     mode: "dangerous",
@@ -153,6 +157,7 @@ if (action === "yolo") {
     expires_at,
     nonce,
     scope,
+    ...(permanent?{lifetime:"until_off"}:{}),
     signature
   };
 
@@ -165,8 +170,8 @@ if (action === "yolo") {
     if(activated.status!==0){fs.unlinkSync(yoloLeasePath);throw new Error("Host controller activation failed; YOLO lease removed");}
   }
 
-  console.log(`YOLO mode ENABLED for ${durationMin} minutes.`);
-  console.log(`Active until: ${new Date(expires_at).toISOString()}`);
+  console.log(permanent?"Full System ENABLED until manually disabled.":"Full System ENABLED for "+durationMin+" minutes.");
+  if(!permanent)console.log(`Active until: ${new Date(expires_at).toISOString()}`);
   console.log("To deactivate immediately, run: policygate-operator.mjs yolo --off");
   process.exit(0);
 }

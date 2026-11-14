@@ -9,7 +9,8 @@ is added. Windows/macOS portable gateways do not install this component.
 ## Two user-facing modes
 
 - `bridge-dev mode read-write`: ordinary scoped filesystem, Git and command work.
-- `bridge-dev mode sudo --duration 60`: asks `Enable Full System (sudo)? [y/N]` in the operator's own terminal. Only `y` (case-insensitive) authorizes root access for 1–120 minutes.
+- `bridge-dev mode sudo`: asks `Enable Full System (sudo)? [y/N]` in the operator's own terminal. Only `y` enables Full System **until manually disabled**, including after reboot.
+- `bridge-dev mode sudo --duration 60`: optional time-limited access for 1–120 minutes.
 - `bridge-dev mode sudo --off`: revokes the lease and returns to Read & Write.
 
 This requires the separately installed root-owned controller. The internal STRICT
@@ -22,7 +23,7 @@ select `read-write` locally; never silently downgrade that safety lock.
 An independently opened root terminal issues the existing signed YOLO lease:
 
 ```sh
-sudo /usr/bin/node /opt/bridge-dev/scripts/policygate-operator.mjs yolo --duration 60
+sudo /usr/bin/node /opt/bridge-dev/scripts/policygate-operator.mjs yolo
 sudo /usr/bin/node /opt/bridge-dev/scripts/policygate-operator.mjs yolo --off
 ```
 
@@ -32,8 +33,8 @@ and writable only by the operator/controller. The gateway and root authorizer bo
 require this same record. Replaying a copied lease after revocation cannot restore
 root access or application-level YOLO permissions. The legacy escalation broker path delegates to this same
 controller, with no separate signature-only authorization path. Activation requires root and a TTY. The remote helper
-cannot activate a lease through its sudo entry. Duration is 1–120 whole minutes;
-invalid values fail rather than silently selecting another duration.
+cannot activate a lease through its sudo entry. Omitting `--duration` issues a signed `until_off` lease with no expiry.
+Explicit `--duration` accepts 1–120 whole minutes and rejects invalid values.
 
 Full-host leases sign a `host-root-v1` scope as well as their nonce and expiry.
 Older gateway versions cannot accept that signature as a legacy YOLO lease after
@@ -51,6 +52,11 @@ root operator reports STANDARD. Inspect path owner, type and permissions before
 making the minimal correction. Do **not** chmod secrets or relax the gateway
 systemd sandbox. Verify the gateway reads STANDARD and that context -> pwd
 passes before attempting another release cutover.
+
+An `until_off` lease carries a signed `lifetime:until_off` claim and
+`expires_at:null`, paired with the root-owned activation nonce.
+Each root command retains its own timeout. Selecting Read & Write or sudo --off
+revokes the authorization and prevents new root commands.
 
 The activation record also holds the STRICT/STANDARD base mode. Once the
 controller is installed, gateway permissions and signed root approvals use that
