@@ -23,7 +23,7 @@ try{
  ws.addEventListener('message',event=>{const data=JSON.parse(event.data);if(data.id&&pending.has(data.id)){const {resolve,reject}=pending.get(data.id);pending.delete(data.id);data.error?reject(Error(JSON.stringify(data.error))):resolve(data.result);}});
  const command=(method,params={})=>new Promise((resolve,reject)=>{const id=++next;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
  const evaluate=async(expression)=>{const result=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(result.exceptionDetails)throw Error(JSON.stringify(result.exceptionDetails));return result.result.value;};
- await waitFor(()=>evaluate('Boolean(document.getElementById("admin-credential"))'));
+ await waitFor(()=>evaluate('document.readyState === "complete" && typeof refreshAll === "function" && Boolean(document.getElementById("admin-credential"))'));
  await evaluate(`document.getElementById('admin-credential').value=${JSON.stringify(admin)};document.querySelector('[data-tab="extensions"]').click();refreshAll()`);
  await evaluate(`document.getElementById('extension-source').value=${JSON.stringify(source)};document.getElementById('extension-discover').click()`);
  await waitFor(()=>evaluate('!document.getElementById("extension-approve").hidden'));
