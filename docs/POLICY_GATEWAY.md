@@ -78,6 +78,9 @@ loading only and never approves a privileged operation or changes permissions.
 
 See [HOST_CONTROLLER.md](HOST_CONTROLLER.md) for optional host-root YOLO execution,
 signed STANDARD execution, detached jobs, rollback and the limits of root leases.
+Installed controllers and the gateway share a protected activation/mode record;
+a copied signed lease cannot reactivate either layer after revocation. Full-host
+signatures include their scope so legacy gateways cannot accept them on rollback.
 
 DELETE revokes policy authorization immediately; the transport's brief cleanup grace
 period does not restore it. TTL is checked on access as well as during periodic

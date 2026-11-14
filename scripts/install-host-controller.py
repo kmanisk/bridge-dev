@@ -3,7 +3,7 @@
 import argparse, datetime, hashlib, json, os, pwd, re, shutil, subprocess, tempfile
 from pathlib import Path
 
-FILES=['host-controller.py','controller-entry.py','controller-authorize.mjs','policygate-operator.mjs','legacy-escalation.py']
+FILES=['host-controller.py','controller-entry.py','controller-authorize.mjs','lease-activation.mjs','policygate-operator.mjs','legacy-escalation.py']
 def manifest(source):
     return {name:hashlib.sha256((Path(source)/'scripts'/name).read_bytes()).hexdigest() for name in FILES}
 
@@ -41,6 +41,7 @@ def main():
         if not user or not re.fullmatch(r'[a-zA-Z_][a-zA-Z0-9_-]*\$?',user) or pwd.getpwnam(user).pw_uid==0: raise RuntimeError('Explicit non-root operator and gateway users required')
     config=Path('/etc/local-coder-policygate/controller.json')
     proposed={'public_key':'/etc/local-coder-policygate/operator-public.pem','lease':'/var/lib/local-coder-policygate/yolo-lease.json',
+              'activation_file':'/var/lib/bridge-dev-operator/active-lease.json',
               'approvals':'/var/lib/local-coder-policygate/approvals','state':'/var/lib/bridge-dev-controller',
               'policy':'/etc/local-coder-policygate/policy.json','mode_file':'/var/lib/local-coder-policygate/mode.json',
               'service':'chatgpt-local-coder-policygate.service','live':'/opt/bridge-dev','releases':'/opt/bridge-dev-releases',
@@ -56,7 +57,7 @@ def main():
     safe_parents(config)
     state=Path(proposed['state']); state.mkdir(mode=0o700,exist_ok=True)
     safe_parents(state)
-    active=state/'active-lease.json'
+    active=Path(proposed['activation_file']); safe_parents(active.parent)
     if active.exists() and json.loads(active.read_text()).get('expires',0)>datetime.datetime.now().timestamp()*1000: raise RuntimeError('Deactivate the existing controller lease before updating its implementation')
     for result in (state/'jobs').glob('*/result.json'):
         if json.loads(result.read_text()).get('status') in ['PENDING','RUNNING','VERIFYING']: raise RuntimeError('Controller job is still active: '+result.parent.name)
@@ -66,7 +67,7 @@ def main():
     # Root backup covers only controller files, never credentials or the audit ledger.
     backup=state/'bootstrap-backups'/datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'); backup.mkdir(mode=0o700,parents=True)
     legacy=Path('/usr/local/bin/local-coder-escalation-broker')
-    targets=[base/name for name in FILES]+[wrapper,config,legacy,Path('/etc/sudoers.d/bridge-dev-controller')]
+    targets=[base/name for name in FILES]+[wrapper,config,legacy,active,Path('/etc/sudoers.d/bridge-dev-controller')]
     for index,target in enumerate(targets):
         safe_parents(target)
         if target.exists():
@@ -77,6 +78,16 @@ def main():
         payload=(source/'scripts'/name).read_bytes()
         if hashlib.sha256(payload).hexdigest()!=expected[name]: raise RuntimeError('Source changed during bootstrap')
         write_atomic(base/name,payload,0o644)
+    active.parent.mkdir(mode=0o755,parents=True,exist_ok=True)
+    if not active.exists():
+        configured=json.loads(Path(proposed['policy']).read_text()).get('profile')
+        mode=configured if configured in ['strict','standard'] else 'strict'
+        prior=Path(proposed['mode_file'])
+        if prior.exists():
+            # Legacy state lived in a service-writable directory. Import only
+            # a restriction; never use it to relax a root-owned strict policy.
+            if json.loads(prior.read_text()).get('mode')=='strict': mode='strict'
+        write_atomic(active,(json.dumps({'mode':mode})+'\n').encode(),0o644)
     if not config.exists(): write_atomic(config,(json.dumps(proposed,indent=2)+'\n').encode(),0o644)
     write_atomic(wrapper,(base/'controller-entry.py').read_bytes(),0o755)
     # Retain its sudoers path/API, without a separate replayable authority path.

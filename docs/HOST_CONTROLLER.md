@@ -15,12 +15,25 @@ sudo /usr/bin/node /opt/bridge-dev/scripts/policygate-operator.mjs yolo --durati
 sudo /usr/bin/node /opt/bridge-dev/scripts/policygate-operator.mjs yolo --off
 ```
 
-With the controller installed, activation also records the signed lease nonce in
-root-only controller state. Replaying a copied lease after revocation cannot
-reactivate that nonce. The legacy escalation broker path delegates to this same
+With the controller installed, activation publishes the signed lease nonce in
+root-owned `/var/lib/bridge-dev-operator/active-lease.json`, readable by the gateway
+and writable only by the operator/controller. The gateway and root authorizer both
+require this same record. Replaying a copied lease after revocation cannot restore
+root access or application-level YOLO permissions. The legacy escalation broker path delegates to this same
 controller, with no separate signature-only authorization path. Activation requires root and a TTY. The remote helper
 cannot activate a lease through its sudo entry. Duration is 1–120 whole minutes;
 invalid values fail rather than silently selecting another duration.
+
+Full-host leases sign a `host-root-v1` scope as well as their nonce and expiry.
+Older gateway versions cannot accept that signature as a legacy YOLO lease after
+rollback. Unscoped legacy leases do not activate full-host YOLO in this version.
+Activation requires the optional controller to be installed.
+
+The activation record also holds the STRICT/STANDARD base mode. Once the
+controller is installed, gateway permissions and signed root approvals use that
+protected mode; the old service-writable mode file cannot downgrade it. Missing,
+malformed or writable activation state fails closed to STRICT. Operator mode
+changes require the independent root terminal and revoke active command jobs.
 
 YOLO `run_command` executes arbitrary `/bin/bash -c` commands as host root,
 including ordinary `sudo`, package managers and multiple shell operations. There
@@ -54,6 +67,9 @@ sudoers entries, replaces the legacy broker with a backed-up compatibility
 adapter, and writes `/etc/local-coder-policygate/controller.json`. Existing
 controller configuration must match; upgrades do not silently rewrite it. It
 does not restart the gateway, issue a lease or modify credentials/keys/ledger.
+The public activation directory contains only mode, nonce and expiry, never key
+material or credentials. Bootstrap retains a legacy STRICT restriction but never
+imports a legacy override that would relax a root-owned STRICT policy.
 
 ```sh
 python3 scripts/install-host-controller.py --source . --print-manifest

@@ -1,24 +1,22 @@
 // Invoked by the installed root controller with a protected configuration.
 import fs from 'node:fs';
 import {verify,createHash} from 'node:crypto';
+import {readLeaseActivation,verifyLeaseActivation} from './lease-activation.mjs';
 const [configFile]=process.argv.slice(2),config=JSON.parse(fs.readFileSync(configFile));
 const input=JSON.parse(fs.readFileSync(0,'utf8'));
 const key=fs.readFileSync(config.public_key);
 function signed(payload,signature){return typeof signature==='string'&&verify(null,Buffer.from(JSON.stringify(payload)),key,Buffer.from(signature,'base64'));}
 try {
  const lease=JSON.parse(fs.readFileSync(config.lease));
- const active=JSON.parse(fs.readFileSync(config.state+'/active-lease.json'));
- if(lease.mode==='dangerous'&&Number.isSafeInteger(lease.expires_at)&&lease.expires_at>Date.now()&&lease.expires_at<=Date.now()+120*60_000&&typeof lease.nonce==='string'&&
-   (input.operator_activation===true || (active.nonce===lease.nonce&&active.expires===lease.expires_at))&&
-   signed({mode:lease.mode,expires_at:lease.expires_at,nonce:lease.nonce},lease.signature)){
+ if(lease.mode==='dangerous'&&lease.scope==='host-root-v1'&&Number.isSafeInteger(lease.expires_at)&&lease.expires_at>Date.now()&&lease.expires_at<=Date.now()+120*60_000&&typeof lease.nonce==='string'&&
+   (input.operator_activation===true || verifyLeaseActivation(config.activation_file,lease,config.public_key))&&
+   signed({mode:lease.mode,expires_at:lease.expires_at,nonce:lease.nonce,scope:lease.scope},lease.signature)){
    console.log(JSON.stringify({kind:'yolo',expires:lease.expires_at,nonce:lease.nonce}));process.exit(0);
  }
 }catch{}
 if(input.approval_id&&/^[a-f0-9]{24}$/.test(input.approval_id)&&input.kind==='exec'){
  try{
-  let active=JSON.parse(fs.readFileSync(config.policy)).profile;
-  try{const override=JSON.parse(fs.readFileSync(config.mode_file));if(!['strict','standard'].includes(override.mode))throw Error();active=override.mode;}catch(error){if(error.code!=='ENOENT')throw error;}
-  if(active!=='standard')throw Error();
+  if(readLeaseActivation(config.activation_file,config.public_key)?.mode!=='standard')throw Error();
   const request=JSON.parse(fs.readFileSync(config.approvals+'/'+input.approval_id+'.request.json'));
   const ticket=JSON.parse(fs.readFileSync(config.approvals+'/'+input.approval_id+'.used'));
   const fingerprint=createHash('sha256').update(JSON.stringify({sessionId:request.session_id,tool:request.tool,args:request.args})).digest('hex');

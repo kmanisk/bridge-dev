@@ -9,6 +9,7 @@ import {verifyAuditFile,redactAudit} from "./lib/hash-audit.js";
 import {extensionCli,operatorApi} from "./lib/extension-cli.js";
 import {controllerCli} from "./lib/controller-cli.js";
 import {parseCliArguments} from "./lib/cli-arguments.js";
+import {hostControllerAvailable} from "./lib/host-controller.js";
 import { execSync, spawnSync, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -104,6 +105,7 @@ function getActiveMode(): { mode: string; detail: string } {
     publicKeyFile: process.env.POLICYGATE_APPROVAL_PUBLIC_KEY || path.join(etcDir, "operator-public.pem"),
     leaseFile: process.env.POLICYGATE_YOLO_LEASE || path.join(libDir, "yolo-lease.json"),
     modeFile: process.env.POLICYGATE_MODE_FILE || path.join(libDir, "mode.json"),
+    activationFile: process.env.POLICYGATE_YOLO_ACTIVATION_FILE || (hostControllerAvailable()?"/var/lib/bridge-dev-operator/active-lease.json":undefined),
   });
 }
 

@@ -79,7 +79,9 @@ try{
  await fs.rm(env.POLICYGATE_MODE_FILE,{force:true});env.MCP_SESSION_TTL_MS='60000';mockHost=true;
  const keys=generateKeyPairSync('ed25519',{privateKeyEncoding:{format:'pem',type:'pkcs8'},publicKeyEncoding:{format:'pem',type:'spki'}});
  env.POLICYGATE_APPROVAL_PUBLIC_KEY=path.join(root,'operator-public.pem');await fs.writeFile(env.POLICYGATE_APPROVAL_PUBLIC_KEY,keys.publicKey);
- const lease=async(expires)=>{const value={mode:'dangerous',expires_at:expires,nonce:randomUUID()};value.signature=sign(null,Buffer.from(JSON.stringify(value)),keys.privateKey).toString('base64');await fs.writeFile(env.POLICYGATE_YOLO_LEASE,JSON.stringify(value));};
+ env.POLICYGATE_YOLO_ACTIVATION_FILE=path.join(root,'active-yolo.json');
+ await fs.writeFile(env.POLICYGATE_YOLO_ACTIVATION_FILE,JSON.stringify({mode:'standard'}));
+ const lease=async(expires)=>{const value={mode:'dangerous',expires_at:expires,nonce:randomUUID(),scope:'host-root-v1'};value.signature=sign(null,Buffer.from(JSON.stringify(value)),keys.privateKey).toString('base64');await fs.writeFile(env.POLICYGATE_YOLO_LEASE,JSON.stringify(value));await fs.writeFile(env.POLICYGATE_YOLO_ACTIVATION_FILE,JSON.stringify({mode:'standard',nonce:value.nonce,expires}));};
  await start();const yolo=await connect();await denied(yolo.client,'pwd',/POLICYGATE_CONTEXT_REQUIRED/);await load(yolo.client);await denied(yolo.client,'sudo id');
  await lease(Date.now()+60000);
  for(const command of ['sudo -n id','sudo /bin/bash -c "printf fixture > /etc/fixture"','sudo /bin/bash -c "true; true"']){
@@ -88,7 +90,13 @@ try{
  const yoloContext=await rawCall('system_context',{docs:['agents','current_state']});const yoloProof=yoloContext.body.result.structuredContent.data.context_token;
  assert.equal((await rawCall('run_command',{command:'sudo id',context_token:yoloProof})).body.result.structuredContent.data.stdout,'UNPRIVILEGED_ROUTING_FIXTURE');
  const freshYolo=await connect();await denied(freshYolo.client,'sudo id',/POLICYGATE_CONTEXT_REQUIRED/);
+ const copiedLease=await fs.readFile(env.POLICYGATE_YOLO_LEASE);
+ await fs.writeFile(env.POLICYGATE_YOLO_ACTIVATION_FILE,JSON.stringify({mode:'standard'}));
  await fs.rm(env.POLICYGATE_YOLO_LEASE);await denied(yolo.client,'sudo id');
+ await fs.writeFile(env.POLICYGATE_YOLO_LEASE,copiedLease);await denied(yolo.client,'sudo id',/POLICYGATE_APPROVAL_REQUIRED/);
+ assert.equal((await (await fetch(`http://127.0.0.1:${port}/health`)).json()).fullMachineAccess,false,'Replayed lease restored gateway YOLO');
+ await fs.writeFile(env.POLICYGATE_YOLO_ACTIVATION_FILE,JSON.stringify({mode:'strict'}));await fs.writeFile(env.POLICYGATE_MODE_FILE,JSON.stringify({mode:'standard'}));await denied(yolo.client,'pwd',/POLICYGATE_APPROVAL_REQUIRED/);
+ await fs.writeFile(env.POLICYGATE_YOLO_ACTIVATION_FILE,JSON.stringify({mode:'standard'}));
  await lease(Date.now()-1);await denied(yolo.client,'sudo id');
  await yolo.client.close();await freshYolo.client.close();await stop();
  const records=(await fs.readFile(audit,'utf8')).trim().split('\n').map(JSON.parse);for(const status of ['granted','invalidated','denied'])assert.ok(records.some(r=>r.phase==='context_authorization'&&r.status===status),status);

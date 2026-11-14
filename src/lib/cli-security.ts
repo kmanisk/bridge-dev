@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { verify } from "node:crypto";
 import { verifyAuditFile } from "./hash-audit.js";
+import {readLeaseActivation,verifyLeaseActivation} from "../../scripts/lease-activation.mjs";
 
 export type CliMode = "STRICT" | "STANDARD" | "YOLO" | "UNKNOWN";
 export interface ModeReading { mode: CliMode; detail: string; }
@@ -15,14 +16,15 @@ export function isValidSignedLease(lease: unknown, publicKeyPem: string | Buffer
   if (x.mode !== "dangerous" || typeof x.expires_at !== "number" ||
       !Number.isFinite(x.expires_at) || x.expires_at <= now ||
       typeof x.signature !== "string" || !/^[A-Za-z0-9+/]{86}==$/.test(x.signature) ||
+      (x.scope!==undefined&&x.scope!=="host-root-v1") ||
       (x.nonce !== undefined && (typeof x.nonce !== "string" || !x.nonce.length))) return false;
   try {
-    const message = JSON.stringify({mode:x.mode,expires_at:x.expires_at,...(x.nonce?{nonce:x.nonce}:{})});
+    const message = JSON.stringify({mode:x.mode,expires_at:x.expires_at,...(x.nonce?{nonce:x.nonce}:{}),...(x.scope?{scope:x.scope}:{})});
     return verify(null,Buffer.from(message),publicKeyPem,Buffer.from(x.signature,"base64"));
   } catch { return false; }
 }
 export function inspectLocalMode(options: {
-  stateDir: string; publicKeyFile: string; leaseFile?: string; modeFile?: string; now?: number;
+  stateDir: string; publicKeyFile: string; leaseFile?: string; modeFile?: string; activationFile?: string; now?: number;
 }): ModeReading {
   const leaseFile = options.leaseFile || path.join(options.stateDir,"yolo-lease.json");
   const modeFile = options.modeFile || path.join(options.stateDir,"mode.json");
@@ -36,9 +38,15 @@ export function inspectLocalMode(options: {
         if (!isValidSignedLease(lease,fs.readFileSync(options.publicKeyFile),options.now ?? Date.now())) {
           return {mode:"UNKNOWN",detail:"unverified signed lease; operator investigation required"};
         }
-        const minutes=Math.max(1,Math.ceil((lease.expires_at-(options.now??Date.now()))/60000));
-        return {mode:"YOLO",detail:"verified signed lease; "+minutes+" minute(s) remaining"};
+        if(options.activationFile&&verifyLeaseActivation(options.activationFile,lease,options.publicKeyFile)){
+          const minutes=Math.max(1,Math.ceil((lease.expires_at-(options.now??Date.now()))/60000));
+          return {mode:"YOLO",detail:"verified signed lease; "+minutes+" minute(s) remaining"};
+        }
       }
+    }
+    if(options.activationFile){
+      const active=readLeaseActivation(options.activationFile,options.publicKeyFile);
+      return active?{mode:active.mode.toUpperCase() as CliMode,detail:"protected operator mode; no active host lease"}:{mode:"UNKNOWN",detail:"protected operator state unavailable"};
     }
     if (fs.existsSync(modeFile)) {
       const mode=JSON.parse(fs.readFileSync(modeFile,"utf8")).mode;

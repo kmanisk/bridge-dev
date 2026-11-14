@@ -67,7 +67,20 @@ try {
   const state=path.join(tmp,"state");fs.mkdirSync(state);
   const pub=path.join(tmp,"operator-public.pem");fs.writeFileSync(pub,pem);
   fs.writeFileSync(path.join(state,"yolo-lease.json"),JSON.stringify(signed));
-  assert.equal(inspectLocalMode({stateDir:state,publicKeyFile:pub,now}).mode,"YOLO");
+  assert.equal(inspectLocalMode({stateDir:state,publicKeyFile:pub,now}).mode,"UNKNOWN","Legacy signatures do not activate full host access");
+  if(process.platform!=="win32"){
+    const scoped={...lease,scope:"host-root-v1"};
+    const scopedSigned={...scoped,signature:sign(null,Buffer.from(JSON.stringify(scoped)),kp.privateKey).toString("base64")};
+    const activationFile=path.join(state,"active.json");
+    fs.writeFileSync(activationFile,JSON.stringify({mode:"standard",nonce:lease.nonce,expires:lease.expires_at}));
+    fs.writeFileSync(path.join(state,"yolo-lease.json"),JSON.stringify(scopedSigned));
+    assert.equal(inspectLocalMode({stateDir:state,publicKeyFile:pub,activationFile,now}).mode,"YOLO");
+    fs.writeFileSync(activationFile,JSON.stringify({mode:"standard"}));
+    assert.equal(inspectLocalMode({stateDir:state,publicKeyFile:pub,activationFile,now}).mode,"STANDARD");
+    fs.writeFileSync(activationFile,JSON.stringify({mode:"strict"}));
+    fs.writeFileSync(path.join(state,"mode.json"),JSON.stringify({mode:"standard"}));
+    assert.equal(inspectLocalMode({stateDir:state,publicKeyFile:pub,activationFile,now}).mode,"STRICT");
+  }
   fs.writeFileSync(path.join(state,"yolo-lease.json"),JSON.stringify({...signed,signature:"invalid"}));
   assert.equal(inspectLocalMode({stateDir:state,publicKeyFile:pub,now}).mode,"UNKNOWN");
   fs.unlinkSync(path.join(state,"yolo-lease.json"));

@@ -21,9 +21,10 @@ def protected(path):
         st = node.lstat()
         check(st.st_uid == 0 and not st.st_mode & 0o022 and not node.is_symlink(), 'Unsafe root controller path: '+str(node))
 
-def atomic(path, value):
+def atomic(path, value, mode=0o600):
     path = Path(path)
     fd, name = tempfile.mkstemp(prefix='.'+path.name, dir=path.parent)
+    os.fchmod(fd,mode)
     try:
         with os.fdopen(fd, 'w') as handle:
             json.dump(value, handle, separators=(',',':')); handle.write('\n'); handle.flush(); os.fsync(handle.fileno())
@@ -103,7 +104,8 @@ def wait_health(config, timeout=35):
     raise RuntimeError('Gateway health timeout')
 
 def revoke_jobs(config,caller):
-    state_dir=Path(config['state']); atomic(state_dir/'active-lease.json',{})
+    atomic(config['activation_file'],{'mode':base_mode(config)},0o644)
+    state_dir=Path(config['state'])
     Path(config['lease']).unlink(missing_ok=True)
     active=[]
     for job in (state_dir/'jobs').iterdir():
@@ -114,6 +116,14 @@ def revoke_jobs(config,caller):
         for job in active: state(job,status='REVOKED',exit_code=137)
     audit(config,{'phase':'revocation','status':'revoked','jobs':[job.name for job in active],'owner':caller})
     return {'revoked':[job.name for job in active]}
+
+def base_mode(config):
+    try:
+        protected(Path(config['activation_file']))
+        value=json.loads(Path(config['activation_file']).read_text()).get('mode')
+        if value in ['strict','standard']: return value
+    except (FileNotFoundError,ValueError,RuntimeError): pass
+    return 'strict'
 
 def rollback(config, job):
     # Independent watchdog and primary worker serialize recovery on a root lock.
@@ -216,11 +226,15 @@ def dispatch(config, action, args):
     if action=='_rollback':
         run(['/usr/bin/systemctl','stop','bridge-dev-job-'+args[0]+'.service'],required=False)
         return rollback(config,job_path(config,args[0]))
-    if action=='activate':
+    if action in ['activate','mode']:
         check(caller==0 and os.isatty(0) and os.isatty(1),'Activation requires an independently opened root operator terminal')
-        atomic(state_dir/'active-lease.json',{})
+        if action=='mode':
+            check(len(args)==1 and args[0] in ['strict','standard'],'Expected strict or standard mode')
+            revoke_jobs(config,caller); atomic(config['activation_file'],{'mode':args[0]},0o644)
+            audit(config,{'phase':'mode','status':args[0]}); return {'mode':args[0]}
+        mode=base_mode(config); atomic(config['activation_file'],{'mode':mode},0o644)
         auth=authorize(config,{'operator_activation':True})
-        atomic(state_dir/'active-lease.json',{'nonce':auth['nonce'],'expires':auth['expires']})
+        atomic(config['activation_file'],{'mode':mode,'nonce':auth['nonce'],'expires':auth['expires']},0o644)
         audit(config,{'phase':'lease','status':'activated','expires':auth['expires']})
         return {'activated':True,'expires':auth['expires']}
     if action=='revoke':
@@ -229,7 +243,7 @@ def dispatch(config, action, args):
     if action=='status' and not args:
         jobs = [json.loads((p/'result.json').read_text()) for p in (state_dir/'jobs').iterdir() if (p/'result.json').exists()]
         try: auth=authorize(config,{})
-        except Exception: auth={'kind':'standard'}
+        except Exception: auth={'kind':base_mode(config)}
         return {'authorization':auth,'jobs':jobs}
     if action in ['status','logs','rollback','cleanup']:
         job = job_path(config,args[0]); result = json.loads((job/'result.json').read_text())
@@ -296,7 +310,8 @@ def main():
     check(os.geteuid()==0,'Controller requires actual root UID via installed sudo entry')
     protected(CONFIG); protected(IMPLEMENTATION); protected(VERIFIER)
     config=json.loads(CONFIG.read_text())
-    for key in ['public_key','lease','approvals','policy','mode_file','state','service','live','releases','env_file','health','preserve','ledger','clients']: check(key in config,'Incomplete operator controller configuration')
+    for key in ['public_key','lease','activation_file','approvals','policy','mode_file','state','service','live','releases','env_file','health','preserve','ledger','clients']: check(key in config,'Incomplete operator controller configuration')
+    protected(Path(config['activation_file']).parent)
     result=dispatch(config,sys.argv[1],sys.argv[2:])
     if result is not None: print(json.dumps(result,separators=(',',':')))
 

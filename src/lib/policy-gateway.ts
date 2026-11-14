@@ -4,6 +4,8 @@ import path from "node:path";
 import os from "node:os";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual, verify } from "node:crypto";
 import { requestIdentity } from "./request-identity.js";
+import {hostControllerAvailable} from "./host-controller.js";
+import {readLeaseActivation,verifyLeaseActivation} from "../../scripts/lease-activation.mjs";
 import { fileURLToPath } from "node:url";
 import { assertRegistryComplete, classifyTool, type ToolClass } from "./tool-classification.js";
 import { enforcePolicy } from "./policy-enforcement.js";
@@ -145,6 +147,8 @@ export class PolicyGate {
       try{const mode=JSON.parse(fs.readFileSync(path.join(portableStateDir(),"mode.json"),"utf8"));if(mode.mode==="strict")return "strict";}catch{}
       return "standard";
     } // portable cannot activate a privileged operator lease
+    const controllerAvailable=hostControllerAvailable();
+    const activationFile=process.env.POLICYGATE_YOLO_ACTIVATION_FILE || (controllerAvailable?"/var/lib/bridge-dev-operator/active-lease.json":undefined);
     const yoloPath = process.env.POLICYGATE_YOLO_LEASE || (fs.existsSync("/var/lib/bridge-dev/yolo-lease.json") ? "/var/lib/bridge-dev/yolo-lease.json" : "/var/lib/local-coder-policygate/yolo-lease.json");
     const pubKeyPath = process.env.POLICYGATE_APPROVAL_PUBLIC_KEY || (fs.existsSync("/etc/bridge-dev/operator-public.pem") ? "/etc/bridge-dev/operator-public.pem" : "/etc/local-coder-policygate/operator-public.pem");
     try {
@@ -155,18 +159,22 @@ export class PolicyGate {
           expires_at: number;
           signature: string;
           nonce?: string;
+          scope?: string;
         };
         if (lease.mode === "dangerous" && typeof lease.expires_at === "number" && Date.now() < lease.expires_at) {
-          const msg = JSON.stringify({ mode: lease.mode, expires_at: lease.expires_at, ...(lease.nonce ? { nonce: lease.nonce } : {}) });
+          const msg = JSON.stringify({ mode: lease.mode, expires_at: lease.expires_at, ...(lease.nonce ? { nonce: lease.nonce } : {}),...(lease.scope?{scope:lease.scope}:{}) });
           const pubKey = fs.readFileSync(pubKeyPath, "utf8");
           const ok = verify(null, Buffer.from(msg), pubKey, Buffer.from(lease.signature, "base64"));
-          if (ok) return "dangerous";
+          if (ok && controllerAvailable && activationFile && verifyLeaseActivation(activationFile,lease,this.configPath)) return "dangerous";
         }
       }
     } catch {
       // Ignore lease parse or verification error, fall back to configured/override profile
     }
 
+    // Installed controllers publish protected mode state. Never fall back to
+    // the legacy service-writable override after a revocation or corrupt marker.
+    if(activationFile)return readLeaseActivation(activationFile,this.configPath)?.mode||"strict";
     const modeOverridePath = process.env.POLICYGATE_MODE_FILE || (fs.existsSync("/var/lib/bridge-dev/mode.json") ? "/var/lib/bridge-dev/mode.json" : "/var/lib/local-coder-policygate/mode.json");
     try {
       if (fs.existsSync(modeOverridePath)) {

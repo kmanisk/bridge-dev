@@ -5,6 +5,7 @@ import { createHash, sign, verify, generateKeyPairSync, randomUUID } from "node:
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import {spawnSync} from "node:child_process";
+import {readLeaseActivation,verifyLeaseActivation} from "./lease-activation.mjs";
 
 const args = process.argv.slice(2);
 if(args[0]==="mode"&&args[1]==="yolo")args.splice(0,2,"yolo");
@@ -16,6 +17,7 @@ const keyFile = path.resolve(process.env.POLICYGATE_OPERATOR_PRIVATE_KEY || (fs.
 const pubFile = path.resolve(process.env.POLICYGATE_APPROVAL_PUBLIC_KEY || (fs.existsSync("/etc/bridge-dev/operator-public.pem") ? "/etc/bridge-dev/operator-public.pem" : "/etc/local-coder-policygate/operator-public.pem"));
 const yoloLeasePath = path.resolve(process.env.POLICYGATE_YOLO_LEASE || (fs.existsSync("/var/lib/bridge-dev/yolo-lease.json") ? "/var/lib/bridge-dev/yolo-lease.json" : "/var/lib/local-coder-policygate/yolo-lease.json"));
 const modeFilePath = path.resolve(process.env.POLICYGATE_MODE_FILE || (fs.existsSync("/var/lib/bridge-dev/mode.json") ? "/var/lib/bridge-dev/mode.json" : "/var/lib/local-coder-policygate/mode.json"));
+const activationFile=process.env.POLICYGATE_YOLO_ACTIVATION_FILE || (!process.env.BRIDGEDEV_TEST_ROOT&&fs.existsSync("/usr/local/bin/bridge-dev-controller")?"/var/lib/bridge-dev-operator/active-lease.json":undefined);
 function revokeJobs(){
   const helper="/usr/local/bin/bridge-dev-controller";
   if(process.env.POLICYGATE_TEST_OPERATOR!=="1"&&fs.existsSync(helper)){
@@ -57,18 +59,22 @@ if (action === "status") {
     try {
       const lease = JSON.parse(fs.readFileSync(yoloLeasePath, "utf8"));
       const pubKey = fs.readFileSync(pubFile, "utf8");
-      const msg = JSON.stringify({ mode: lease.mode, expires_at: lease.expires_at, ...(lease.nonce ? { nonce: lease.nonce } : {}) });
+      const msg = JSON.stringify({ mode: lease.mode, expires_at: lease.expires_at, ...(lease.nonce ? { nonce: lease.nonce } : {}),...(lease.scope?{scope:lease.scope}:{}) });
       const ok = verify(null, Buffer.from(msg), pubKey, Buffer.from(lease.signature, "base64"));
-      if (ok && Date.now() < lease.expires_at) {
+      if (ok && Date.now() < lease.expires_at && activationFile && verifyLeaseActivation(activationFile,lease,pubFile)) {
         const remainingMin = Math.round((lease.expires_at - Date.now()) / 60000);
         console.log(`Current Mode : YOLO / FULL ACCESS (ACTIVE, ${remainingMin}m remaining, expires: ${new Date(lease.expires_at).toISOString()})`);
         process.exit(0);
       } else {
-        console.log("Current Mode : YOLO (EXPIRED / INVALID LEASE - falling back to STANDARD)");
+        console.log("YOLO lease is inactive; the protected base mode applies.");
       }
     } catch {
       console.log("Current Mode : STANDARD (lease read error)");
     }
+  }
+  if(activationFile){
+    const active=readLeaseActivation(activationFile,pubFile);
+    console.log("Current Mode : "+(active?active.mode.toUpperCase():"UNKNOWN (protected operator state unavailable)"));process.exit(0);
   }
   if (fs.existsSync(modeFilePath)) {
     try {
@@ -90,11 +96,12 @@ if (action === "yolo") {
       fs.unlinkSync(yoloLeasePath);
     }
     revokeJobs();
-    console.log("YOLO mode DEACTIVATED. System immediately returned to STANDARD mode.");
+    console.log("YOLO mode DEACTIVATED. The protected base mode is restored.");
     process.exit(0);
   }
 
   // Parse duration
+  if(process.env.POLICYGATE_TEST_OPERATOR!=="1"&&!fs.existsSync("/usr/local/bin/bridge-dev-controller"))throw new Error("HOST_CONTROLLER_UNAVAILABLE: install the reviewed host controller before activating full-root YOLO");
   let durationMin = 30;
   const durIdx = args.indexOf("--duration");
   if (durIdx !== -1) {
@@ -112,7 +119,7 @@ if (action === "yolo") {
   console.log("\n=======================================================");
   console.log("WARNING: YOLO / FULL ACCESS MODE");
   console.log("This grants unrestricted system-wide administration capabilities.");
-  console.log(`Duration: ${durationMin} minutes. Reverts automatically to STANDARD.`);
+  console.log(`Duration: ${durationMin} minutes. Reverts automatically to the protected base mode.`);
   console.log("=======================================================\n");
 
   if (process.env.POLICYGATE_TEST_OPERATOR !== "1") {
@@ -132,7 +139,8 @@ if (action === "yolo") {
 
   const expires_at = Date.now() + durationMin * 60 * 1000;
   const nonce = randomUUID();
-  const leaseMsg = JSON.stringify({ mode: "dangerous", expires_at, nonce });
+  const scope="host-root-v1";
+  const leaseMsg = JSON.stringify({ mode: "dangerous", expires_at, nonce,scope });
   const signature = sign(null, Buffer.from(leaseMsg), privateKey).toString("base64");
   const leaseData = {
     mode: "dangerous",
@@ -140,6 +148,7 @@ if (action === "yolo") {
     granted_at: Date.now(),
     expires_at,
     nonce,
+    scope,
     signature
   };
 
@@ -175,6 +184,10 @@ if (action === "mode") {
     revokeJobs();
     fs.mkdirSync(path.dirname(modeFilePath), { recursive: true, mode: 0o755 });
     fs.writeFileSync(modeFilePath, JSON.stringify({ mode: targetMode, updated_at: Date.now() }, null, 2) + "\n", { mode: 0o644 });
+    if(process.env.POLICYGATE_TEST_OPERATOR!=="1"&&fs.existsSync("/usr/local/bin/bridge-dev-controller")){
+      const changed=spawnSync("/usr/local/bin/bridge-dev-controller",["mode",targetMode],{stdio:"inherit",env:{PATH:"/usr/bin:/bin"},timeout:30000});
+      if(changed.status!==0)throw new Error("Protected controller mode update failed; operator review required");
+    }
     console.log(`Active mode switched to ${targetMode.toUpperCase()}.`);
     process.exit(0);
   }

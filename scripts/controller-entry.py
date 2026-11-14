@@ -23,7 +23,7 @@ def main():
     with open('/etc/local-coder-policygate/controller.json') as handle: config=json.load(handle)
     caller=request_caller(os.environ.get('SUDO_UID','0'),os.readlink('/proc/self/ns/mnt'),os.readlink('/proc/1/ns/mnt'),config['gateway_uid'])
     if len(sys.argv)<2: raise RuntimeError('Controller action required')
-    if sys.argv[1]=='activate':
+    if sys.argv[1] in ['activate','mode']:
         if caller!=0 or not os.isatty(0) or not os.isatty(1): raise RuntimeError('Independent root operator TTY required')
         if os.readlink('/proc/self/ns/mnt')!=os.readlink('/proc/1/ns/mnt'): raise RuntimeError('Activate from the host namespace')
         os.execve('/usr/bin/python3',['/usr/bin/python3','-I',CONTROLLER,*sys.argv[1:]],CLEAN)

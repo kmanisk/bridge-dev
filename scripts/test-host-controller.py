@@ -13,7 +13,7 @@ assert '--pipe' in command and '--wait' in command and '--collect' in command
 assert entry.request_caller('0','private','host',947)==947
 assert entry.request_caller('1000','private','host',947)==947
 assert entry.request_caller('0','host','host',947)==0
-for internal in ['_worker','_rollback']:
+for internal in ['_worker','_rollback','activate','mode']:
     try: entry.request_command(0,[internal,str(uuid.uuid4())])
     except RuntimeError: pass
     else: raise AssertionError('Internal root action exposed through sudo entry')
@@ -27,7 +27,7 @@ def alias_fixture(action,args,request=None):
     if action=='submit': return {'job_id':'fixture','status':'SUCCESS','exit_code':0}
     assert action=='logs'; return {'stdout':'UNPRIVILEGED_ALIAS_FIXTURE','stderr':''}
 assert legacy.execute_legacy(['id'],'/fixture',alias_fixture)['stdout']=='UNPRIVILEGED_ALIAS_FIXTURE'
-config={'state':str(root),'lease':str(root/'lease.json'),'clients':[os.getuid()],'service':'fixture.service','live':str(root/'live'),'releases':str(root/'releases'),'preserve':[], 'ledger':str(root/'ledger'),'env_file':str(root/'fixture.env')}
+config={'state':str(root),'activation_file':str(root/'active-lease.json'),'lease':str(root/'lease.json'),'clients':[os.getuid()],'service':'fixture.service','live':str(root/'live'),'releases':str(root/'releases'),'preserve':[], 'ledger':str(root/'ledger'),'env_file':str(root/'fixture.env')}
 auth={'kind':'yolo','nonce':'fixture','expires':int(time.time()*1000)+30_000}
 
 def job(kind='exec',**extra):
