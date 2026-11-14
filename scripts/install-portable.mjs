@@ -31,7 +31,13 @@ function safePath(p){
   if(!p||p===path.parse(p).root||p===path.resolve(home))fail('Unsafe install path: '+p);
   let part=p;
   while(part!==path.dirname(part)){
-    if(fs.existsSync(part)&&fs.lstatSync(part).isSymbolicLink())fail('Symlinked installation path: '+part);
+    if(fs.existsSync(part)&&fs.lstatSync(part).isSymbolicLink()){
+      const nativeMacAlias=mac&&(
+        (part==='/var'&&fs.realpathSync(part)==='/private/var')||
+        (part==='/tmp'&&fs.realpathSync(part)==='/private/tmp')
+      );
+      if(!nativeMacAlias)fail('Symlinked installation path: '+part);
+    }
     part=path.dirname(part);
   }
 }
