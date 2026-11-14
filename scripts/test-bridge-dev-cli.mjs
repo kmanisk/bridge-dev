@@ -32,6 +32,22 @@ try {
   const invalid=run(["unknown-command","--json"]);assert.equal(invalid.status,1);assert.equal(JSON.parse(invalid.stderr).code,"BRIDGEDEV_ERROR");
   const help=run(["help"]);assert.equal(help.status,0,help.stderr);
   assert.match(help.stdout,/mode read-write/);assert.match(help.stdout,/mode sudo --duration 60/);
+  const recovery=fs.readFileSync("scripts/bridge-dev-recover.sh","utf8");
+  assert.match(recovery,/CLI=\/usr\/local\/bin\/bridge-dev/);
+  assert.match(recovery,/active_lease\(\)/);
+  assert.match(recovery,/rollback\(\)/);
+  assert.match(recovery,/full_machine_access=true/);
+  assert.doesNotMatch(recovery,/sudo\s+(?:rm|chown|chmod|systemctl)|\bexec\s+sudo\b/);
+  if(process.platform!=="win32"){
+    const syntax=spawnSync("sh",["-n","scripts/bridge-dev-recover.sh"],{encoding:"utf8"});
+    assert.equal(syntax.status,0,syntax.stderr);
+    const helpScript=spawnSync("sh",["scripts/bridge-dev-recover.sh","--help"],{encoding:"utf8"});
+    assert.equal(helpScript.status,0,helpScript.stderr);
+    assert.match(helpScript.stdout,/check.*on.*off/);
+    const deniedScript=spawnSync("sh",["scripts/bridge-dev-recover.sh","on","121"],{encoding:"utf8"});
+    assert.notEqual(deniedScript.status,0);
+    // No actual activation is possible from the test environment.
+  }
   const denied=run(["mode","sudo"]);assert.notEqual(denied.status,0);
   assert.match(denied.stderr,/portable mode cannot elevate/);
   const access=run(["access"]);

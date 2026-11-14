@@ -54,6 +54,8 @@ try{
  const operatorEnv={...process.env,POLICYGATE_TEST_OPERATOR:'1',POLICYGATE_OPERATOR_PRIVATE_KEY:privateKey,POLICYGATE_APPROVAL_PUBLIC_KEY:config.public_key,POLICYGATE_YOLO_LEASE:config.lease,POLICYGATE_MODE_FILE:config.mode_file};
  for(const args of [['yolo','--duration','0'],['yolo','--duration','121'],['yolo','--duration','1junk'],['yolo','--duration'],['yolo','--durtion','10'],['yolo','--unknown'],['yolo','--until-off','--duration','5']])assert.notEqual(spawnSync(process.execPath,['scripts/policygate-operator.mjs',...args],{env:operatorEnv,encoding:'utf8'}).status,0);
  const activated=spawnSync(process.execPath,['scripts/policygate-operator.mjs','mode','yolo','--duration','1'],{env:operatorEnv,encoding:'utf8'});assert.equal(activated.status,0,activated.stderr);
+ assert.match(activated.stdout,/Running MCP gateway acknowledgment is UNVERIFIED/);
+ assert.doesNotMatch(activated.stdout,/Full System ENABLED/);
  const issued=JSON.parse(await fs.readFile(config.lease,'utf8'));assert.ok(issued.expires_at>Date.now()&&issued.expires_at<=Date.now()+60_000);
  const revoked=spawnSync(process.execPath,['scripts/policygate-operator.mjs','yolo','--off'],{env:operatorEnv,encoding:'utf8'});assert.equal(revoked.status,0,revoked.stderr);
  const foreverCommand=spawnSync(process.execPath,['scripts/policygate-operator.mjs','yolo'],{env:operatorEnv,encoding:'utf8'});

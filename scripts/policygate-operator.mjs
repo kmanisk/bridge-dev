@@ -168,14 +168,26 @@ if (action === "yolo") {
   const temporary=yoloLeasePath+"."+randomUUID()+".tmp";
   fs.writeFileSync(temporary, JSON.stringify(leaseData, null, 2) + "\n", { mode: 0o644,flag:"wx" });
   fs.renameSync(temporary,yoloLeasePath);
-  if(process.env.POLICYGATE_TEST_OPERATOR!=="1"&&fs.existsSync("/usr/local/bin/bridge-dev-controller")){
-    const activated=spawnSync("/usr/local/bin/bridge-dev-controller",["activate"],{stdio:"inherit",env:{PATH:"/usr/bin:/bin"},timeout:30000});
+  const controllerPresent=process.env.POLICYGATE_TEST_OPERATOR!=="1"&&fs.existsSync("/usr/local/bin/bridge-dev-controller");
+  if(controllerPresent){
+    const helper="/usr/local/bin/bridge-dev-controller";
+    const activated=spawnSync(helper,["activate"],{stdio:"inherit",env:{PATH:"/usr/bin:/bin"},timeout:30000});
     if(activated.status!==0){fs.unlinkSync(yoloLeasePath);throw new Error("Host controller activation failed; YOLO lease removed");}
+    // Exit zero alone is insufficient: the protected activation record must
+    // match this signed host-scoped lease before we report local success.
+    if(!activationFile||!verifyLeaseActivation(activationFile,leaseData,pubFile)){
+      const revoked=spawnSync(helper,["mode","standard"],{stdio:"inherit",env:{PATH:"/usr/bin:/bin"},timeout:30000});
+      if(fs.existsSync(yoloLeasePath))fs.unlinkSync(yoloLeasePath);
+      throw new Error("HOST_CONTROLLER_ACTIVATION_UNVERIFIED: local root lease revoked; "+
+        (revoked.status===0?"controller restored to STANDARD.":"controller rollback unverified; inspect operator status and jobs."));
+    }
   }
 
-  console.log(permanent?"Full System ENABLED until manually disabled.":"Full System ENABLED for "+durationMin+" minutes.");
-  if(!permanent)console.log(`Active until: ${new Date(expires_at).toISOString()}`);
-  console.log("To deactivate immediately, run: policygate-operator.mjs yolo --off");
+  console.log(permanent?"Full System lease issued until manually disabled.":"Full System lease issued for "+durationMin+" minutes.");
+  if(!permanent)console.log(`Lease expires: ${new Date(expires_at).toISOString()}`);
+  console.log(controllerPresent?"Host-controller activation record VERIFIED.":"Isolated test operator: no host controller activation.");
+  console.log("Running MCP gateway acknowledgment is UNVERIFIED; check bridge-dev mode status and MCP agent_status.");
+  console.log("To deactivate immediately, run: bridge-dev mode sudo --off");
   process.exit(0);
 }
 
