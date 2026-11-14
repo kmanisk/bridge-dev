@@ -26,7 +26,7 @@ try {
   if ($LASTEXITCODE -ne 0) { Fail 'Install failed.' }
   $bin = Join-Path $env:LOCALAPPDATA 'BridgeDev\bin'
   if (-not $env:BRIDGEDEV_INSTALL_BIN -and (Test-Path (Join-Path $bin 'bridge-dev.cmd'))) {
-    $old = [Environment]::GetEnvironmentVariable('Path','User')
+    $old = [string][Environment]::GetEnvironmentVariable('Path','User')
     if (-not (($old -split ';') -contains $bin)) {
       [Environment]::SetEnvironmentVariable('Path',(($old.TrimEnd(';') + ';' + $bin).TrimStart(';')),'User')
       Write-Host '[BridgeDev] Added user-level CLI directory to PATH (available in new terminals).'
