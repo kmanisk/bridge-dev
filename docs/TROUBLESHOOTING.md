@@ -38,6 +38,19 @@ tool-list notifications were sent.
 
 ## Full System (sudo) CLI and verification
 
+One local-shell helper is available at
+[`scripts/bridge-dev-recover.sh`](../scripts/bridge-dev-recover.sh).
+Download/review it and run `sh bridge-dev-recover.sh check` to inspect the
+managed launcher, or `sh bridge-dev-recover.sh on 60` in an independent
+terminal to request an explicitly confirmed temporary lease.
+`sh bridge-dev-recover.sh off` revokes the lease. The script uses the
+managed `/usr/local/bin/bridge-dev`, never whichever unrelated executable
+appears first on PATH. It verifies the operator's local signed lease and
+attempts to revert to Read & Write when an activation fails verification.
+Remote MCP acceptance still requires `agent_status` in ChatGPT. It never
+installs, upgrades, restarts or deploys the service; production releases
+use the separately reviewed watchdog/rollback controller.
+
 On managed Linux, `bridge-dev mode sudo` requests independent operator
 confirmation. Prefer `bridge-dev mode sudo --duration 60` to a permanent
 lease; `bridge-dev mode sudo --off` deactivates it. The portable installer
