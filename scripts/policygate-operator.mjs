@@ -104,11 +104,14 @@ if (action === "yolo") {
 
   // Parse duration
   if(process.env.POLICYGATE_TEST_OPERATOR!=="1"&&!fs.existsSync("/usr/local/bin/bridge-dev-controller"))throw new Error("HOST_CONTROLLER_UNAVAILABLE: install the reviewed host controller before activating full-root YOLO");
-  // No --duration means a persistent, independently authorized lease.
-  // --duration N retains the legacy bounded option.
+  // No argument (or explicit --until-off) means permanent; accept only
+  // exact known flags so a typo cannot activate unlimited access.
+  const flags=args.slice(1);
+  if(!(flags.length===0 ||
+       (flags.length===1&&flags[0]==="--until-off") ||
+       (flags.length===2&&flags[0]==="--duration")))
+    throw new Error("Usage: yolo [--duration <1-120> | --until-off | --off]");
   const durIdx=args.indexOf("--duration");
-  if (durIdx!==-1 && args.includes("--until-off"))
-    throw new Error("Select either --duration or --until-off, not both.");
   const permanent=durIdx===-1;
   let durationMin=null;
   if(!permanent){
