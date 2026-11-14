@@ -28,7 +28,10 @@ export async function acceptGateway({url,adminUrl,mcpToken,adminToken,fixtures,i
   assert(tools.length===inventory.length&&inventory.every(name=>tools.some(t=>t.name===name)),'ACCEPTANCE_TOOL_INVENTORY');checks.tool_discovery=true;
   assert(/POLICYGATE_CONTEXT_REQUIRED/.test(JSON.stringify(await call(first,'run_command',{command:'pwd'}))),'ACCEPTANCE_BEFORE_CONTEXT');checks.before_context_denied=true;
   const context=await call(first,'system_context',{docs:['agents','current_state']});assert(context.structuredContent?.ok&&!context.isError,'ACCEPTANCE_CONTEXT');checks.system_context=true;
-  const pwd=await call(first,'run_command',{command:'pwd'});assert(pwd.structuredContent?.ok&&pwd.structuredContent.data.exit_code===0,'ACCEPTANCE_PWD');checks.pwd=true;
+  const pwd=await call(first,'run_command',{command:'pwd'});
+  const pwdFailure=JSON.stringify(pwd).match(/POLICYGATE_[A-Z_]+/)?.[0]||'UNKNOWN';
+  assert(pwd.structuredContent?.ok&&pwd.structuredContent.data.exit_code===0,'ACCEPTANCE_PWD: '+pwdFailure);
+  checks.pwd=true;
   for(const command of ['sudo -n id','rm -rf /']){const r=await call(first,'run_command',{command});assert(r.isError&&/POLICYGATE_(APPROVAL_REQUIRED|COMMAND_DENIED|STRICT_NO_SUDO)/.test(JSON.stringify(r)),'ACCEPTANCE_PRIVILEGE_DENIAL');}checks.privileged_destructive_denied=true;
   const second=await connect();assert(/POLICYGATE_CONTEXT_REQUIRED/.test(JSON.stringify(await call(second,'run_command',{command:'pwd'}))),'ACCEPTANCE_SESSION_ISOLATION');checks.second_client_denied=true;
   if(!baseline){

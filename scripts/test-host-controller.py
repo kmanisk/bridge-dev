@@ -2,6 +2,25 @@ import importlib.util, io, json, multiprocessing, os, subprocess, sys, tempfile,
 from pathlib import Path
 from unittest.mock import patch
 
+# Regression: a root install launched with umask 077 must not leave the
+# gateway's activation directory at inaccessible mode 0700.
+install_spec=importlib.util.spec_from_file_location('host_installer','scripts/install-host-controller.py')
+installer=importlib.util.module_from_spec(install_spec); install_spec.loader.exec_module(installer)
+with tempfile.TemporaryDirectory(prefix='bridge-mode-perms-') as temp:
+    destination=Path(temp)/'operator-activation'
+    previous=os.umask(0o077)
+    try: installer.ensure_gateway_readable_activation_dir(destination, owner_uid=os.getuid())
+    finally: os.umask(previous)
+    assert (destination.stat().st_mode & 0o777)==0o755
+    destination.chmod(0o700)
+    installer.ensure_gateway_readable_activation_dir(destination, owner_uid=os.getuid())
+    assert (destination.stat().st_mode & 0o777)==0o755
+    destination.chmod(0o777)
+    try: installer.ensure_gateway_readable_activation_dir(destination, owner_uid=os.getuid())
+    except RuntimeError: pass
+    else: raise AssertionError('Unsafe writable activation directory was accepted')
+    destination.chmod(0o755)
+
 spec=importlib.util.spec_from_file_location('host_controller','scripts/host-controller.py')
 c=importlib.util.module_from_spec(spec); spec.loader.exec_module(c)
 root=Path(sys.argv[1]); jobs=root/'jobs'; jobs.mkdir()

@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 """Independent operator bootstrap. Does not start/restart the gateway or issue a lease."""
-import argparse, datetime, hashlib, json, os, pwd, re, shutil, subprocess, tempfile
+import argparse, datetime, hashlib, json, os, pwd, re, shutil, stat, subprocess, tempfile
 from pathlib import Path
 
 FILES=['host-controller.py','controller-entry.py','controller-authorize.mjs','lease-activation.mjs','policygate-operator.mjs','legacy-escalation.py']
@@ -12,6 +12,23 @@ def safe_parents(path):
         if node.exists():
             info=node.lstat()
             if node.is_symlink() or info.st_uid!=0 or info.st_mode&0o022: raise RuntimeError('Unsafe installed controller path: '+str(node))
+
+def ensure_gateway_readable_activation_dir(directory, owner_uid=0):
+    """Make only the non-secret activation directory traversable under umask 077.
+
+    The gateway needs read/traverse access to the root-owned signed mode record.
+    Only a verified owner and a safe, non-symlink directory may be corrected.
+    Never alter keys, the lease, or other protected state.
+    """
+    if directory.is_symlink(): raise RuntimeError('Activation directory must not be a symlink')
+    directory.mkdir(mode=0o755, exist_ok=True)
+    info=directory.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=owner_uid or (info.st_mode & 0o022):
+        raise RuntimeError('Unsafe activation directory owner, type or write permissions')
+    os.chmod(directory,0o755)
+    verified=directory.lstat()
+    if not stat.S_ISDIR(verified.st_mode) or verified.st_uid!=owner_uid or (verified.st_mode & 0o777)!=0o755:
+        raise RuntimeError('Activation directory must be owner-controlled and mode 0755')
 
 def write_atomic(path,payload,mode):
     safe_parents(path)
@@ -78,7 +95,11 @@ def main():
         payload=(source/'scripts'/name).read_bytes()
         if hashlib.sha256(payload).hexdigest()!=expected[name]: raise RuntimeError('Source changed during bootstrap')
         write_atomic(base/name,payload,0o644)
-    active.parent.mkdir(mode=0o755,parents=True,exist_ok=True)
+    # mkdir(0755) alone is NOT sufficient: the operator's umask 077 masks
+    # its permissions to 0700 and makes the gateway fail closed to STRICT.
+    # Only the mode/nonce activation directory is traversable; credentials and
+    # the signing key remain root-private in separate protected directories.
+    ensure_gateway_readable_activation_dir(active.parent)
     if not active.exists():
         configured=json.loads(Path(proposed['policy']).read_text()).get('profile')
         mode=configured if configured in ['strict','standard'] else 'strict'

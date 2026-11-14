@@ -1,5 +1,15 @@
 # Managed Linux deployment
 
+**Mode-access preflight:** after installing the root controller, first verify
+that its activation directory is root-owned and traversable (0755) and its
+signed mode record readable (0644) inside the real restricted gateway namespace.
+An operator reporting STANDARD is not enough: the gateway must report STANDARD
+and accept context -> pwd. The installer now corrects umask-masked 0700 mode.
+If acceptance reports `ACCEPTANCE_PWD`, inspect the **real gateway active
+profile** and operator state before attempting another cutover. Preserve the
+failed job receipt; never blindly retry. Do not change credentials, service
+sandbox settings or protected audit state.
+
 Use a clean, CI-green published SHA. Preserve the existing restricted service,
 credentials, keys, ports, Funnel, registry, mapped data, legacy fallback and audit
 ledger/anchor. Source publication does not deploy automatically. Actual ChatGPT

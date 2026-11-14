@@ -40,6 +40,18 @@ Older gateway versions cannot accept that signature as a legacy YOLO lease after
 rollback. Unscoped legacy leases do not activate full-host YOLO in this version.
 Activation requires the optional controller to be installed.
 
+**Activation directory permissions:** `/var/lib/bridge-dev-operator` must
+be root-owned mode **0755**, with `active-lease.json` root-owned mode **0644**.
+It contains only the approved mode, nonce and expiry; signing keys remain private.
+Bootstrap explicitly corrects its directory mode after creation because a root
+installer using `umask 077` otherwise creates it as **0700**. When this directory
+is inaccessible to `localcoder`, the gateway intentionally falls back to
+STRICT and `pwd` may return `POLICYGATE_APPROVAL_REQUIRED` even though the
+root operator reports STANDARD. Inspect path owner, type and permissions before
+making the minimal correction. Do **not** chmod secrets or relax the gateway
+systemd sandbox. Verify the gateway reads STANDARD and that context -> pwd
+passes before attempting another release cutover.
+
 The activation record also holds the STRICT/STANDARD base mode. Once the
 controller is installed, gateway permissions and signed root approvals use that
 protected mode; the old service-writable mode file cannot downgrade it. Missing,
