@@ -31,6 +31,7 @@ jobs:
       - run: pnpm run test:portable:server
       - run: pnpm run test:trial
       - run: pnpm run test:cli
+      - run: node scripts/test-install-portable.mjs
       - run: pnpm run test:extensions
   sources:
     name: Linux source and supply chain fixtures

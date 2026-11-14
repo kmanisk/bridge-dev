@@ -34,3 +34,4 @@ jobs:
       - run: pnpm run test:portable
       - run: pnpm run test:portable:server
       - run: pnpm run test:extensions
+      - run: node scripts/test-install-portable.mjs

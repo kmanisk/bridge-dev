@@ -34,6 +34,9 @@ try {
   assert.match(help.stdout,/mode read-write/);assert.match(help.stdout,/mode sudo --duration 60/);
   const denied=run(["mode","sudo"]);assert.notEqual(denied.status,0);
   assert.match(denied.stderr,/portable mode cannot elevate/);
+  const access=run(["access"]);
+  assert.notEqual(access.status,0);
+  assert.match(access.stderr,/private interactive terminal/);
   const conn=run(["connect"]);
   assert.equal(conn.status,0,conn.stderr);
   assert.match(conn.stdout,/\/mcp\/<MCP_TOKEN>/);

@@ -28,8 +28,7 @@ requires an operator-controlled HTTPS route; no tunnel or deployment is automati
 
 ## Portable runtime
 
-Recommended setup: Node.js 24, pnpm 12 and Git. Fedora's packaged Node 22 and Arch's
-runtime are exercised by distribution CI. Optional Python wheel installation needs
+For users, the one-command portable installers require Node.js 22+ and npm (plus curl/tar on POSIX systems), download source, and build automatically. No manual Git/pnpm checkout is needed. Fedora's packaged Node 22 and Arch's runtime are exercised by distribution CI. Optional Python wheel installation needs
 Python 3 with venv/pip. Optional browser QA uses an existing Chromium-compatible
 binary. No new Node runtime dependency was added by this work.
 
@@ -47,9 +46,7 @@ containment. Windows file modes do not establish POSIX-style ACL guarantees.
 
 ## Windows
 
-Install Node.js, pnpm and Git, then use PowerShell and the README clone/build steps.
-The CLI loads `.env`; use `Copy-Item .env.example .env` and set two private independent
-tokens and the workspace. No systemd, Linux mounts, sudo or package manager is assumed.
+Use the PowerShell installer documented in [INSTALL.md](INSTALL.md); it downloads, builds and configures the portable gateway without elevation. The CLI loads private independent tokens and a workspace chosen by the installer. No systemd, Linux mounts, sudo or package manager is assumed.
 
 Provider env grants are explicit. `SYSTEMROOT`/`WINDIR` are visible platform
 requirements; other variables libuv would automatically inherit are blanked.
@@ -72,7 +69,6 @@ not constitute deployment or privileged-host acceptance.
 
 ## Android / Termux
 
-A Termux source build can be attempted using its Node.js/Git packages, followed by
-pnpm install/build and a foreground loopback server. It remains experimental until
+The shell installer can be attempted in Termux with its Node.js, curl and tar packages; it downloads and builds a foreground loopback portable gateway. It remains experimental until
 actually tested on a device. PRoot is not kernel-enforced isolation. Do not assume
 Linux systemd helpers or signed privileged host operations are available.

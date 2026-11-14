@@ -196,6 +196,30 @@ async function cmdConnect(showToken = false) {
   }
 }
 
+function cmdAccess(): void {
+  // Never return credentials to MCP tools, pipes, redirected logs or JSON mode.
+  // A user requests them explicitly from a private interactive terminal.
+  if (getRuntimeMode() !== "portable" || !process.stdin.isTTY || !process.stdout.isTTY) {
+    console.error("Access details are available only from a private interactive terminal in portable mode.");
+    process.exitCode = 1;
+    return;
+  }
+  const mcp = process.env.MCP_TOKEN || "";
+  const admin = process.env.ADMIN_TOKEN || "";
+  if (!mcp || !admin || mcp === admin) {
+    console.error("Portable credentials not configured; run the one-command installer first.");
+    process.exitCode = 1;
+    return;
+  }
+  const port = process.env.PORT || "3000";
+  const adminPort = process.env.ADMIN_PORT || "3001";
+  console.log("BridgeDev local access");
+  console.log("Admin UI    : http://127.0.0.1:" + adminPort + "/ui/");
+  console.log("Admin token : " + admin);
+  console.log("MCP URL     : http://127.0.0.1:" + port + "/mcp/" + mcp);
+  console.log("Keep these credentials private. For ChatGPT Web, configure a separate HTTPS MCP route.");
+}
+
 function runOperator(args: string[]): void {
   if (process.platform !== "linux") {
     console.error("Signed operator mode control requires the hardened Linux installation.");
@@ -425,7 +449,10 @@ function cmdSetup() {
   console.log("Extensions: "+path.join(path.resolve(root),".bridge-dev","extensions.json"));
   console.log("MCP providers: disabled until explicitly configured in the workspace or via MCP_UPSTREAM_CONFIG");
   if(process.platform!=="linux")console.log("Hardened Linux systemd/privilege broker unavailable on this platform.");
-  console.log("Next: configure MCP_TOKEN in a private .env file, then run 'bridge-dev serve'.");
+  if (process.env.MCP_TOKEN && process.env.ADMIN_TOKEN)
+    console.log("Ready: run 'bridge-dev start' and 'bridge-dev access' locally.");
+  else
+    console.log("Next: run the one-command installer to create private credentials, then start BridgeDev.");
 }
 
 function cmdLogin(args: string[] = []) {
@@ -457,7 +484,8 @@ function cmdHelp() {
   console.log("Commands:");
   console.log("  (no args)             Display compact status report");
   console.log("  status                Detailed connection, service and project status");
-  console.log("  connect               Show token-in-URL MCP connection instructions (--show-token)");
+  console.log("  connect               Show redacted MCP client connection instructions");
+  console.log("  access                Reveal local URL and tokens in a private terminal only");
   console.log("  mode [status]         Show Read & Write or Full System (sudo) state");
   console.log("  mode read-write       Enable normal scoped work (no blanket sudo)");
   console.log("  mode sudo             Ask [y/N] to enable Full System until manually off");
@@ -469,7 +497,7 @@ function cmdHelp() {
   console.log("  login [--generate]    Check authentication status; generate a new token explicitly");
   console.log("  restart               Restart the running BridgeDev service");
   console.log("  stop                  Stop the running BridgeDev service");
-  console.log("  serve                 Run the MCP server in foreground");
+  console.log("  start, serve          Run the MCP server in foreground");
   console.log("  add <source>          Discover, select and preview an extension");
   console.log("  mcp <action>          list/search/info/add/remove/enable/disable/update/test/tools/logs/status/import/export/migrate");
   console.log("  mcp migrate           Operator file migration: --config <file> [--dry-run]");
@@ -505,6 +533,9 @@ async function main() {
     case "connect":
       await cmdConnect(args.includes("--show-token"));
       break;
+    case "access":
+      cmdAccess();
+      break;
     case "mode":
       await cmdMode(args.slice(1));
       break;
@@ -526,6 +557,7 @@ async function main() {
     case "login":
       cmdLogin(args.slice(1));
       break;
+    case "start":
     case "serve":
     case "start-server":
       await import("./index.js");
