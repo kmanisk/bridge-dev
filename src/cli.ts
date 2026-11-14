@@ -220,24 +220,26 @@ function cmdAccess(): void {
   console.log("Keep these credentials private. For ChatGPT Web, configure a separate HTTPS MCP route.");
 }
 
-function runOperator(args: string[]): void {
+function runOperator(args: string[]): boolean {
   if (process.platform !== "linux") {
     console.error("Signed operator mode control requires the hardened Linux installation.");
     process.exitCode = 1;
-    return;
+    return false;
   }
   const script = path.join(getActivePath("opt"), "scripts", "policygate-operator.mjs");
   if (!fs.existsSync(script)) {
     console.error("Operator script not installed: " + script);
     process.exitCode = 1;
-    return;
+    return false;
   }
   // The operator script independently requires real root UID and an interactive terminal.
   const run = spawnSync("sudo", ["--", process.execPath, script, ...args], {stdio:"inherit"});
   if (run.error || run.status !== 0) {
     console.error("Operator authorization failed. Use an independent local root terminal.");
     process.exitCode = run.status || 1;
+    return false;
   }
+  return true;
 }
 
 async function cmdMode(args: string[]) {
@@ -261,8 +263,19 @@ async function cmdMode(args: string[]) {
       console.error("Full System (sudo) needs the optional Linux host controller; portable mode cannot elevate.");
       process.exitCode=1;return;
     }
-    if(args.includes("--off")) runOperator(["mode","standard"]);
-    else runOperator(["yolo", ...args.slice(1)]);
+    if(args.includes("--off")) {
+      runOperator(["mode","standard"]);
+      return;
+    }
+    if (!runOperator(["yolo", ...args.slice(1)])) return;
+    // An issued operator lease is not evidence that the local controller
+    // state actually authorizes Full System.
+    const mode = getActiveMode();
+    if (mode.mode !== "YOLO") {
+      console.error("Full System not confirmed by local signed lease and controller state: " + mode.detail);
+      console.error("Inspect 'bridge-dev mode status' and MCP 'agent_status'; do not assume remote root access.");
+      process.exitCode = 1;
+    }
     return;
   }
   console.error("Usage: bridge-dev mode [read-write | sudo [--duration <1-120>] | sudo --off]");
