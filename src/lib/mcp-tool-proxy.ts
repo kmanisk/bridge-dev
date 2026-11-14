@@ -1,5 +1,5 @@
 import { z } from "zod";
-import {proxyToolName,cleanProviderText} from "./provider-security.js";
+import {proxyToolName,cleanProviderText,providerOutputSchema} from "./provider-security.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -70,7 +70,8 @@ function jsonSchemaNodeToZod(schema: unknown): z.ZodTypeAny {
       const nonNullTypes = types.filter((type) => type !== "null");
       const primaryType = nonNullTypes[0];
 
-      if (primaryType === "string") field = z.string();
+      if (nonNullTypes.length > 1) field = z.union(nonNullTypes.map(type=>jsonSchemaNodeToZod({...node,type})) as [z.ZodTypeAny,z.ZodTypeAny,...z.ZodTypeAny[]]);
+      else if (primaryType === "string") field = z.string();
       else if (primaryType === "number") field = z.number();
       else if (primaryType === "integer") field = z.number().int();
       else if (primaryType === "boolean") field = z.boolean();
@@ -83,11 +84,10 @@ function jsonSchemaNodeToZod(schema: unknown): z.ZodTypeAny {
           shape[key] = required.has(key) ? childSchema : childSchema.optional();
         }
 
-        // Be intentionally permissive at proxy boundaries. We preserve the
-        // declared properties/types but allow extra fields so a lossy JSON
-        // Schema -> Zod conversion can never reject valid upstream output.
+        // Inputs are checked against the original schema again after the
+        // gateway-only context token is stripped. Outputs use the exact schema.
         field = z.object(shape).passthrough();
-      } else if (primaryType === "null") field = z.null();
+      } else if (types.length === 1 && types[0] === "null") field = z.null();
       else field = z.any();
 
       if (types.includes("null") || node.nullable) field = field.nullable();
@@ -154,10 +154,6 @@ export async function refreshProxiedTools(server: McpServer, manager: McpUpstrea
 
       const inputShape = jsonSchemaToZodShape(tool.inputSchema);
       const hasSchema = Object.keys(inputShape).length > 0;
-      const outputShape = tool.outputSchema
-        ? jsonSchemaToZodShape(tool.outputSchema as Tool["inputSchema"])
-        : undefined;
-      const hasOutputSchema = !!outputShape && Object.keys(outputShape).length > 0;
 
       const registered = server.registerTool(
         proxyName,
@@ -165,7 +161,7 @@ export async function refreshProxiedTools(server: McpServer, manager: McpUpstrea
           title: cleanProviderText(tool.title ?? tool.name,128),
           description: `[Untrusted provider: ${config.id}] ${cleanProviderText(tool.description ?? tool.name,2000)}`,
           inputSchema: z.looseObject(hasSchema ? inputShape : {}),
-          ...(hasOutputSchema ? { outputSchema: outputShape } : {}),
+          ...(tool.outputSchema ? { outputSchema: providerOutputSchema(tool.outputSchema) } : {}),
           annotations: tool.annotations ?? toolAnnotations("edit"),
         },
         async (args: Record<string, unknown>) => {

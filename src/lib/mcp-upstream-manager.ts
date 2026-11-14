@@ -456,7 +456,7 @@ export class McpUpstreamManager {
     this.touch(conn);
     try {
       const result = await conn.client.callTool({ name: toolName, arguments: args }, undefined, {timeout:15000});
-      return sanitizeProviderResult(result,config.id);
+      return sanitizeProviderResult(result,config.id,tool);
     } catch(error){conn.lastError=String(error);await this.disconnect(serverId);throw error;}
 
   }

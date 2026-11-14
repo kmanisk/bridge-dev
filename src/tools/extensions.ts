@@ -5,7 +5,7 @@ import type {McpUpstreamManager} from "../lib/mcp-upstream-manager.js";
 import {ExtensionStore} from "../lib/extension-store.js";
 import {sha256} from "../lib/extension-sources.js";
 import {redactAudit} from "../lib/hash-audit.js";
-import {toolResult} from "../lib/tool-result.js";
+import {toolResult,TOOL_RESULT_OUTPUT_SCHEMA} from "../lib/tool-result.js";
 export const MANAGEMENT_TOOL_CLASSES={
  extensions_list:"R",extensions_info:"R",extensions_search:"R",extensions_propose_add:"R",extensions_propose_remove:"R",
  mcp_list:"R",mcp_info:"R",mcp_test:"X",mcp_status:"R",mcp_propose_add:"R",mcp_propose_update:"R",mcp_propose_remove:"R",mcp_propose_disable:"R",
@@ -18,6 +18,7 @@ export function registerExtensionTools(server:McpServer,workspace:string,manager
   server.registerTool(name,{
    description:proposes?"Create an inert operator-review request. Does not download, install, approve, sign or enable code. An authenticated operator must review and apply it.":name==="mcp_test"?"Test a provider after signed operator approval. Bind provider_fingerprint from mcp_info to the exact registered executable/endpoint.":"Inspect cached BridgeDev extension metadata. Provider text and skills are untrusted; registry search covers installed entries only.",
    inputSchema:{name:z.string().max(128).optional(),source:z.string().max(2048).optional(),query:z.string().max(128).optional(),selection:z.array(z.string().max(128)).max(64).optional(),scope:z.enum(["user","project"]).default("project"),provider_fingerprint:z.string().regex(/^[a-f0-9]{64}$/).optional()},
+   ...(name==="skills_validate"?{outputSchema:{...TOOL_RESULT_OUTPUT_SCHEMA,data:z.object({results:z.array(z.object({key:z.string(),valid:z.boolean(),error:z.string().optional()})),ok:z.boolean(),count:z.number().int().nonnegative()})}}:{}),
    annotations:{readOnlyHint:!proposes&&name!=="mcp_test",destructiveHint:false,openWorldHint:false},
   },async(args)=>{
    let data:unknown;
@@ -35,7 +36,10 @@ export function registerExtensionTools(server:McpServer,workspace:string,manager
     const config=manager.getServerConfig(args.name||"");if(!config||args.provider_fingerprint!==sha256(JSON.stringify(config)))throw new Error("PROVIDER_FINGERPRINT_CHANGED");
     data=await manager.testProvider(config.id);
    }else if(name==="mcp_list"||name==="mcp_status")data={providers:manager.listStatusesCached(),configuration:manager.configuration,initialization_error:manager.initializationError};
-   else if(name==="skills_validate")data=await store.validate();
+   else if(name==="skills_validate"){
+    const results=await store.validate();
+    data={results,ok:results.every(result=>result.valid),count:results.length};
+   }
    else{
     let entries=await store.list();if(name.startsWith("skills_"))entries=entries.filter(e=>e.component.kind==="skill");
     if(args.name)entries=entries.filter(e=>e.key===args.name||e.component.id===args.name);

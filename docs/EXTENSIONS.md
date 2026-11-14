@@ -124,3 +124,16 @@ manage scope/enablement/permissions and apply approved changes. The token stays 
 browser memory. Requests from MCP clients appear for operator review; clients cannot
 approve or sign them. Imported text and tool metadata are untrusted even when viewed
 inside the admin UI. Cached clients may need reconnecting after changes.
+
+## Structured validation results
+
+MCP `skills_validate` returns the native `{ ok, tool, summary, data }` envelope.
+Its `data` is `{ results: [{ key, valid, error? }], ok, count }`; `data.ok` reports
+whether every installed skill validated, while the outer `ok` reports whether
+validation ran. An empty installation returns `results: []`, `ok: true`, `count: 0`.
+This fixes the former invalid array at `data`; MCP consumers must read
+`data.results`. The declared schema includes these fields.
+
+`bridge-dev skills validate --json` preserves its existing `{ ok: true, data: [] }`
+array contract. The Admin UI uses extension metadata endpoints and does not
+consume the MCP validation payload; its response format is unchanged.

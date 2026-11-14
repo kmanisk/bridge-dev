@@ -34,6 +34,9 @@ export function toolResult<T extends object>(
   content: Array<{ type: "text"; text: string }>;
   structuredContent: Record<string, unknown>;
 } {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("TOOL_RESULT_DATA_MUST_BE_OBJECT: " + tool);
+  }
   const payload: ToolResultPayload = {
     ok: options?.ok ?? true,
     tool,

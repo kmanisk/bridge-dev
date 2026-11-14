@@ -160,3 +160,22 @@ untouched. A valid version-1 file is a no-op: no rewrite and no extra backup. Ba
 are never loaded or restored automatically. An operator rollback restores the
 verified backup through an atomic replacement with the original owner/mode, then
 restarts only during an independently approved maintenance window.
+
+## Tool result contracts
+
+Native tools return `{ ok, tool, summary, data }` with object-valued `data`.
+`skills_validate` wraps its entries in `data.results` (see EXTENSIONS.md). The
+result helper rejects null, array and primitive payloads before transport.
+
+Routed tools retain provider output schemas, including open/closed objects, empty
+objects, typed additional properties, required fields and nullable type unions.
+The gateway validates the original schema with the existing SDK JSON Schema
+validator; it does not convert outputs through the input-shape approximation.
+Malformed provider outputs fail as MCP errors and are never exposed as successful
+structured results. Text-only provider errors remain valid MCP error responses.
+
+`test:policy`, `test:integration` and `test:all` include a real HTTP SDK-client
+contract audit covering all 73 native registrations: safe read/proposal responses,
+STRICT denials for executable/mutating operations, and malformed/mock provider
+outputs. The test asserts an explicit argument case for every native tool and
+fails on schema errors even when the SDK reports them inside an error result.
