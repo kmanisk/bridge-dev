@@ -52,3 +52,16 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm run test:sources
       - run: pnpm run test:integration
+      - name: Clean portable install from actual source
+        shell: bash
+        run: |
+          root="$(mktemp -d)"
+          trap 'rm -rf "$root"' EXIT
+          export BRIDGEDEV_INSTALL_ROOT="$root/runtime"
+          export BRIDGEDEV_INSTALL_CONFIG="$root/config"
+          export BRIDGEDEV_INSTALL_BIN="$root/bin"
+          export BRIDGEDEV_INSTALL_WORKSPACE="$root/workspace"
+          node scripts/install-portable.mjs --source .
+          test -f "$root/config/.env"
+          test -x "$root/bin/bridge-dev"
+          "$root/bin/bridge-dev" help >/dev/null
