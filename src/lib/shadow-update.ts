@@ -77,7 +77,7 @@ export async function runShadowAcceptance(
       };
       child.stdout!.on("data",(b:Buffer)=>grab(b,"stdout"));
       child.stderr!.on("data",(b:Buffer)=>grab(b,"stderr"));
-      child.on("error",err=>finish(Error("UPDATE_SHADOW_SANDBOX_UNAVAILABLE: "+err.code)));
+      child.on("error",err=>finish(Error("UPDATE_SHADOW_SANDBOX_UNAVAILABLE: "+(err as NodeJS.ErrnoException).code)));
       child.on("close",code=>finish(undefined,code));
     });
     if(output.code!==0){
