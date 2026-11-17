@@ -59,6 +59,20 @@ const installed = await release.stageBundle(artifact, root, a, {
 });
 assert.equal((await release.verifyRelease(installed)).commit, a);
 assert.equal(await release.stageBundle(artifact, root, a, {}), installed);
+const {verifiedStagedRelease}=await import("../dist/lib/service-manager.js");
+const verifiedRoot=path.join(base,"preverified-artifact");
+const verifiedDir=await release.stageBundle(artifact,verifiedRoot,a,{
+  repository:"kmanisk/bridge-dev",verified_ci:true,workflow_run:42,
+  artifact_digest:"sha256:"+"a".repeat(64),artifact_id:99,
+});
+assert.deepEqual(await verifiedStagedRelease(a,verifiedRoot),{
+  commit:a,release:verifiedDir
+},"A valid pre-staged artifact needs no second gh invocation");
+assert.equal(await verifiedStagedRelease(b,verifiedRoot),null);
+const unverified=path.join(base,"unverified-artifact");
+await release.stageBundle(artifact,unverified,a,{verified_ci:false});
+await assert.rejects(verifiedStagedRelease(a,unverified),/SERVICE_STAGED_PROVENANCE_INVALID/);
+
 await fs.chmod(path.join(installed, "dist/index.js"), 0o644);
 await assert.rejects(release.verifyRelease(installed), /RELEASE_MODE_CHANGED/);
 await fs.chmod(path.join(installed, "dist/index.js"), 0o444);
