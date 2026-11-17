@@ -983,6 +983,12 @@ async function cmdUpdate(args: string[], json: boolean,verbose=false): Promise<v
   if (initialMode==="YOLO" && args.includes("--standard-window") &&
       signedBefore.detail!=="verified signed lease; until manually disabled")
     throw Error("UPDATE_TIMED_YOLO_UNSUPPORTED: use an explicit operator mode transition; refusing to extend a timed privilege lease");
+  if(initialMode==="YOLO"){
+    if(process.platform!=="linux")throw Error("UPDATE_SHADOW_LOCAL_LINUX_REQUIRED");
+    try{assertLocalUpdateCgroup(fs.readFileSync("/proc/self/cgroup","utf8"));}
+    catch(error){if((error as Error).message.startsWith("UPDATE_"))throw error;
+      throw Error("UPDATE_LOCAL_SESSION_UNVERIFIED");}
+  }
   // Fail before revoking an active YOLO lease when main has not passed CI,
   // its artifact is missing/corrupted, or staging fails. The later guarded
   // updater still independently validates the staged release and health.
