@@ -327,6 +327,23 @@ async function github(route: string, binary = false): Promise<any> {
     throw githubAccessError(error);
   }
 }
+/** A staged release can be reused by the local CLI and the transient job.
+ * The exact SHA, immutable file digests and GitHub CI evidence must all match.
+ * Existing but invalid candidate directories fail closed instead of refetching. */
+export async function verifiedStagedRelease(
+  ref:string,root:string
+):Promise<{commit:string;release:string}|null>{
+  if(!/^[a-f0-9]{40}$/.test(ref))return null;
+  const candidate=path.join(root,"releases",ref);
+  if(!sync.existsSync(candidate))return null;
+  const manifest=await verifyRelease(candidate,ref);
+  if(manifest.evidence?.verified_ci!==true ||
+     manifest.evidence?.repository!=="kmanisk/bridge-dev" ||
+     !Number.isSafeInteger(manifest.evidence?.workflow_run) ||
+     !/^sha256:[a-f0-9]{64}$/.test(String(manifest.evidence?.artifact_digest)))
+    throw Error("SERVICE_STAGED_PROVENANCE_INVALID");
+  return {commit:ref,release:candidate};
+}
 export async function stageVerifiedGithubRelease(
   ref: string,
   root: string,
