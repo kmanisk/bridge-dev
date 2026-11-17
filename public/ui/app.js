@@ -185,6 +185,7 @@ function showPairingRequired() {
   stopActivity();
   $("security-panel").hidden = false;
   $("title").textContent = "Access & Security";
+  $("section-filter-toolbar").hidden = true;
   $("filter").value = "";
   document.querySelectorAll("nav button").forEach((button) => {
     if (button.dataset.tab === "security") button.setAttribute("aria-current", "page");
@@ -220,7 +221,15 @@ async function navigate(name) {
   notice("");
   $("security-panel").hidden = name !== "security";
   $("title").textContent = name[0].toUpperCase() + name.slice(1);
-  $("filter").closest(".toolbar").hidden = name === "marketplace" || name === "custom";
+  const filterable = new Set([
+    "extensions",
+    "skills",
+    "instructions",
+    "packs",
+    "approvals",
+    "audit",
+  ]);
+  $("section-filter-toolbar").hidden = !filterable.has(name);
   $("filter").value = "";
   document.querySelectorAll("nav button").forEach((b) => {
     if (b.dataset.tab === name) b.setAttribute("aria-current", "page");
@@ -1374,16 +1383,23 @@ document
   .forEach((b) =>
     b.addEventListener("click", () => void navigate(b.dataset.tab)),
   );
-$("filter").addEventListener("input", () =>
+function applySectionFilter() {
+  const query = $("filter").value.toLowerCase();
   screen
     .querySelectorAll("tr[data-filter]")
     .forEach(
       (r) =>
-        (r.hidden = !r.dataset.filter.includes(
-          $("filter").value.toLowerCase(),
-        )),
-    ),
-);
+        (r.hidden = !r.dataset.filter.includes(query)),
+    );
+  if (section === "audit") {
+    void audit();
+  }
+}
+$("filter").addEventListener("input", applySectionFilter);
+$("section-filter-toolbar").addEventListener("submit", (e) => {
+  e.preventDefault();
+  applySectionFilter();
+});
 $("help").addEventListener("click", () => $("help-dialog").showModal());
 $("theme").addEventListener("click", () => {
   const themes = ["system", "light", "dark"],
@@ -1422,7 +1438,12 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "/") {
     e.preventDefault();
-    $("filter").focus();
+    const marketSearch = $("marketplace-search");
+    if (marketSearch && !marketSearch.hidden && marketSearch.offsetParent !== null) {
+      marketSearch.focus();
+    } else if (!$("section-filter-toolbar").hidden) {
+      $("filter").focus();
+    }
   }
   if (e.key === "?") $("help-dialog").showModal();
 });
@@ -1478,6 +1499,87 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // The catalog is inert metadata. Browsing never contacts package registries or providers.
+const SVG_ICONS = {
+  mcp: '<rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
+  skill: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+  tool: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+  database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+  observability: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  memory: '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><line x1="8.5" y1="7.5" x2="15.5" y2="7.5"/><line x1="7.5" y1="8.5" x2="10.5" y2="15.5"/><line x1="16.5" y1="8.5" x2="13.5" y2="15.5"/>',
+  filesystem: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  chip: '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="15" x2="23" y2="15"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="15" x2="4" y2="15"/>',
+  cloud: '<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>',
+  box: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+  git: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v12"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  ai: '<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>',
+  keyboard: '<rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6" y2="8"/><line x1="10" y1="8" x2="10" y2="8"/><line x1="14" y1="8" x2="14" y2="8"/><line x1="18" y1="8" x2="18" y2="8"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="10" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="14" y2="12"/><line x1="18" y1="12" x2="18" y2="12"/><line x1="7" y1="16" x2="17" y2="16"/>',
+  bluetooth: '<polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/>',
+  speed: '<path d="M12 14l4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+};
+
+function createSvgIcon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = SVG_ICONS[name] || SVG_ICONS.mcp;
+  return svg;
+}
+
+function getFallbackIconName(entry) {
+  const cat = (entry.category || "").toLowerCase();
+  const id = (entry.id || "").toLowerCase();
+  const type = (entry.type || "").toLowerCase();
+  const desc = (entry.description || "").toLowerCase();
+
+  if (cat.includes("reverse") || id.includes("rea") || desc.includes("decompile") || desc.includes("binary")) return "chip";
+  if (id.includes("keyboard") || desc.includes("keyboard") || desc.includes("ergonomic")) return "keyboard";
+  if (id.includes("bluetooth") || desc.includes("bluetooth")) return "bluetooth";
+  if (id.includes("performance") || id.includes("cachyos") || desc.includes("gpu")) return "speed";
+  if (cat.includes("database") || id.includes("sql") || id.includes("postgres") || id.includes("sqlite") || id.includes("mongo") || id.includes("redis")) return "database";
+  if (cat.includes("browser") || id.includes("puppeteer") || id.includes("playwright") || id.includes("fetch") || desc.includes("web")) return "globe";
+  if (cat.includes("observability") || cat.includes("monitoring") || id.includes("sentry") || desc.includes("telemetry")) return "observability";
+  if (cat.includes("memory") || id.includes("memory") || desc.includes("knowledge graph")) return "memory";
+  if (id.includes("filesystem") || cat.includes("local development") || desc.includes("filesystem")) return "filesystem";
+  if (cat.includes("container") || cat.includes("devops") || id.includes("docker") || id.includes("kubernetes")) return "box";
+  if (cat.includes("cloud") || id.includes("aws") || id.includes("gcp") || id.includes("azure") || id.includes("cloudflare")) return "cloud";
+  if (cat.includes("git") || id.includes("github") || id.includes("gitlab")) return "git";
+  if (cat.includes("ai") || cat.includes("machine learning")) return "ai";
+  if (type === "skill") return "skill";
+  if (type === "tool") return "tool";
+  return "mcp";
+}
+
+function renderMarketplaceIcon(entry) {
+  const wrap = el("div", undefined, { class: "catalog-card-icon" });
+  const fallback = getFallbackIconName(entry);
+  if (entry.icon) {
+    if (entry.icon.startsWith("data:") || entry.icon.startsWith("/")) {
+      const img = el("img", undefined, {
+        src: entry.icon,
+        alt: "",
+        width: "36",
+        height: "36",
+        loading: "lazy",
+      });
+      img.onerror = () => { img.replaceWith(createSvgIcon(fallback)); };
+      wrap.append(img);
+      return wrap;
+    }
+    if (SVG_ICONS[entry.icon]) {
+      wrap.append(createSvgIcon(entry.icon));
+      return wrap;
+    }
+  }
+  wrap.append(createSvgIcon(fallback));
+  return wrap;
+}
+
 let marketQuery = { offset: 0, limit: 20 },
   marketData;
 async function marketplaceView() {
@@ -1491,16 +1593,21 @@ async function marketplaceView() {
   );
   screen.append(el("p", "Explore reviewed MCP servers, skills and tools. Catalog entries are not proof of installation or compatibility; inspect the requirements before requesting a proposal.", {class:"catalog-intro"}));
   const form = el("form", undefined, {
-    class: "actions",
+    class: "actions marketplace-toolbar",
     id: "marketplace-filter",
   });
+  const searchGroup = el("div", undefined, { class: "market-search-group" });
   const query = el("input", undefined, {
     "aria-label": "Search catalog",
     placeholder: "Search all integrations",
     id: "marketplace-search",
   });
   query.value = marketQuery.query || "";
-  form.append(query);
+  const searchBtn = el("button", "Search", { type: "submit" });
+  searchGroup.append(query, searchBtn);
+  form.append(searchGroup);
+
+  const filterGroup = el("div", undefined, { class: "market-filter-dropdowns" });
   for (const [key, options] of [
     ["category", data.categories],
     ["type", ["mcp", "skill", "tool"]],
@@ -1523,9 +1630,9 @@ async function marketplaceView() {
       marketQuery.offset = 0;
       await render();
     });
-    form.append(select);
+    filterGroup.append(select);
   }
-  form.append(el("button", "Search", { type: "submit" }));
+  form.append(filterGroup);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     marketQuery.query = query.value;
@@ -1540,13 +1647,18 @@ async function marketplaceView() {
   const grid = el("div", undefined, {class:"catalog-grid"});
   for (const entry of data.entries) {
     const card = el("article", undefined, {class:"catalog-card"});
+    const header = el("div", undefined, {class:"catalog-card-header"});
+    const icon = renderMarketplaceIcon(entry);
+    const headingBox = el("div", undefined, {class:"catalog-card-heading"});
     const top = el("div", undefined, {class:"catalog-card-top"});
     const status = entry.state.connected ? "Connected · " + entry.state.exposed.length + " tools" :
       entry.state.registered ? (entry.state.enabled ? "Enabled" : "Registered") :
       entry.state.installed ? "Installed" : "Not installed";
     top.append(el("span", entry.type.toUpperCase(), {class:"catalog-type"}),
       el("span", status, {class:"catalog-state"}));
-    card.append(top, el("h3", entry.name), el("p", entry.description, {class:"catalog-description"}));
+    headingBox.append(top, el("h3", entry.name));
+    header.append(icon, headingBox);
+    card.append(header, el("p", entry.description, {class:"catalog-description"}));
     const meta = el("p", entry.category + " · " + entry.maintainer + " · " + entry.version,
       {class:"catalog-meta"});
     card.append(meta);

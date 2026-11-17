@@ -34,8 +34,19 @@
         ><button data-tab="security">Access & Security</button>
       </nav>
       <main id="content" tabindex="-1">
-        <div class="toolbar">
+        <div class="toolbar header-toolbar">
           <h1 id="title">Overview</h1>
+          <form id="section-filter-toolbar" class="compact-search-box" role="search" hidden>
+            <input
+              id="filter"
+              type="search"
+              placeholder="Filter section..."
+              autocomplete="off"
+              aria-label="Filter this section"
+              aria-keyshortcuts="/"
+            />
+            <button id="filter-btn" type="submit" aria-label="Search">Search</button>
+          </form>
           <span id="sync-status" class="sync-status" role="status" aria-live="polite">Manual refresh</span>
           <button id="refresh" type="button">Refresh</button>
         </div>
@@ -62,15 +73,6 @@
         <p id="notice" role="status" aria-live="polite">
           Open the short-lived pairing link printed by bridge-dev access.
         </p>
-        <div class="toolbar" id="section-filter-toolbar">
-          <label for="filter">Filter this section</label
-          ><input
-            id="filter"
-            type="search"
-            autocomplete="off"
-            aria-keyshortcuts="/"
-          />
-        </div>
         <section id="screen" aria-labelledby="title"></section>
       </main>
     </div>

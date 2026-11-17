@@ -37,7 +37,7 @@ export function startAdminServer(options: AdminServerOptions): Server {
   app.use(requestLimit(32));
   app.use(express.json({ limit: "2mb" }));
   app.use(localhostOnly);
-  app.use((_req,res,next)=>{res.setHeader("X-Content-Type-Options","nosniff");res.setHeader("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");next();});
+  app.use((_req,res,next)=>{res.setHeader("X-Content-Type-Options","nosniff");res.setHeader("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: https://github.com https://avatars.githubusercontent.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");next();});
 
   // OAuth callbacks must not require ADMIN_TOKEN: OAuth providers redirect the browser here.
   // The route is still loopback-only and protected by the per-flow OAuth state value.

@@ -298,6 +298,14 @@ try {
   await evaluate('document.getElementById("detail").close()');
   await evaluate('navigate("marketplace")');
   assert.ok((await evaluate('marketData.catalog_total'))>=100);
+  assert.ok(
+    (await evaluate('document.querySelectorAll(".catalog-card .catalog-card-icon").length')) > 0,
+    "Marketplace cards must render icons",
+  );
+  assert.ok(
+    (await evaluate('document.querySelectorAll(".catalog-card-icon svg, .catalog-card-icon img").length')) > 0,
+    "Marketplace icon container must contain SVG or img",
+  );
   await evaluate('document.getElementById("marketplace-search").value="Reverse Engineer Anything";document.getElementById("marketplace-filter").requestSubmit()');
   await waitFor(()=>evaluate('marketData.total===1'));
   assert.equal(await evaluate('marketData.entries[0].state.registered'),false);
@@ -313,6 +321,17 @@ try {
   await evaluate('document.getElementById("detail").close()');
   await evaluate('navigate("overview")');
   assert.match(await evaluate('screen.textContent'), /No manual mode-switch commands needed/);
+  assert.equal(
+    await evaluate('document.getElementById("section-filter-toolbar").hidden'),
+    true,
+    "Overview section filter toolbar must be hidden",
+  );
+  await evaluate('navigate("extensions")');
+  assert.equal(
+    await evaluate('document.getElementById("section-filter-toolbar").hidden'),
+    false,
+    "Extensions section filter toolbar must be visible",
+  );
   await evaluate('navigate("custom")');
   await waitFor(() => evaluate('screen.textContent.includes("Personal resources")'));
   assert.equal(await evaluate('document.getElementById("notice").textContent.includes("Loaded. Refresh is manual.")'),false);
@@ -368,12 +387,12 @@ try {
   await evaluate(
     'document.activeElement.blur();globalThis.keyTrace=[];document.addEventListener("keydown",e=>keyTrace.push([e.key,e.target.tagName,document.activeElement.id]))',
   );
-  for (const key of ["g", "o"]) {
+  for (const key of ["g", "e"]) {
     await command("Input.dispatchKeyEvent", { type: "rawKeyDown", key });
     await command("Input.dispatchKeyEvent", { type: "keyUp", key });
   }
   await waitFor(() =>
-    evaluate('document.getElementById("title").textContent==="Overview"'),
+    evaluate('document.getElementById("title").textContent==="Extensions"'),
   );
   await command("Input.dispatchKeyEvent", {
     type: "rawKeyDown",
@@ -391,6 +410,19 @@ try {
     await evaluate("document.activeElement.id"),
     "filter",
     JSON.stringify(await evaluate("keyTrace")),
+  );
+  await evaluate("document.activeElement.blur()");
+  for (const key of ["g", "o"]) {
+    await command("Input.dispatchKeyEvent", { type: "rawKeyDown", key });
+    await command("Input.dispatchKeyEvent", { type: "keyUp", key });
+  }
+  await waitFor(() =>
+    evaluate('document.getElementById("title").textContent==="Overview"'),
+  );
+  assert.equal(
+    await evaluate('document.getElementById("section-filter-toolbar").hidden'),
+    true,
+    "Overview section filter toolbar must be hidden",
   );
   assert.equal(
     await evaluate(
