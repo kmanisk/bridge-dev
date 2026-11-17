@@ -356,9 +356,11 @@ async function auditOffline(
 async function auditEvent(
   c: ServiceConfig,
   event: Record<string, unknown>,
+  required = true,
 ): Promise<void> {
-  const env = privateEnvironment(c.env_file),
-    r = await fetch(`http://127.0.0.1:${c.admin_port}/api/service/events`, {
+  const env = privateEnvironment(c.env_file);
+  try {
+    const r = await fetch(`http://127.0.0.1:${c.admin_port}/api/service/events`, {
       method: "POST",
       headers: {
         Authorization: "Bearer " + env.ADMIN_TOKEN,
@@ -367,7 +369,14 @@ async function auditEvent(
       body: JSON.stringify(event),
       signal: AbortSignal.timeout(5000),
     });
-  if (!r.ok) throw Error("SERVICE_AUDIT_EVENT_FAILED");
+    if (!r.ok) {
+      if (!required && r.status === 400) return;
+      throw Error("SERVICE_AUDIT_EVENT_FAILED");
+    }
+  } catch (err) {
+    if (!required) return;
+    throw err;
+  }
 }
 /** Pre-service rollback runtimes have no operator receipt API. Never create a
  * concurrent ledger writer: stop, record the passed acceptance, then restart and
@@ -898,7 +907,7 @@ export async function runServiceJob(root: string, id: string): Promise<void> {
       await record(job,{status:"VERIFYING",acceptance:{shadow}});
       assertSameUpdateLease(job.shadow_lease,snapshotUpdateLease());
       await auditEvent(job.before,{operation:"update",job:id,outcome:"shadow_accepted",
-        checks:shadow.checks,lease:"verified_unchanged"});
+        checks:shadow.checks,lease:"verified_unchanged"}, false);
     }else{
       await probeRelease(path.join(root,"releases",job.target),jobDirectory(root,id));
       await requireStandardServiceMode(job.before);
@@ -955,7 +964,7 @@ export async function runServiceJob(root: string, id: string): Promise<void> {
     if(job.shadow_lease){
       assertSameUpdateLease(job.shadow_lease,snapshotUpdateLease());
       await auditEvent(next,{operation:"update",job:id,outcome:"positive_smoke_passed",
-        lease:"verified_unchanged"});
+        lease:"verified_unchanged"}, false);
     }
     if (job.crash_test && !job.shadow_lease) {
       const before = await serviceStatus(root);

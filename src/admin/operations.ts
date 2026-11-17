@@ -37,11 +37,18 @@ export function operationsRouter(manager: McpUpstreamManager): Router {
         .object({
           operation: z.enum(["update", "rollback", "adopt"]),
           job: z.string().uuid(),
-          outcome: z.literal("success"),
-          from: z.string().regex(/^[a-f0-9]{40}$/),
-          to: z.string().regex(/^[a-f0-9]{40}$/),
+          outcome: z.enum([
+            "success",
+            "shadow_accepted",
+            "positive_smoke_passed",
+            "accepted_before_legacy_restart",
+          ]),
+          from: z.string().regex(/^[a-f0-9]{40}$/).optional(),
+          to: z.string().regex(/^[a-f0-9]{40}$/).optional(),
+          checks: z.record(z.string(), z.unknown()).optional(),
+          lease: z.string().optional(),
         })
-        .strict()
+        .passthrough()
         .parse(req.body);
       await getPolicyGate().audit.append({
         phase: "service_operation",

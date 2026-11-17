@@ -65,6 +65,7 @@ export const catalogEntry = z
       .array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/))
       .max(16)
       .default([]),
+    icon: z.string().max(2048).optional(),
   })
   .strict();
 export type CatalogEntry = z.infer<typeof catalogEntry>;
