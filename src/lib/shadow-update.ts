@@ -29,7 +29,7 @@ export function shadowBubblewrapArgs(
     "--tmpfs","/usr/local", // Never expose the independently installed root controller.
     "--symlink","usr/bin","/bin",
     "--symlink","usr/lib","/lib",
-    "--symlink","usr/lib","/lib64",
+    "--symlink","usr/lib64","/lib64",
     "--dir","/opt",
     "--ro-bind",node,"/opt/shadow-node",
     "--ro-bind",release,"/release",
