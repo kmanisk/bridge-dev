@@ -82,7 +82,7 @@ try{
   await fsp.writeFile(providers,JSON.stringify({version:1,servers:[]}),{mode:0o600});
   const mcpToken=randomBytes(32).toString("hex"),adminToken=randomBytes(32).toString("hex");
   const env={
-    PATH:"/usr/bin:/bin",HOME:root,XDG_CONFIG_HOME:path.join(root,"config"),
+    PATH:"/usr/local/bin:/usr/bin:/bin",HOME:root,XDG_CONFIG_HOME:path.join(root,"config"),
     XDG_DATA_HOME:path.join(root,"data"),XDG_STATE_HOME:path.join(root,"state"),
     BRIDGEDEV_RUNTIME_MODE:"portable",BRIDGEDEV_TEST_ROOT:root,
     BRIDGEDEV_STATE_DIR:path.join(root,"state"),WORKSPACE_PATH:workspace,
