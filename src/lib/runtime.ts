@@ -76,7 +76,13 @@ export function portableWorkspaceRoots(): string[] {
       return path.resolve(p);
     }
   }).filter((p) => fs.existsSync(p));
-  return resolved.length ? Array.from(new Set(resolved)) : [fs.realpathSync.native(portableWorkspace())];
+  if (resolved.length) return Array.from(new Set(resolved));
+  const fallback = portableWorkspace();
+  try {
+    return [fs.realpathSync.native(fallback)];
+  } catch {
+    return [path.resolve(fallback)];
+  }
 }
 
 export function portableStateDir(): string {

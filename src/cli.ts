@@ -885,6 +885,8 @@ async function cmdSetup(json = false,verbose = false) {
   if (json) {
     console.log(JSON.stringify({
       ok: true,
+      runtime: getRuntimeMode(),
+      mode: getRuntimeMode(),
       node: { version: process.version, ok: nodeOk },
       workspace: { path: defaultWs, ok: wsOk, authorized_roots: roots },
       config: { path: envFile, tokens_configured: Boolean(mcpToken && adminToken), generated: generatedTokens },
@@ -896,7 +898,7 @@ async function cmdSetup(json = false,verbose = false) {
   }
 
   if(!json&&!verbose){
-    console.log(`BridgeDev setup: ${nodeOk&&wsOk?"ready":"warnings"} · service ${service.installed?service.state:"not installed"}`);
+    console.log(`BridgeDev setup: ${nodeOk&&wsOk?"ready":"warnings"} · ${getRuntimeMode()} · service ${service.installed?service.state:"not installed"}`);
     if(!nodeOk)console.warn("Warning: Node.js runtime is below supported version.");
     if(!wsOk)console.warn("Warning: default workspace unavailable.");
     writeCliEvent({command:"setup",status:nodeOk&&wsOk?"OK":"WARN"});
