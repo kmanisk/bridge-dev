@@ -118,6 +118,9 @@ try{
     production_secrets_inaccessible:true,production_network_isolated:true}));
 }catch(error){
   if(process.env.SHADOW_CI_DEBUG==="1"){
+    const st=fs.statSync("/usr/bin/git");
+    console.error("CI_SHADOW_GIT_ID uid="+st.uid+" euid="+process.geteuid()+
+      " real="+fs.realpathSync("/usr/bin/git")+" mode="+(st.mode&0o777).toString(8));
     for(const [name,args] of [["git",["--version"]],["sh",["-c","git --version"]],["node",["--version"]]]){
       const check=spawnSync(name,args,{encoding:"utf8",timeout:2000});
       console.error("CI_SHADOW_COMMAND "+name+": status="+check.status+
