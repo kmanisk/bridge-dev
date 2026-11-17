@@ -55,6 +55,14 @@ jobs:
           node-version: '24'
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install workstation-specific test prerequisites
+        # Full suite tests real chezmoi target resolution and fish syntax.
+        # These packages are CI-only; npm consumers never install them.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends chezmoi fish
+          chezmoi --version
+          fish --version
       - run: pnpm run build
       - name: Full existing regression suite
         run: pnpm run test:all
