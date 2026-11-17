@@ -49,6 +49,7 @@ export function shadowBubblewrapArgs(
     "--setenv","HOME","/shadow",
     "--setenv","BRIDGEDEV_SHADOW_HOST_HOME",process.env.HOME||"/nonexistent-host-home",
     "--setenv","BRIDGEDEV_SHADOW_SANDBOX","v1",
+    ...(process.env.GITHUB_ACTIONS==="true"?["--setenv","SHADOW_CI_DEBUG","1"]:[]),
     "--setenv","BRIDGEDEV_SHADOW_PRODUCTION_PORT",String(productionPort),
     "--","/opt/shadow-node","/harness/scripts/shadow-release-acceptance.mjs",
   ];
