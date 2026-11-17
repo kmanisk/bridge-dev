@@ -17,12 +17,15 @@ import { systemBootstrapInstructions, getSystemDocuments } from "../dist/lib/sys
 const root=fs.mkdtempSync(path.join(os.tmpdir(),"bridge-dev-portable-"));
 const workspace=path.join(root,"my-project");
 fs.mkdirSync(workspace);
-const saved=Object.fromEntries(["POLICYGATE_POLICY_FILE","BRIDGEDEV_RUNTIME_MODE","BRIDGEDEV_STATE_DIR","WORKSPACE_PATH","MCP_UPSTREAM_CONFIG"].map(key=>[key,process.env[key]]));
+const saved=Object.fromEntries(["POLICYGATE_POLICY_FILE","BRIDGEDEV_RUNTIME_MODE","BRIDGEDEV_STATE_DIR","WORKSPACE_PATH","MCP_UPSTREAM_CONFIG","BRIDGEDEV_SERVICE_ROOT","BRIDGEDEV_INSTALL_ROOT","XDG_DATA_HOME","XDG_CONFIG_HOME"].map(key=>[key,process.env[key]]));
 try {
   delete process.env.POLICYGATE_POLICY_FILE;
   process.env.BRIDGEDEV_RUNTIME_MODE="portable";
   process.env.BRIDGEDEV_STATE_DIR=path.join(root,"state");
   process.env.WORKSPACE_PATH=workspace;
+  process.env.BRIDGEDEV_SERVICE_ROOT=path.join(root,"service");
+  process.env.XDG_DATA_HOME=path.join(root,"share");
+  process.env.XDG_CONFIG_HOME=path.join(root,"config");
   delete process.env.MCP_UPSTREAM_CONFIG;
   assert.equal(getRuntimeMode(),"portable");
   const gate=new PolicyGate();
@@ -76,7 +79,37 @@ try {
     cwd:process.cwd(),env:{...process.env},encoding:"utf8",timeout:9000
   });
   assert.equal(spawned.status,0,spawned.stderr);
-  assert.match(spawned.stdout,/^BridgeDev setup: ready · service not installed\s*$/);
+  assert.match(spawned.stdout,/portable/);
+  assert.match(spawned.stdout,/^BridgeDev setup: ready · portable · service not installed\s*$/);
+
+  const jsonSpawned=spawnSync(process.execPath,["dist/cli.js","setup","--json"],{
+    cwd:process.cwd(),env:{...process.env},encoding:"utf8",timeout:9000
+  });
+  assert.equal(jsonSpawned.status,0,jsonSpawned.stderr);
+  const outer=JSON.parse(jsonSpawned.stdout);
+  assert.equal(outer.ok,true);
+  const jsonParsed=Array.isArray(outer.output)&&typeof outer.output[0]==="string"?JSON.parse(outer.output[0]):outer;
+  assert.equal(jsonParsed.ok,true);
+  assert.equal(jsonParsed.runtime,"portable");
+  assert.equal(jsonParsed.mode,"portable");
+  assert.equal(jsonParsed.service.installed,false);
+
+  const policyFile = path.join(root, "test-policy.json");
+  await fsp.writeFile(policyFile, JSON.stringify({
+    profile: "standard", dangerous_enabled: false,
+    context_files: [], writable_roots: [workspace],
+    protected_paths: [], secret_paths: [], secret_names: [],
+    approval_paths: [], sensitive_segments: [], hard_paths: [],
+    allowed_commands: [], approval_commands: [], denied_commands: [],
+    limits: { max_payload_bytes: 1048576, max_mutations_per_minute: 30, max_denials: 5, approval_timeout_ms: 30000 },
+    audit_log: path.join(root, "audit.jsonl")
+  }));
+  const managedSpawned=spawnSync(process.execPath,["dist/cli.js","setup"],{
+    cwd:process.cwd(),env:{...process.env,BRIDGEDEV_RUNTIME_MODE:"managed",POLICYGATE_POLICY_FILE:policyFile},encoding:"utf8",timeout:9000
+  });
+  assert.equal(managedSpawned.status,0,managedSpawned.stderr);
+  assert.match(managedSpawned.stdout,/managed/);
+
   const expanded=spawnSync(process.execPath,["dist/cli.js","setup","--verbose"],{
     cwd:process.cwd(),env:{...process.env},encoding:"utf8",timeout:9000
   });
