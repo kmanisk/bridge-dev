@@ -57,11 +57,24 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install workstation-specific test prerequisites
         # Full suite tests real chezmoi target resolution and fish syntax.
-        # These packages are CI-only; npm consumers never install them.
+        # CI-only tools; no npm runtime dependency or modified assertions.
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends chezmoi fish
-          chezmoi --version
+          sudo apt-get install -y --no-install-recommends fish
+          # Ubuntu's runner apt repositories do not provide chezmoi.
+          # Fetch one immutable upstream release and verify its published digest.
+          curl --fail --location --silent --show-error --retry 2 \
+            https://github.com/twpayne/chezmoi/releases/download/v2.74.1/chezmoi_2.74.1_linux_amd64.tar.gz \
+            -o "$RUNNER_TEMP/chezmoi.tar.gz"
+          printf '%s  %s\n' \
+            ae01c66b1a6dbf563667c63fbbd9986b3cfa3c98dd266ddee732f63e8af2e9d1 \
+            "$RUNNER_TEMP/chezmoi.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/chezmoi.tar.gz" -C "$RUNNER_TEMP" chezmoi
+          chmod 755 "$RUNNER_TEMP/chezmoi"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/chezmoi" --version
           fish --version
       - run: pnpm run build
       - name: Full existing regression suite
