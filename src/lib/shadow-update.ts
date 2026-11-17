@@ -48,7 +48,7 @@ export function shadowBubblewrapArgs(
     "--ro-bind",path.join(sourceRoot,"scripts"),"/harness/scripts",
     "--ro-bind",path.join(sourceRoot,"dist"),"/harness/dist",
     "--ro-bind",path.join(sourceRoot,"node_modules"),"/harness/node_modules",
-    "--bind",scratch,"/shadow",
+    "--tmpfs","/shadow", // disposable namespace-owned storage; no host writable mount
     "--dir","/home","--dir","/var","--dir","/etc",
     "--proc","/proc","--dev","/dev","--tmpfs","/tmp",
     "--chdir","/shadow",
