@@ -38,6 +38,7 @@ export function shadowBubblewrapArgs(
     // Only harness scripts and dependencies are mounted, never .env.
     "--dir","/harness",
     "--ro-bind",path.join(sourceRoot,"scripts"),"/harness/scripts",
+    "--ro-bind",path.join(sourceRoot,"dist"),"/harness/dist",
     "--ro-bind",path.join(sourceRoot,"node_modules"),"/harness/node_modules",
     "--bind",scratch,"/shadow",
     "--dir","/home","--dir","/var","--dir","/etc",
