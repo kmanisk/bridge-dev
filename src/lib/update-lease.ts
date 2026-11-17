@@ -27,7 +27,7 @@ export function snapshotUpdateLease(options?:{
     activation:process.env.POLICYGATE_YOLO_ACTIVATION_FILE||"/var/lib/bridge-dev-operator/active-lease.json",
     key:process.env.POLICYGATE_APPROVAL_PUBLIC_KEY||path.join(etc,"operator-public.pem")
   };
-  let marker:Record<string,unknown>;
+  let marker:ReturnType<typeof readLeaseActivation> = null;
   try {
     marker=readLeaseActivation(p.activation,p.key);
     if(!marker)throw Error("UPDATE_OPERATOR_ACTIVATION_UNVERIFIED");
