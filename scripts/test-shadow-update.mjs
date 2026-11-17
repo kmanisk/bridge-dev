@@ -21,9 +21,21 @@ try{
   ])assert.throws(()=>assertLocalUpdateCgroup(origin),/UPDATE_MCP_PROCESS_ORIGIN_DENIED/);
   assert.doesNotThrow(()=>assertLocalUpdateCgroup("0::/user.slice/user-1000.slice/session-1.scope"));
   for(const required of ["--unshare-all","--die-with-parent","--new-session",
-    "--clearenv","--tmpfs","--ro-bind","--bind","/release","/shadow"])
+    "--clearenv","--uid","--gid","--tmpfs","--ro-bind","/release","/shadow"])
     assert.ok(args.includes(required),required);
   assert.ok(!args.includes("/home/onyx")&&!args.includes("/var/lib/bridge-dev-operator"));
+  assert.ok(!args.includes("--bind"),"No host-writable mount in shadow");
+  const reviewed=shadowBubblewrapArgs("/release","/scratch","/usr/bin/node",3000,[
+    {name:"git",source:"/trusted/git"},{name:"id",source:"/trusted/id"},
+    {name:"echo",source:"/trusted/echo"}
+  ]);
+  for(const item of ["git","id","echo"]){
+    assert.ok(reviewed.includes("/usr/bin/"+item),"Expected verified diagnostic mount: "+item);
+    assert.ok(reviewed.includes("/trusted/"+item),"Verified source: "+item);
+  }
+  assert.throws(()=>shadowBubblewrapArgs("/release","/scratch","/usr/bin/node",3000,
+    [{name:"sudo",source:"/trusted/sudo"}]),/SHADOW_TRUSTED_DIAGNOSTIC_INVALID/);
+
   assert.deepEqual(args.slice(-3),["--","/opt/shadow-node",
     "/harness/scripts/shadow-release-acceptance.mjs"]);
   for(const bad of ["relative","../../etc"]){
