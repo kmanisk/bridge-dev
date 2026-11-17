@@ -3,7 +3,7 @@ import path from "node:path";
 import {spawn} from "node:child_process";
 import {createHash} from "node:crypto";
 import {verifyRelease} from "./service-release.js";
-import {operatorEnvironment} from "./service-config.js";
+import {operatorEnvironment,sourceRoot} from "./service-config.js";
 
 export interface ShadowReceipt {
   ok:true;
@@ -33,6 +33,12 @@ export function shadowBubblewrapArgs(
     "--dir","/opt",
     "--ro-bind",node,"/opt/shadow-node",
     "--ro-bind",release,"/release",
+    // The acceptance implementation must come from the already trusted
+    // operator runtime, NOT from the candidate release under test.
+    // Only harness scripts and dependencies are mounted, never .env.
+    "--dir","/harness",
+    "--ro-bind",path.join(sourceRoot,"scripts"),"/harness/scripts",
+    "--ro-bind",path.join(sourceRoot,"node_modules"),"/harness/node_modules",
     "--bind",scratch,"/shadow",
     "--dir","/home","--dir","/var","--dir","/etc",
     "--proc","/proc","--dev","/dev","--tmpfs","/tmp",
@@ -43,7 +49,7 @@ export function shadowBubblewrapArgs(
     "--setenv","BRIDGEDEV_SHADOW_HOST_HOME",process.env.HOME||"/nonexistent-host-home",
     "--setenv","BRIDGEDEV_SHADOW_SANDBOX","v1",
     "--setenv","BRIDGEDEV_SHADOW_PRODUCTION_PORT",String(productionPort),
-    "--","/opt/shadow-node","/release/scripts/shadow-release-acceptance.mjs",
+    "--","/opt/shadow-node","/harness/scripts/shadow-release-acceptance.mjs",
   ];
 }
 export async function runShadowAcceptance(
