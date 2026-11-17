@@ -1,5 +1,29 @@
 # Optional Linux host controller
 
+## Lease persistence across a gateway restart
+
+The signed `host-root-v1` lease, active nonce/expiry record, and public
+verification key live outside the Node gateway process and are managed by
+the independent root operator. A gateway restart alone neither revokes nor
+renews that lease. The shadow updater fingerprints those protected values
+before cutover and requires exactly the same scope, expiry and signed
+activation afterward. It never calls the operator's activation action.
+A timed lease that expires during the transaction is *not* extended.
+
+Shadow validation is performed in a separate rootless bubblewrap namespace,
+where the independently installed controller and protected files are absent.
+The previous STANDARD-window updater remains an explicit
+`bridge-dev update --standard-window` fallback. In any failure, inspect
+the tracked job; never blindly re-run a partially completed update.
+
+**Host hardening trade-off:** An installed gateway using sudo to contact the
+root controller may need `NoNewPrivileges=no` and a basic systemd sandbox.
+That is a material security cost of persistent remote root access, not proof
+of a hardened restricted-UID deployment. Never change the running service
+unit or root controller automatically as part of an update.
+
+
+
 The network gateway stays under its restricted UID and mount namespace. The
 optional controller runs commands in root transient **system** units created by
 the host systemd manager. It adds no permanent daemon. Python 3, Node.js, systemd,
