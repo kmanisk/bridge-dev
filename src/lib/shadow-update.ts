@@ -24,7 +24,7 @@ export function shadowBubblewrapArgs(
   if(!Number.isSafeInteger(productionPort)||productionPort<=0||productionPort>65535)
     throw Error("SHADOW_PRODUCTION_PORT_INVALID");
   return [
-    "--unshare-all","--die-with-parent","--new-session",
+    "--unshare-all","--uid","0","--gid","0","--die-with-parent","--new-session",
     "--ro-bind","/usr","/usr",
     ...(trustedGit?["--ro-bind",trustedGit,"/usr/bin/git"]:[]),
     "--tmpfs","/usr/local", // Never expose the independently installed root controller.
