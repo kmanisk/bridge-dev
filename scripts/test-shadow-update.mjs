@@ -25,7 +25,7 @@ try{
     assert.ok(args.includes(required),required);
   assert.ok(!args.includes("/home/onyx")&&!args.includes("/var/lib/bridge-dev-operator"));
   assert.deepEqual(args.slice(-3),["--","/opt/shadow-node",
-    "/release/scripts/shadow-release-acceptance.mjs"]);
+    "/harness/scripts/shadow-release-acceptance.mjs"]);
   for(const bad of ["relative","../../etc"]){
     assert.throws(()=>shadowBubblewrapArgs(bad,"/tmp/work","/usr/bin/node",3000),
       /SHADOW_ABSOLUTE_PATH_REQUIRED/);
