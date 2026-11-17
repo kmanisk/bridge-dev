@@ -78,8 +78,8 @@ export async function runShadowAcceptance(
     const data=await fs.readFile(originalGit);
     const digest=createHash("sha256").update(data).digest("hex");
     const copy=path.join(trusted,"git");
-    await fs.writeFile(copy,data,{mode:0o400,flag:"wx"});
-    await fs.chmod(copy,0o444);
+    await fs.writeFile(copy,data,{mode:0o500,flag:"wx"});
+    await fs.chmod(copy,0o555);
     const verify=await fs.readFile(originalGit);
     if(createHash("sha256").update(verify).digest("hex")!==digest ||
        createHash("sha256").update(await fs.readFile(copy)).digest("hex")!==digest)
