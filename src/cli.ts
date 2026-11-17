@@ -6,7 +6,7 @@ import {readPortableMode} from "./lib/portable-mode.js";
  */
 
 import "dotenv/config";
-import {startConfiguredService,installService,controlService,queueServiceOperation,jobResult} from "./lib/service-manager.js";
+import {startConfiguredService,installService,controlService,queueServiceOperation,jobResult,verifiedStagedRelease} from "./lib/service-manager.js";
 import {snapshotUpdateLease,assertSameUpdateLease,assertLocalUpdateCgroup} from "./lib/update-lease.js";
 import {offerPersistentBootService} from "./lib/yolo-autostart.js";
 import {serviceCli} from "./lib/service-cli.js";
@@ -997,7 +997,8 @@ async function cmdUpdate(args: string[], json: boolean,verbose=false): Promise<v
       throw Error("UPDATE_YOLO_LOCAL_TTY_REQUIRED: invoke from your unprivileged private local terminal");
     writeCliEvent({command:"update",status:"PREFLIGHT",release:sha});
     if(verbose)console.log("Preflight: verifying GitHub CI and staging the exact release before revoking YOLO.");
-    const staged=await stageVerifiedGithubRelease(sha,serviceRoot());
+    const staged=await verifiedStagedRelease(sha,serviceRoot()) ||
+      await stageVerifiedGithubRelease(sha,serviceRoot());
     if(staged.commit!==sha) throw Error("UPDATE_PREFLIGHT_SHA_MISMATCH");
   }
   // Signed YOLO stays active throughout the verified shadow transaction.
