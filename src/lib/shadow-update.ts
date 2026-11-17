@@ -18,7 +18,8 @@ export interface ShadowReceipt {
  * PID, IPC and network namespaces. bwrap is optional: unavailable means
  * NO UPDATE, not an unisolated retry. */
 export function shadowBubblewrapArgs(
-  release:string, scratch:string, node:string, productionPort:number, trustedGit?:string
+  release:string, scratch:string, node:string, productionPort:number,
+  trustedBinaries: Array<{name:string;source:string}>=[]
 ):string[]{
   for(const p of [release,scratch,node])if(!path.isAbsolute(p))throw Error("SHADOW_ABSOLUTE_PATH_REQUIRED");
   if(!Number.isSafeInteger(productionPort)||productionPort<=0||productionPort>65535)
@@ -26,7 +27,11 @@ export function shadowBubblewrapArgs(
   return [
     "--unshare-all","--uid","0","--gid","0","--die-with-parent","--new-session",
     "--ro-bind","/usr","/usr",
-    ...(trustedGit?["--ro-bind",trustedGit,"/usr/bin/git"]:[]),
+    ...trustedBinaries.flatMap(item=>{
+      if(!["git","id","echo"].includes(item.name) || !path.isAbsolute(item.source))
+        throw Error("SHADOW_TRUSTED_DIAGNOSTIC_INVALID");
+      return ["--ro-bind",item.source,"/usr/bin/"+item.name];
+    }),
     "--tmpfs","/usr/local", // Never expose the independently installed root controller.
     "--dir","/usr/local/bin",
     "--symlink","usr/bin","/bin",
@@ -67,24 +72,27 @@ export async function runShadowAcceptance(
   let child:ReturnType<typeof spawn>|undefined;
   try{
     const binary=await fs.realpath(node);
-    // Root-owned /usr/bin/git maps to the overflow UID in a rootless user
-    // namespace. Preserve the existing executable-trust check by mounting a
-    // byte-for-byte verified, read-only operator-owned copy as /usr/bin/git.
-    // The source copy is outside /shadow and inaccessible to the child.
-    const originalGit=await fs.realpath("/usr/bin/git");
-    const stat=await fs.stat(originalGit);
-    if(!stat.isFile()||stat.uid!==0||(stat.mode&0o022)!==0)
-      throw Error("UPDATE_SHADOW_GIT_ORIGIN_UNTRUSTED");
-    const data=await fs.readFile(originalGit);
-    const digest=createHash("sha256").update(data).digest("hex");
-    const copy=path.join(trusted,"git");
-    await fs.writeFile(copy,data,{mode:0o500,flag:"wx"});
-    await fs.chmod(copy,0o555);
-    const verify=await fs.readFile(originalGit);
-    if(createHash("sha256").update(verify).digest("hex")!==digest ||
-       createHash("sha256").update(await fs.readFile(copy)).digest("hex")!==digest)
-      throw Error("UPDATE_SHADOW_GIT_HASH_DRIFT");
-    const args=shadowBubblewrapArgs(release,scratch,binary,productionPort,copy);
+    // Root-owned host binaries appear as overflow UID in an unprivileged
+    // user namespace. Bind byte-identical, independently root-verified,
+    // read-only copies of only the three diagnostic tools the SDK requires.
+    // The sources are OUTSIDE /shadow and cannot be written by the candidate.
+    const safeBinaries:Array<{name:string;source:string}>=[];
+    for(const name of ["git","id","echo"]){
+      const original=await fs.realpath("/usr/bin/"+name);
+      const stat=await fs.stat(original);
+      if(!stat.isFile()||stat.uid!==0||(stat.mode&0o022)!==0)
+        throw Error("UPDATE_SHADOW_DIAGNOSTIC_ORIGIN_UNTRUSTED: "+name);
+      const data=await fs.readFile(original);
+      const digest=createHash("sha256").update(data).digest("hex");
+      const copy=path.join(trusted,name);
+      await fs.writeFile(copy,data,{mode:0o500,flag:"wx"});
+      await fs.chmod(copy,0o555);
+      if(createHash("sha256").update(await fs.readFile(original)).digest("hex")!==digest ||
+         createHash("sha256").update(await fs.readFile(copy)).digest("hex")!==digest)
+        throw Error("UPDATE_SHADOW_DIAGNOSTIC_HASH_DRIFT: "+name);
+      safeBinaries.push({name,source:copy});
+    }
+    const args=shadowBubblewrapArgs(release,scratch,binary,productionPort,safeBinaries);
     const output=await new Promise<{code:number|null;stdout:string;stderr:string}>((resolve,reject)=>{
       child=spawn("/usr/bin/bwrap",args,{
         env:{...operatorEnvironment(),PATH:"/usr/bin:/bin"},
