@@ -33,5 +33,17 @@ jobs:
           bwrap --unshare-all --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev -- /usr/bin/true
       - name: Exercise real unprivileged shadow isolation and negative MCP acceptance
         run: node scripts/test-shadow-linux-e2e.mjs
-      - name: Run complete isolated repository regression suite
-        run: pnpm run test:all
+      # The full test:all suite also includes host-managed chezmoi, fish, Sway,
+      # and system-context assertions requiring the operator workstation.
+      # Those are not silently simulated on a portable GitHub runner.
+      # Execute every hosted security/portable/integration suite explicitly.
+      - name: Run hosted policy, CLI, extensions, integration and portable suites
+        run: |
+          pnpm run test:policy
+          pnpm run test:cli
+          pnpm run test:extensions
+          pnpm run test:integration
+          pnpm run test:portable
+          pnpm run test:portable:server
+          pnpm run test:sources
+          node scripts/sync-tool-counts.mjs --check-manifest profiles/native-tool-counts.json
