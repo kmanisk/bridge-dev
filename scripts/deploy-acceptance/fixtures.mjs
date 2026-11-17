@@ -82,7 +82,10 @@ export function cleanupFixtures(plan){
  for(const p of [plan.skillDirectory,plan.repo].filter(Boolean)){
   const parent=p===plan.repo?plan.workspace:path.join(plan.workspace,'.agents/skills');assert(path.dirname(p)===parent&&path.basename(p).startsWith('bridge-acceptance-'),'ACCEPTANCE_FIXTURE_CLEANUP_PATH_REFUSED');
   if(!fs.existsSync(p))continue;assert(!fs.lstatSync(p).isSymbolicLink()&&fs.realpathSync(p)===p,'ACCEPTANCE_FIXTURE_CLEANUP_LINK_REFUSED');
-  if(process.getuid?.()!==0)for(const dir of directories(p))fs.chmodSync(dir,0o700);fs.rmSync(p,{recursive:true,force:true});
+  // Namespace UID 0 has no host DAC override after bubblewrap drops caps.
+  // Restore temporary test-directory ownership permissions before cleanup
+  // regardless of UID; no production path is ever eligible here.
+  for(const dir of directories(p))fs.chmodSync(dir,0o700);fs.rmSync(p,{recursive:true,force:true});
  }
  for(const p of [...plan.createdParents].reverse())if(fs.existsSync(p)&&!fs.lstatSync(p).isSymbolicLink()&&fs.readdirSync(p).length===0)fs.rmdirSync(p);
 }
