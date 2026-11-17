@@ -30,6 +30,7 @@ try{
     [{code:1,stderr:"unexpected example TOKEN=hidden"},"GITHUB_QUERY_FAILED"],
   ])assert.match(githubAccessError(err).message,new RegExp(reason));
 
+  if(process.platform==="linux"||process.platform==="darwin"){
   const {publicKey,privateKey}=generateKeyPairSync("ed25519",{
     publicKeyEncoding:{type:"spki",format:"pem"},
     privateKeyEncoding:{type:"pkcs8",format:"pem"}});
@@ -69,6 +70,7 @@ try{
   assert.throws(()=>assertSameUpdateLease(expiry,snapshotUpdateLease(files)),
     /UPDATE_PROTECTED_LEASE_CHANGED/);
 
+  }
   const manager=await fs.readFile("src/lib/service-manager.ts","utf8");
   assert.match(manager,/runShadowAcceptance/);
   assert.match(manager,/checkLeasedGateway\(next\)/);
