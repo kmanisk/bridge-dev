@@ -30,6 +30,6 @@ jobs:
           pnpm run build
       - name: Verify unprivileged namespace baseline
         run: |
-          bwrap --unshare-all --ro-bind /usr /usr --proc /proc --dev /dev -- /usr/bin/true
+          bwrap --unshare-all --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev -- /usr/bin/true
       - name: Exercise real unprivileged shadow isolation and negative MCP acceptance
         run: node scripts/test-shadow-linux-e2e.mjs
