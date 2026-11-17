@@ -43,36 +43,47 @@ checks an authenticated MCP session and local Admin UI, and removes fixtures.
 It must not attach to a running managed service or inherit its signed YOLO
 lease. Inspect the tarball file list and source diff before approving a release.
 
-## npm trusted publishing (operator-only setup)
+## npm publishing (operator-only setup)
 
-1. Create or sign in to the npm account, configure account-level two-factor
-   authentication and recovery factors, and ensure ownership of the package.
-2. In npm package settings, configure **Trusted Publisher: GitHub Actions**
-   using owner `kmanisk`, repository `bridge-dev`, workflow filename
-   `npm-package-release.yml`. The initial package ownership/publication
-   may require an operator-run first release if npm does not permit trusted
-   publishing before the package exists.
-3. After validating the trusted publisher, set the GitHub repository Actions
-   variable `NPM_PUBLISH_ENABLED=true`. Leave it missing/false while
-   testing the release workflow. This is an intentional opt-in.
-4. No npm token is stored in source. Preferred path uses GitHub OIDC trusted
-   publishing with `id-token: write`, npm's `--provenance` flag and
-   official Actions. Do not paste tokens into logs or issue comments.
-5. Review a version bump in `package.json` and `pnpm-lock.yaml` as applicable;
-   merge the version change through the protected `main` pull-request and CI.
-6. Confirm the exact main commit and package version from an independent
-   operator terminal. Create a signed or annotated `vX.Y.Z` tag on that
-   exact merged commit, and push the tag only after explicit publication
-   approval. **This document does not authorize creating a tag.**
-7. The tag workflow first runs Linux, Windows and macOS clean-install tests,
-   full Linux regression, a version/tag check and protected-main ancestry
-   check. It retains the reviewed .tgz as a GitHub artifact. Only when
-   `NPM_PUBLISH_ENABLED=true` does it attempt `npm publish` with OIDC
-   provenance. `workflow_dispatch` runs verification only.
-8. Verify publication from a fresh terminal and prefix:
-   `npm view bridge-dev version dist.integrity`, inspect provenance,
-   then `npm install -g bridge-dev`, `bridge-dev --version`,
-   `bridge-dev doctor`, and an explicit local portable gateway smoke test.
+1. Create or sign in to npm, enable account-level two-factor authentication,
+   configure recovery factors and confirm the package name is available.
+2. Configure a protected GitHub Actions environment named `npm-release`,
+   with a required operator reviewer before publishing.
+3. **First publication:** npm requires a package to exist before its trusted
+   publisher can be configured. Create a short-lived npm publication token
+   with appropriate publish privileges and save it as a GitHub Actions
+   repository secret `NPM_TOKEN`. For a one-time, independently approved
+   release, set repository variables `NPM_BOOTSTRAP_ENABLED=true` and
+   `NPM_PUBLISH_ENABLED=true`; leave `NPM_TRUSTED_PUBLISH_READY` unset.
+   The tag workflow then publishes its *verified tarball* using that token
+   with provenance from CI, not from the developer's laptop.
+4. Immediately after the first release, **revoke the bootstrap token** and
+   set `NPM_BOOTSTRAP_ENABLED=false`. In the npm package's Trusted Publisher
+   settings, register GitHub Actions owner `kmanisk`, repository `bridge-dev`,
+   workflow filename `npm-package-release.yml`, allowing release
+   publication. Set `NPM_TRUSTED_PUBLISH_READY=true` only after validating
+   the link. Keep `NPM_PUBLISH_ENABLED=false` until the next release
+   is independently approved.
+5. Subsequent releases use **tokenless GitHub OIDC** with `id-token: write`,
+   Node.js 24, npm CLI 11.5.1+, and provenance. The OIDC job deliberately
+   avoids a `setup-node` `registry-url` option because an empty .npmrc
+   auth token may suppress the trusted-publisher exchange. Do not install
+   an npm token for these releases.
+6. Review the version bump in `package.json` and `pnpm-lock.yaml` as
+   applicable; merge via the protected `main` pull request and CI.
+   Confirm the exact merged main commit and package version locally.
+   Create a signed or annotated `vX.Y.Z` tag on that exact commit and push
+   it **only after explicit publication approval**. This document does
+   not authorize creating a tag or publishing automatically.
+7. The tag workflow runs Linux, Windows and macOS clean-install tests,
+   full Linux regression, a tag/version and main ancestry check, and
+   uploads the verified .tgz artifact. Publishing occurs only if
+   `NPM_PUBLISH_ENABLED=true` *and* the corresponding one-time bootstrap
+   or trusted-publisher flag is set. Manual `workflow_dispatch` only verifies.
+8. From a fresh terminal inspect `npm view bridge-dev version dist.integrity`
+   and provenance, then `npm install -g bridge-dev`,
+   `bridge-dev --version`, `bridge-dev doctor` and an explicit portable
+   gateway smoke test. Never paste private credentials into logs.
 
 ## Upgrade, recovery and rollback
 

@@ -26,6 +26,7 @@
     "scripts/policygate-operator.mjs",
     "platform/windows-provider-cleanup.ps1",
     "docs/INSTALL.md",
+    "docs/RELEASING.md",
     "docs/POLICY_GATEWAY.md",
     "docs/PERSISTENT_SERVICE.md",
     "docs/HOST_CONTROLLER.md",

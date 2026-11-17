@@ -83,6 +83,7 @@ try {
     "scripts/shadow-release-acceptance.mjs",
     "platform/windows-provider-cleanup.ps1",
     "docs/INSTALL.md",
+    "docs/RELEASING.md",
     "README.md",
     "LICENSE",
     "package.json",
@@ -206,7 +207,32 @@ try {
       signal:AbortSignal.timeout(7000),
     });
     assert.equal(response.status,200,"Installed npm package MCP initialization");
+    const sessionId = response.headers.get("mcp-session-id");
+    assert.ok(sessionId,"Installed MCP client must receive a session ID");
     assert.match(await response.text(),/serverInfo|bridge-dev/i);
+    const mcpHeaders = {
+      Authorization:`Bearer ${mcpToken}`,
+      "Content-Type":"application/json",
+      Accept:"application/json, text/event-stream",
+      "Mcp-Session-Id":sessionId,
+      "Mcp-Protocol-Version":"2025-03-26",
+    };
+    const notification = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method:"POST",headers:mcpHeaders,
+      body:JSON.stringify({jsonrpc:"2.0",method:"notifications/initialized"}),
+      signal:AbortSignal.timeout(7000),
+    });
+    assert.ok(notification.ok,"Installed MCP initialized notification");
+    const discovered = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method:"POST",headers:mcpHeaders,
+      body:JSON.stringify({jsonrpc:"2.0",id:2,method:"tools/list",params:{}}),
+      signal:AbortSignal.timeout(7000),
+    });
+    assert.equal(discovered.status,200,"Installed npm package MCP tool discovery");
+    const inventory = await discovered.json();
+    assert.ok(Array.isArray(inventory.result?.tools),"Installed MCP tool list must be an array");
+    assert.ok(inventory.result.tools.some(tool => tool.name === "system_context"),
+      "Installed MCP gateway must expose its native tools");
     assert.ok(outputBytes < 200_000,"Gateway produced excessive startup output");
   } finally {
     if (child.exitCode === null) {

@@ -55,6 +55,14 @@ installation, verifies CLI/help and portable setup, and rejects excluded files.
 The global npm command must not replace the launcher for an existing managed
 BridgeDev installation. Its signed host-controller lease, systemd cutover and
 rollback remain governed by the [separate managed update procedure](PERSISTENT_SERVICE.md).
+For an **explicit initial** Linux service setup from an npm-installed CLI,
+`bridge-dev service install --start` stages the *GitHub CI-verified release*
+corresponding to the npm package's `vX.Y.Z` tag; it does not seed the unverified
+npm files into an operator-privileged service. This advanced operation requires
+the `gh` CLI authenticated for the release-artifact API, an already-published
+tag and green main-branch CI. It does not create YOLO authorization or Funnel
+exposure. Existing managed installations use their own operator CLI for
+verified service updates; a standalone npm CLI only reports npm update guidance.
 
 `bridge-dev --version` reports the packaged version. `bridge-dev doctor`
 identifies the installation source. For npm installs, `bridge-dev update --check`
