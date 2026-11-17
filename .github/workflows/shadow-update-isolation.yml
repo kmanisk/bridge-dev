@@ -33,3 +33,5 @@ jobs:
           bwrap --unshare-all --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev -- /usr/bin/true
       - name: Exercise real unprivileged shadow isolation and negative MCP acceptance
         run: node scripts/test-shadow-linux-e2e.mjs
+      - name: Run complete isolated repository regression suite
+        run: pnpm run test:all
