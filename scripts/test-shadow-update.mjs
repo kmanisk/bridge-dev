@@ -4,12 +4,17 @@ import os from "node:os";
 import path from "node:path";
 import {generateKeyPairSync,sign} from "node:crypto";
 import {shadowBubblewrapArgs} from "../dist/lib/shadow-update.js";
-import {snapshotUpdateLease,assertSameUpdateLease} from "../dist/lib/update-lease.js";
+import {snapshotUpdateLease,assertSameUpdateLease,assertLocalUpdateCgroup} from "../dist/lib/update-lease.js";
 import {githubAccessError} from "../dist/lib/service-release.js";
 
 const base=await fs.mkdtemp(path.join(os.tmpdir(),"bridge-shadow-fixture-"));
 try{
   const args=shadowBubblewrapArgs("/releases/reviewed","/state/isolated","/usr/bin/node",3000);
+  for(const origin of [
+    "0::/user.slice/user-1000.slice/user@1000.service/app.slice/bridge-dev.service",
+    "0::/user.slice/user-1000.slice/user@1000.service/app.slice/bridge-dev-update-fixture.service"
+  ])assert.throws(()=>assertLocalUpdateCgroup(origin),/UPDATE_MCP_PROCESS_ORIGIN_DENIED/);
+  assert.doesNotThrow(()=>assertLocalUpdateCgroup("0::/user.slice/user-1000.slice/session-1.scope"));
   for(const required of ["--unshare-all","--die-with-parent","--new-session",
     "--clearenv","--tmpfs","--ro-bind","--bind","/release","/shadow"])
     assert.ok(args.includes(required),required);
