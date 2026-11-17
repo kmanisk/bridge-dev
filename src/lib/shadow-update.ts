@@ -27,11 +27,13 @@ export function shadowBubblewrapArgs(
     "--unshare-all","--die-with-parent","--new-session",
     "--ro-bind","/usr","/usr",
     "--tmpfs","/usr/local", // Never expose the independently installed root controller.
+    "--dir","/usr/local/bin",
     "--symlink","usr/bin","/bin",
     "--symlink","usr/lib","/lib",
     "--symlink","usr/lib64","/lib64",
     "--dir","/opt",
     "--ro-bind",node,"/opt/shadow-node",
+    "--symlink","/opt/shadow-node","/usr/local/bin/node",
     "--ro-bind",release,"/release",
     // The acceptance implementation must come from the already trusted
     // operator runtime, NOT from the candidate release under test.
@@ -45,7 +47,7 @@ export function shadowBubblewrapArgs(
     "--proc","/proc","--dev","/dev","--tmpfs","/tmp",
     "--chdir","/shadow",
     "--clearenv",
-    "--setenv","PATH","/usr/bin:/bin",
+    "--setenv","PATH","/usr/local/bin:/usr/bin:/bin",
     "--setenv","HOME","/shadow",
     "--setenv","BRIDGEDEV_SHADOW_HOST_HOME",process.env.HOME||"/nonexistent-host-home",
     "--setenv","BRIDGEDEV_SHADOW_SANDBOX","v1",
