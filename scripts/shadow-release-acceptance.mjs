@@ -32,10 +32,30 @@ try{
   if(process.env.BRIDGEDEV_SHADOW_SANDBOX!=="v1"||!fs.existsSync(release+"/DEPLOYED_COMMIT"))
     throw Error("SHADOW_ISOLATION_UNVERIFIED");
   for(const p of blocked)absent(p);
-  // A fresh network namespace has no host routing. Bring up its *private*
-  // loopback for the two local SDK endpoints; failure is a hard denial.
-  const lo=spawnSync("/usr/bin/ip",["link","set","lo","up"],{encoding:"utf8",timeout:3000});
-  if(lo.status!==0)throw Error("SHADOW_LOOPBACK_UNAVAILABLE");
+  // The namespace has no host routes. Loopback must be functional for
+  // the gateway + SDK client; enable only the *private* lo interface if needed.
+  const loopback=async()=>{
+    const server=net.createServer();
+    try{
+      const port=await new Promise((resolve,reject)=>{
+        server.once("error",reject);
+        server.listen(0,"127.0.0.1",()=>resolve(server.address().port));
+      });
+      return await new Promise(resolve=>{
+        const client=net.createConnection({port,host:"127.0.0.1"});
+        let done=false;
+        const finish=(ok)=>{if(done)return;done=true;client.destroy();resolve(ok);};
+        client.once("connect",()=>finish(true));
+        client.once("error",()=>finish(false));
+        client.setTimeout(400,()=>finish(false));
+      });
+    }catch{return false;}
+    finally{if(server.listening)await new Promise(r=>server.close(r));}
+  };
+  if(!await loopback()){
+    const lo=spawnSync("/usr/bin/ip",["link","set","lo","up"],{encoding:"utf8",timeout:3000});
+    if(lo.status!==0||!await loopback())throw Error("SHADOW_LOOPBACK_UNAVAILABLE");
+  }
   const prodPort=Number(process.env.BRIDGEDEV_SHADOW_PRODUCTION_PORT||3000);
   assert.ok(Number.isSafeInteger(prodPort)&&prodPort>0&&prodPort<=65535);
   const probe=net.createConnection({host:"127.0.0.1",port:prodPort});
