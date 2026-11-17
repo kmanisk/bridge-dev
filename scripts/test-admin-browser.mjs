@@ -50,8 +50,8 @@ let gateway,
 const external = [],
   errors = [],
   requests = [];
-async function waitFor(action) {
-  for (let i = 0; i < 100; i++) {
+async function waitFor(action, attempts = 100) {
+  for (let i = 0; i < attempts; i++) {
     try {
       const result = await action();
       if (result) return result;
@@ -112,7 +112,7 @@ try {
         await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8")
       ).split("\n")[0],
     ),
-  );
+  , 250);
   const target = await (
     await fetch(`http://127.0.0.1:${debugPort}/json/new?about:blank`, {
       method: "PUT",
