@@ -10,9 +10,17 @@ import {randomBytes} from "node:crypto";
 import {acceptPortableGateway} from "./deploy-acceptance/portable-client.mjs";
 
 const root="/shadow", release="/release";
-function absent(p){assert.equal(fs.existsSync(p),false,"SHADOW_PRODUCTION_PATH_VISIBLE: "+p);}
+function absent(p){
+  try{const fd=fs.openSync(p,"r");fs.closeSync(fd);throw Error("SHADOW_PRODUCTION_PATH_READABLE: "+p);}
+  catch(error){if(error?.message?.startsWith("SHADOW_PRODUCTION_PATH_READABLE"))throw error;
+    if(!["ENOENT","EACCES","EPERM","ENOTDIR"].includes(error?.code))throw error;}
+}
+const hostHome=process.env.BRIDGEDEV_SHADOW_HOST_HOME||"/nonexistent-host-home";
+assert.ok(path.isAbsolute(hostHome),"SHADOW_HOST_HOME_INVALID");
 const blocked=[
-  "/home/onyx/.config/bridge-dev/.env",
+  path.join(hostHome,".config/bridge-dev/.env"),
+  path.join(hostHome,".ssh/id_ed25519"),
+  path.join(hostHome,".gnupg/private-keys-v1.d"),
   "/var/lib/bridge-dev-operator/active-lease.json",
   "/var/lib/local-coder-policygate/yolo-lease.json",
   "/var/lib/bridge-dev/yolo-lease.json",
