@@ -117,6 +117,14 @@ try{
     native:receipt.native_tool_count,read_tools:receipt.read_tools,
     production_secrets_inaccessible:true,production_network_isolated:true}));
 }catch(error){
+  if(process.env.SHADOW_CI_DEBUG==="1"){
+    for(const [name,args] of [["git",["--version"]],["sh",["-c","git --version"]],["node",["--version"]]]){
+      const check=spawnSync(name,args,{encoding:"utf8",timeout:2000});
+      console.error("CI_SHADOW_COMMAND "+name+": status="+check.status+
+        " error="+(check.error?.code||"none")+" output="+
+        String(check.stdout||check.stderr||"").slice(0,120).replace(/\n/g," "));
+    }
+  }
   console.error("SHADOW_FAILED: "+String(error instanceof Error?error.message:error).slice(0,170));
   process.exitCode=1;
 }finally{
