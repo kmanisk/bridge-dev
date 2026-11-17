@@ -1,5 +1,19 @@
 # BridgeDev — repository handoff
 
+## Shadow-update implementation work (2026-11-17)
+
+The current feature branch adds isolated bubblewrap acceptance and protects
+the existing root-signed lease fingerprint across service cutover; the
+transient job uses a verified staged release without a second `gh` fetch.
+Default YOLO path is intended to require no mode transition, but the original
+`--standard-window` safety path remains. Source and CI acceptance do **not**
+prove local systemd/bubblewrap compatibility, Funnel isolation on the user's
+host, or successful production cutover. Do not merge or deploy until those
+independent security checks pass. No live service, lease, credential, policy,
+or hardening has been changed.
+
+
+
 BridgeDev is the TypeScript/Node.js MCP development gateway with signed operator approvals and a restricted OS deployment model. This repository **replaces the historical Go prototype**; its source remains accessible in Git history, not in the current working tree.
 
 ## Source and verification
