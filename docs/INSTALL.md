@@ -1,5 +1,29 @@
 # Install BridgeDev
 
+## Updates and recovery
+
+For a verified persistent Linux service, `bridge-dev update` prepares the
+CI-verified release once and uses the shadow-acceptance route when the
+independent YOLO lease is already active. The existing host lease is kept
+unchanged across cutover; shadow denials use a temporary namespace and live
+smoke is positive-only. This requires preinstalled `bwrap` and working
+unprivileged namespaces. No new daemon or updater watcher is installed.
+Use `bridge-dev update --standard-window` to opt into the older flow.
+
+If an older installed CLI produces `SERVICE_GITHUB_ACCESS_FAILED`, inspect
+the tracked service job and release pointer before retrying. The new
+implementation reuses a previously CI-verified staged release rather than
+re-fetching with `gh` from a transient systemd unit. GitHub errors report
+specific missing-binary, auth, network or rate-limit categories.
+
+The one-time bootstrap from an old CLI must be initiated using the verified
+new CLI from a trusted built checkout in the operator's own terminal. Do
+not automatically restore signed YOLO or change systemd hardening during
+bootstrap. STANDARD-only and portable installations keep their existing
+modes and update requirements.
+
+
+
 ## One-command portable installation
 
 Requirements: **Node.js 22+ and npm**. The shell installer also needs `curl` and `tar`. Windows PowerShell requires `Invoke-WebRequest` and `Expand-Archive`.
