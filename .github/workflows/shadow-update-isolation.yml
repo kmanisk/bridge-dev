@@ -28,5 +28,8 @@ jobs:
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
           pnpm run build
+      - name: Verify unprivileged namespace baseline
+        run: |
+          bwrap --unshare-all --ro-bind /usr /usr --proc /proc --dev /dev -- /usr/bin/true
       - name: Exercise real unprivileged shadow isolation and negative MCP acceptance
         run: node scripts/test-shadow-linux-e2e.mjs
