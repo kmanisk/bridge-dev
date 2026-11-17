@@ -3,12 +3,17 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {generateKeyPairSync,sign} from "node:crypto";
+import {spawnSync} from "node:child_process";
 import {shadowBubblewrapArgs} from "../dist/lib/shadow-update.js";
 import {snapshotUpdateLease,assertSameUpdateLease,assertLocalUpdateCgroup} from "../dist/lib/update-lease.js";
 import {githubAccessError} from "../dist/lib/service-release.js";
 
 const base=await fs.mkdtemp(path.join(os.tmpdir(),"bridge-shadow-fixture-"));
 try{
+  for(const file of ["scripts/shadow-release-acceptance.mjs","scripts/deploy-acceptance/positive-client.mjs"]){
+    const checked=spawnSync(process.execPath,["--check",file],{encoding:"utf8",timeout:5000});
+    assert.equal(checked.status,0,checked.stderr);
+  }
   const args=shadowBubblewrapArgs("/releases/reviewed","/state/isolated","/usr/bin/node",3000);
   for(const origin of [
     "0::/user.slice/user-1000.slice/user@1000.service/app.slice/bridge-dev.service",
