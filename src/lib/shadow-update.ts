@@ -89,6 +89,13 @@ export async function runShadowAcceptance(
     });
     if(output.code!==0){
       const category=/SHADOW_[A-Z_]+/.exec(output.stderr)?.[0]||"UPDATE_SHADOW_SANDBOX_UNAVAILABLE";
+      // CI synthetic release contains no production secrets. Show only the
+      // bubblewrap setup diagnostic to distinguish mount, namespace, and
+      // architecture failures. Never echo the shadow stderr in production.
+      if(process.env.GITHUB_ACTIONS==="true") {
+        const message=output.stderr.split("\n").find(x=>x.startsWith("bwrap: "));
+        if(message)console.error("CI_SHADOW_SETUP: "+message.slice(0,250));
+      }
       throw Error(category+": shadow could not prove isolation/denials; no cutover");
     }
     let receipt:unknown;
