@@ -102,7 +102,18 @@ export async function runShadowAcceptance(
       throw Error("UPDATE_SHADOW_ACCEPTANCE_FAILED");
     return r as ShadowReceipt;
   }finally{
-    if(child?.exitCode===null)child.kill("SIGKILL");
+    if(child && child.exitCode===null){
+      child.kill("SIGTERM");
+      await Promise.race([
+        new Promise<void>(resolve=>child!.once("close",()=>resolve())),
+        new Promise<void>(resolve=>setTimeout(resolve,1500))
+      ]);
+      if(child.exitCode===null)child.kill("SIGKILL");
+      if(child.exitCode===null)await Promise.race([
+        new Promise<void>(resolve=>child!.once("close",()=>resolve())),
+        new Promise<void>(resolve=>setTimeout(resolve,2000))
+      ]);
+    }
     await fs.rm(scratch,{recursive:true,force:true});
   }
 }
