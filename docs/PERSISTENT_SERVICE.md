@@ -13,8 +13,13 @@ call or GitHub credential inheritance is required.
 
 Before the live service is stopped, the worker launches a temporary
 bubblewrap namespace with a read-only release, synthetic tokens, a disposable
-workspace, **separate mount/user/PID/network namespaces**, no host home,
-controller, production state, host login secrets, or Funnel. An independent
+namespace-owned `tmpfs` workspace, **separate mount/user/PID/network
+namespaces**, no host home, controller, production state, host login secrets,
+or Funnel. Rootless UID mapping makes host-root diagnostic binaries appear
+untrusted inside the user namespace; only `git`, `id` and `echo` are copied
+after checking root ownership, file mode and byte hashes, then mounted
+read-only from a path inaccessible to the candidate. This preserves the
+gateway's ordinary diagnostic executable validation. An independent
 MCP SDK client checks the 52 native tools, schema/read contracts, admin auth,
 and privilege/destructive denials within that sandbox. Namespace setup,
 loopback, canary, or acceptance failure **aborts without cutover**.
