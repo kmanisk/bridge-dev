@@ -592,6 +592,9 @@ export async function queueServiceOperation(
   if(options?.shadowLease){
     if(operation!=="update"||!process.stdin.isTTY||!process.stdout.isTTY||process.getuid?.()===0)
       throw Error("UPDATE_SHADOW_LOCAL_OPERATOR_TTY_REQUIRED");
+    try{assertLocalUpdateCgroup(sync.readFileSync("/proc/self/cgroup","utf8"));}
+    catch(error){if((error as Error).message.startsWith("UPDATE_"))throw error;
+      throw Error("UPDATE_LOCAL_SESSION_UNVERIFIED");}
     assertSameUpdateLease(options.shadowLease,snapshotUpdateLease());
     if(options.shadowLease.mode!=="YOLO")throw Error("UPDATE_SHADOW_REQUIRES_SIGNED_YOLO");
   }
