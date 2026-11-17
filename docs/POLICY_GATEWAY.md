@@ -1,5 +1,26 @@
 # BridgeDev Policy Gateway
 
+## Shadow update security boundary
+
+An existing, independently signed YOLO lease can survive a verified gateway
+restart without an activation command. The update path stages and verifies
+the exact CI artifact **before** scheduling cutover. A bubblewrap shadow
+instance has disposable state and credentials, disconnected network, no
+host controller or host login material, and runs negative acceptance there.
+The live YOLO instance receives only positive authenticated smoke checks.
+Any changed/expired signing state is an error, never a request to mint a new
+lease. The existing `--standard-window` path remains available.
+
+No dashboard or MCP *update tool* is exposed. The shadow queue requires an
+interactive, non-root local terminal. **Limitation:** a model already granted
+unrestricted host-root shell execution can potentially imitate local process
+actions; TTY checks alone are not a cryptographic physical-presence proof.
+Do not claim a root-capable remote agent is technically incapable of invoking
+any local binary. Strict prevention requires a separate OS identity/
+authorization mechanism, not merely application-level checks.
+
+
+
 BridgeDev is a self-hosted Model Context Protocol server with server-side authorization, immutable deployment assumptions and an independently controlled operator trust boundary.
 
 ## Architecture
