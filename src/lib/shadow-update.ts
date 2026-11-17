@@ -133,12 +133,15 @@ export async function runShadowAcceptance(
     let receipt:unknown;
     try{receipt=JSON.parse(output.stdout.trim());}catch{throw Error("UPDATE_SHADOW_RECEIPT_INVALID");}
     const r=receipt as Partial<ShadowReceipt>;
-    if(r.ok!==true||r.native!==52||r.read_tools!>=0||
+    if(r.ok!==true||r.native!==52||typeof r.read_tools!=="number"||r.read_tools<0||
        r.production_secrets_inaccessible!==true||r.production_network_isolated!==true||
        !r.checks||!r.checks.privilege_and_destructive_denied||
        !r.checks.second_client_no_root||!r.checks.admin_authentication_and_isolation||
-       !r.checks.all_read_schemas||!r.checks.reviewed_provider_inventory)
+       !r.checks.all_read_schemas||!r.checks.reviewed_provider_inventory){
+      if(process.env.GITHUB_ACTIONS==="true")
+        console.error("CI_SHADOW_RECEIPT: "+JSON.stringify(r).slice(0,1200));
       throw Error("UPDATE_SHADOW_ACCEPTANCE_FAILED");
+    }
     return r as ShadowReceipt;
   }finally{
     if(child && child.exitCode===null){
