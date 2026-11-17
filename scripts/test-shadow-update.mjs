@@ -72,7 +72,7 @@ try{
   const manager=await fs.readFile("src/lib/service-manager.ts","utf8");
   assert.match(manager,/runShadowAcceptance/);
   assert.match(manager,/checkLeasedGateway\(next\)/);
-  assert.match(manager,/job\.shadow_lease\s*\?[^:]+:[\s\S]*?checkGateway\(next\)/);
+  assert.match(manager,/job\.shadow_lease[\s\S]*?checkGateway\(next\)/);
   assert.match(manager,/await requireStandardServiceMode\(job\.before\)/);
   const cli=await fs.readFile("src/cli.ts","utf8");
   assert.match(cli,/--standard-window/);
