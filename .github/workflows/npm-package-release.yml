@@ -55,6 +55,7 @@ jobs:
           node-version: '24'
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run build
       - name: Full existing regression suite
         run: pnpm run test:all
       - name: Native tool schema inventory
