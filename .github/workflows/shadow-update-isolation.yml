@@ -1,0 +1,32 @@
+name: shadow-update-isolation
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  bubblewrap-security-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Prepare disposable CI namespace tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap iproute2
+          command -v bwrap
+          command -v ip
+      - name: Install locked dependencies and build
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run build
+      - name: Exercise real unprivileged shadow isolation and negative MCP acceptance
+        run: node scripts/test-shadow-linux-e2e.mjs
