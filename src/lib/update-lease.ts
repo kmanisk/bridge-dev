@@ -56,7 +56,7 @@ export function snapshotUpdateLease(options?:{
  * cgroup, even when a remote agent has created a synthetic PTY. This is a
  * defense in depth, not proof against a remote principal with arbitrary root. */
 export function assertLocalUpdateCgroup(cgroup:string):void{
-  if(!cgroup || /(?:^|\\/)bridge-dev(?:[-_][^\\/]+)?\\.service(?:\\/|$)/m.test(cgroup))
+  if(!cgroup || cgroup.split("/").some(part=>/^bridge-dev(?:[-_][^.]+)?[.]service$/.test(part.trim())))
     throw Error("UPDATE_MCP_PROCESS_ORIGIN_DENIED: start from your local terminal");
 }
 export function assertSameUpdateLease(before:UpdateLeaseSnapshot,after:UpdateLeaseSnapshot):void{
