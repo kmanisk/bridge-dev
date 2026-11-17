@@ -7,7 +7,7 @@ import {readPortableMode} from "./lib/portable-mode.js";
 
 import "dotenv/config";
 import {startConfiguredService,installService,controlService,queueServiceOperation,jobResult} from "./lib/service-manager.js";
-import {snapshotUpdateLease,assertSameUpdateLease} from "./lib/update-lease.js";
+import {snapshotUpdateLease,assertSameUpdateLease,assertLocalUpdateCgroup} from "./lib/update-lease.js";
 import {offerPersistentBootService} from "./lib/yolo-autostart.js";
 import {serviceCli} from "./lib/service-cli.js";
 import {stageVerifiedGithubRelease} from "./lib/service-release.js";
