@@ -1,18 +1,31 @@
 # BridgeDev — repository handoff
 
-## Shadow-update implementation work (2026-11-17)
+## Shadow-update acceptance (2026-11-17)
 
-The current feature branch adds isolated bubblewrap acceptance and protects
-the existing root-signed lease fingerprint across service cutover; the
-transient job uses a verified staged release without a second `gh` fetch.
-Default YOLO path is intended to require no mode transition, but the original
-`--standard-window` safety path remains. Source and CI acceptance do **not**
-prove local systemd/bubblewrap compatibility, Funnel isolation on the user's
-host, or successful production cutover. Do not merge or deploy until those
-independent security checks pass. No live service, lease, credential, policy,
-or hardening has been changed.
+Option A implements verified one-download release staging, a rootless Bubblewrap
+shadow gateway, a temporary in-namespace `tmpfs` workspace, real independent
+MCP SDK negative acceptance, an unchanged signed host-controller lease, a
+guarded atomic service cutover, positive-only YOLO smoke, and rollback. The
+explicit `bridge-dev update --standard-window` behavior remains available.
+The CLI requires an independent local TTY; no model/client can approve or
+renew the signed host-root lease. A root-authorized remote agent cannot be
+fully prevented from impersonating local execution by TTY checks alone.
 
+The real Linux namespace test `scripts/test-shadow-linux-e2e.mjs` uses
+unprivileged Bubblewrap and synthetic release credentials in GitHub Actions,
+and must be green before publishing. A few root-owned diagnostic binaries
+(`git`, `id`, `echo`) are verified byte-for-byte and mounted read-only in
+the *isolated* namespace, because unprivileged user namespaces remap their
+host ownership. No executable trust check is relaxed globally. Test fixtures
+reset their own permissions before cleanup. CI does not prove the customer's
+installed systemd or hardware-specific behavior. Do not equate a GitHub merge
+with a live deployment or update a signed lease from MCP.
 
+The earlier failed production update is still a separate operator concern:
+the installed gateway may remain at `29cd31c`, STANDARD, until independently
+verified. Do not blindly retry or restore authorization. See the durable job
+and release pointer first. ChatGPT response interruption and recovery
+breadcrumbs are tracked in [issue #10](https://github.com/kmanisk/bridge-dev/issues/10).
 
 BridgeDev is the TypeScript/Node.js MCP development gateway with signed operator approvals and a restricted OS deployment model. This repository **replaces the historical Go prototype**; its source remains accessible in Git history, not in the current working tree.
 
@@ -25,7 +38,7 @@ BridgeDev is the TypeScript/Node.js MCP development gateway with signed operator
 
 ## Deployment boundary
 
-Owner workflow preference (2026-11-17): after explicitly requested BridgeDev product or UI changes, complete verified CI and pursue the guarded live deployment, not merely a local source commit. Verify and report whether the running gateway actually picked up the release. `bridge-dev update` is the single local command: stage and verify before a temporary STANDARD maintenance window; run tracked acceptance; restore an existing indefinite YOLO lease only after independent local confirmation. Never bypass the operator terminal requirement, root authorization, CI, or rollback. If the operator-only step cannot run through MCP, report the exact handoff instead of claiming deployment.
+Owner workflow preference (2026-11-17): for completed product/UI fixes, finish verified CI and publish to GitHub `main`, rather than leaving only a draft PR. A GitHub merge is not production deployment: verify and report the live gateway separately. `bridge-dev update` stages once, runs shadow negative acceptance under an isolated STANDARD-equivalent namespace when a signed YOLO lease is present, then cutovers with positive-only checks without changing that lease. The explicit `--standard-window` fallback retains the independent local confirmation. Never bypass the operator terminal requirement, signing authority, CI, rollback, or live deployment safeguards. If the installed CLI predates the change or only the operator can perform bootstrap, report the handoff rather than claiming deployment.
 
 CLI UX direction (2026-11-17): routine terminal commands show concise results, one-line errors and actionable warnings by default. `--verbose` preserves diagnostics, `--json` preserves machine-readable behavior, and authenticated update job receipts remain in systemd journals. Private, on-demand CLI events are kept in `~/.local/state/bridge-dev/private-cli/events.jsonl`. Never log secrets or hide independent operator confirmation; do not create resident logging services.
 
