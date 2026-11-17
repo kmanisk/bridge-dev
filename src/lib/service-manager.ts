@@ -763,6 +763,9 @@ export async function rollbackServiceJob(
   }
   // Never stop a live service when preflight has not started the transaction.
   if (["PENDING", "VERIFYING"].includes(r.status)) {
+    if(job.shadow_lease)await auditEvent(job.before,{
+      operation:"update",job:id,outcome:"shadow_failed",reason:String(reason).slice(0,130),
+    }).catch(()=>{}); // Receipt remains durable even if the live audit API is unavailable.
     for (const name of await fs.readdir(jobDirectory(root, id)))
       if (name.startsWith(".probe-") || name.startsWith(".shadow-"))
         await fs.rm(path.join(jobDirectory(root, id), name), {
@@ -890,6 +893,8 @@ export async function runServiceJob(root: string, id: string): Promise<void> {
         path.join(root,"releases",job.target),jobDirectory(root,id),job.before.port,job.before.node);
       await record(job,{status:"VERIFYING",acceptance:{shadow}});
       assertSameUpdateLease(job.shadow_lease,snapshotUpdateLease());
+      await auditEvent(job.before,{operation:"update",job:id,outcome:"shadow_accepted",
+        checks:shadow.checks,lease:"verified_unchanged"});
     }else{
       await probeRelease(path.join(root,"releases",job.target),jobDirectory(root,id));
       await requireStandardServiceMode(job.before);
@@ -943,7 +948,11 @@ export async function runServiceJob(root: string, id: string): Promise<void> {
     const acceptance = job.shadow_lease
       ? {shadow_accepted:true,smoke:await checkLeasedGateway(next)}
       : await checkGateway(next);
-    if(job.shadow_lease)assertSameUpdateLease(job.shadow_lease,snapshotUpdateLease());
+    if(job.shadow_lease){
+      assertSameUpdateLease(job.shadow_lease,snapshotUpdateLease());
+      await auditEvent(next,{operation:"update",job:id,outcome:"positive_smoke_passed",
+        lease:"verified_unchanged"});
+    }
     if (job.crash_test && !job.shadow_lease) {
       const before = await serviceStatus(root);
       await authHealth(next);
