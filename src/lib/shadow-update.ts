@@ -18,7 +18,7 @@ export interface ShadowReceipt {
  * PID, IPC and network namespaces. bwrap is optional: unavailable means
  * NO UPDATE, not an unisolated retry. */
 export function shadowBubblewrapArgs(
-  release:string, scratch:string, node:string, productionPort:number
+  release:string, scratch:string, node:string, productionPort:number, trustedGit?:string
 ):string[]{
   for(const p of [release,scratch,node])if(!path.isAbsolute(p))throw Error("SHADOW_ABSOLUTE_PATH_REQUIRED");
   if(!Number.isSafeInteger(productionPort)||productionPort<=0||productionPort>65535)
@@ -26,6 +26,7 @@ export function shadowBubblewrapArgs(
   return [
     "--unshare-all","--die-with-parent","--new-session",
     "--ro-bind","/usr","/usr",
+    ...(trustedGit?["--ro-bind",trustedGit,"/usr/bin/git"]:[]),
     "--tmpfs","/usr/local", // Never expose the independently installed root controller.
     "--dir","/usr/local/bin",
     "--symlink","usr/bin","/bin",
@@ -62,10 +63,28 @@ export async function runShadowAcceptance(
   await verifyRelease(release);
   if(process.platform!=="linux")throw Error("UPDATE_SHADOW_LINUX_ONLY");
   const scratch=await fs.mkdtemp(path.join(jobDirectory,".shadow-"));
+  const trusted=await fs.mkdtemp(path.join(jobDirectory,".shadow-trust-"));
   let child:ReturnType<typeof spawn>|undefined;
   try{
     const binary=await fs.realpath(node);
-    const args=shadowBubblewrapArgs(release,scratch,binary,productionPort);
+    // Root-owned /usr/bin/git maps to the overflow UID in a rootless user
+    // namespace. Preserve the existing executable-trust check by mounting a
+    // byte-for-byte verified, read-only operator-owned copy as /usr/bin/git.
+    // The source copy is outside /shadow and inaccessible to the child.
+    const originalGit=await fs.realpath("/usr/bin/git");
+    const stat=await fs.stat(originalGit);
+    if(!stat.isFile()||stat.uid!==0||(stat.mode&0o022)!==0)
+      throw Error("UPDATE_SHADOW_GIT_ORIGIN_UNTRUSTED");
+    const data=await fs.readFile(originalGit);
+    const digest=createHash("sha256").update(data).digest("hex");
+    const copy=path.join(trusted,"git");
+    await fs.writeFile(copy,data,{mode:0o400,flag:"wx"});
+    await fs.chmod(copy,0o444);
+    const verify=await fs.readFile(originalGit);
+    if(createHash("sha256").update(verify).digest("hex")!==digest ||
+       createHash("sha256").update(await fs.readFile(copy)).digest("hex")!==digest)
+      throw Error("UPDATE_SHADOW_GIT_HASH_DRIFT");
+    const args=shadowBubblewrapArgs(release,scratch,binary,productionPort,copy);
     const output=await new Promise<{code:number|null;stdout:string;stderr:string}>((resolve,reject)=>{
       child=spawn("/usr/bin/bwrap",args,{
         env:{...operatorEnvironment(),PATH:"/usr/bin:/bin"},
@@ -127,6 +146,7 @@ export async function runShadowAcceptance(
       ]);
     }
     await fs.rm(scratch,{recursive:true,force:true});
+    await fs.rm(trusted,{recursive:true,force:true});
   }
 }
 export function shadowReceiptHash(receipt:ShadowReceipt):string{
