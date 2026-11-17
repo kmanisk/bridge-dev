@@ -24,6 +24,53 @@ modes and update requirements.
 
 
 
+## npm package
+
+BridgeDev is packaged as a precompiled npm CLI: its tarball contains `dist/`,
+`public/ui/`, reviewed portable profiles, required runtime scripts, and the
+license and installation documentation. npm installs the production Node.js
+dependencies automatically. No TypeScript build, pnpm, Git checkout, service or
+root controller is required on the consumer machine.
+
+After a registry release is explicitly published, the installation is:
+
+~~~sh
+npm install -g bridge-dev
+bridge-dev setup
+bridge-dev start
+~~~
+
+**Publication is a separate operator action.** Until the registry package is
+published, create and inspect a local tarball instead:
+
+~~~sh
+pnpm install --frozen-lockfile --ignore-scripts
+npm run test:package
+npm pack
+# In a disposable prefix, inspect and install the generated .tgz before use.
+~~~
+
+`npm run test:package` builds and checks the tarball in a temporary local
+installation, verifies CLI/help and portable setup, and rejects excluded files.
+The global npm command must not replace the launcher for an existing managed
+BridgeDev installation. Its signed host-controller lease, systemd cutover and
+rollback remain governed by the [separate managed update procedure](PERSISTENT_SERVICE.md).
+For an **explicit initial** Linux service setup from an npm-installed CLI,
+`bridge-dev service install --start` stages the *GitHub CI-verified release*
+corresponding to the npm package's `vX.Y.Z` tag; it does not seed the unverified
+npm files into an operator-privileged service. This advanced operation requires
+the `gh` CLI authenticated for the release-artifact API, an already-published
+tag and green main-branch CI. It does not create YOLO authorization or Funnel
+exposure. Existing managed installations use their own operator CLI for
+verified service updates; a standalone npm CLI only reports npm update guidance.
+
+`bridge-dev --version` reports the packaged version. `bridge-dev doctor`
+identifies the installation source. For npm installs, `bridge-dev update --check`
+reports the manual update command `npm install -g bridge-dev@latest` and does
+not invoke GitHub deployment or npm itself; the managed Linux updater is
+unchanged. A standalone npm gateway must never inherit a different, managed
+gateway's operator-signed YOLO authorization. See [release instructions](RELEASING.md).
+
 ## One-command portable installation
 
 Requirements: **Node.js 22+ and npm**. The shell installer also needs `curl` and `tar`. Windows PowerShell requires `Invoke-WebRequest` and `Expand-Archive`.

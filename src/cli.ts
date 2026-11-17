@@ -35,8 +35,9 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { formatMcpEndpoint, inspectLocalMode, resolveProjectDirectory, validateProjectName, verifyAuditProof } from "./lib/cli-security.js";
 import { platformCapabilities, getRuntimeMode, portableStateDir, portableWorkspace, portableWorkspaceRoots } from "./lib/runtime.js";
+import { detectInstallSource, updateInstructions } from "./lib/install-source.js";
 
-const VERSION = "2.0.0";
+const VERSION = runtimeVersion().version;
 
 // Fallback dotenv loading if environment variables are not populated
 const envCandidates = [
@@ -140,6 +141,11 @@ function fetchHealth(port = 3000): Promise<HealthResponse | null> {
 }
 
 function getActiveMode(): { mode: string; detail: string } {
+  // A separately installed npm binary cannot claim the managed gateway's
+  // signed YOLO lease. Its own policy gate enforces the same boundary.
+  if (getRuntimeMode() === "portable" && detectInstallSource() === "npm") {
+    return { mode: "STANDARD", detail: "npm portable runtime; managed host lease not inherited" };
+  }
   if (hostControllerAvailable()) {
     const libDir = fs.existsSync("/var/lib/local-coder-policygate")
       ? "/var/lib/local-coder-policygate"
@@ -225,6 +231,8 @@ async function cmdStatus(json = false,verbose = false) {
     console.log(JSON.stringify({
       ok: true,
       version: VERSION,
+      install_source: detectInstallSource(),
+      update_command: updateInstructions(detectInstallSource()),
       platform: process.platform,
       runtime: health?.runtimeMode || (unit ? "managed" : getRuntimeMode()),
       service: {
@@ -260,6 +268,7 @@ async function cmdStatus(json = false,verbose = false) {
   }
 
   console.log(`BridgeDev v${VERSION}`);
+  console.log(`Install   : ${detectInstallSource()} (${updateInstructions(detectInstallSource())})`);
   console.log(`Runtime   : ${health?.runtimeMode || (unit ? "managed system service" : getRuntimeMode())} on ${process.platform}`);
   console.log(`Service   : ${service.installed ? service.unit + " " + service.state + " (PID: " + service.pid + ")" : unit ? serviceStatus + ` (PID: ${pid}, systemd: ${unit})` : health ? "foreground server reachable" : "not detected"}`);
   console.log(`Status    : ${health ? "connected" : "offline"}${health ? ` (Profile: ${profile}, Active Sessions: ${sessions})` : ""}`);
@@ -750,7 +759,8 @@ async function cmdDoctor(json = false,verbose = false) {
   const checks: Array<{ label: string; status: "OK" | "UNVERIFIED" | "INFO"; detail: string }> = [];
   const add = (label: string, status: "OK" | "UNVERIFIED" | "INFO", detail: string) => checks.push({ label, status, detail });
   const nodeMajor = Number.parseInt(process.versions.node.split(".")[0] || "0", 10);
-  add("Node runtime", nodeMajor >= 20 ? "OK" : "UNVERIFIED", process.version);
+  add("Node runtime", nodeMajor >= 22 ? "OK" : "UNVERIFIED", process.version);
+  add("Installation", "INFO", `${detectInstallSource()}; updates: ${updateInstructions(detectInstallSource())}`);
   if (getRuntimeMode() === "portable") {
     add("Persistent service", service.installed && service.active ? "OK" : "INFO", service.installed ? service.unit + " " + service.state : "not installed; foreground runtime");
     if (service.installed) {
@@ -948,10 +958,20 @@ function cmdLogin(args: string[] = []) {
 
 
 async function cmdUpdate(args: string[], json: boolean,verbose=false): Promise<void> {
-  if (process.platform !== "linux") throw Error("UPDATE_SERVICE_UNSUPPORTED: managed Linux service required");
   if (args.some(x => !["--check", "--no-wait", "--standard-window"].includes(x)) ||
       (args.includes("--check") && args.includes("--no-wait")))
     throw Error("Usage: bridge-dev update [--check | --no-wait | --standard-window]");
+  const installSource = detectInstallSource();
+  if (installSource === "npm" || installSource === "portable-installer") {
+    const method = installSource === "npm" ? "npm" : "portable-installer";
+    const instruction = updateInstructions(installSource);
+    const result = {ok:true,installed_via:method,update_method:method,command:instruction,
+      updated:false,checked:args.includes("--check")};
+    if (json) console.log(JSON.stringify(result));
+    else console.log(`BridgeDev ${method} installation: ${instruction}. No update performed.`);
+    return;
+  }
+  if (process.platform !== "linux") throw Error("UPDATE_SERVICE_UNSUPPORTED: managed Linux service required");
   const status=await userServiceStatus();
   if (!status.installed) throw Error("UPDATE_SERVICE_NOT_INSTALLED: use bridge-dev service install");
   // Resolve main once; the existing updater independently validates exact SHA,
@@ -1109,7 +1129,7 @@ function cmdHelp() {
   console.log("  doctor                Run comprehensive diagnostics on environment health");
   console.log("  access                Display secure connection instructions (interactive only)");
   console.log("  dashboard             Open locally paired Admin dashboard (Linux local terminal only)");
-  console.log("  update [--check]      One-command verified main update; temporarily STANDARD, then local YOLO reconfirmation");
+  console.log("  update [--check]      Show correct npm/portable update command, or verify managed Linux release");
   console.log("  update notices       Shown during interactive use; cached six hours, never auto-applied");
   console.log("  token status          Inspect protected token configuration, without values");
   console.log("  token rotate admin    Rotate Admin token with 0600 backup (--restart optional)");
@@ -1140,6 +1160,7 @@ function cmdHelp() {
   console.log("  --json                Output machine-readable JSON");
   console.log("  --verbose             Show full diagnostic details (default output is brief)");
   console.log("  CLI event log         "+cliLogFile());
+  console.log("  --version, -v         Show installed package version");
   console.log("  help, --help, -h      Show this help menu\n");
   console.log("Security Modes:");
   console.log("  STANDARD     : Approved workspace files, Git, ordinary shell; no blanket sudo.");
@@ -1154,6 +1175,7 @@ async function main() {
   // interval, update, sudo, token disclosure, or machine-readable noise.
   const interactive = (args[0] || "status").toLowerCase();
   if (!json && process.stderr.isTTY &&
+      !["npm", "portable-installer"].includes(detectInstallSource()) &&
       process.env.BRIDGEDEV_UPDATE_NOTICE !== "off" &&
       ["status","doctor"].includes(interactive)) {
     try {
@@ -1247,6 +1269,11 @@ async function main() {
       }
       break;
     }
+    case "version":
+    case "--version":
+    case "-v":
+      console.log(VERSION);
+      break;
     case "help":
     case "--help":
     case "-h":

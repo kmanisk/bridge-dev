@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { atomicJson } from "./atomic-store.js";
+import { detectInstallSource } from "./install-source.js";
 import {runShadowAcceptance} from "./shadow-update.js";
 import {snapshotUpdateLease,assertSameUpdateLease,assertLocalUpdateCgroup,type UpdateLeaseSnapshot} from "./update-lease.js";
 import { HashAudit, verifyAuditFile } from "./hash-audit.js";
@@ -18,6 +19,7 @@ import {
   serviceStatus,
   serviceRoot,
   sourceRoot,
+  runtimeVersion,
   privateEnvironment,
   systemctl,
   operatorEnvironment,
@@ -149,9 +151,17 @@ export async function installService(options: {
     throw Error("SERVICE_UNSUPPORTED: Linux systemd user manager required");
   const root = path.resolve(options.root || serviceRoot()),
     existing = await readServiceConfig(root);
+  // A prebuilt npm distribution has no Git checkout or operator-seeded SHA.
+  // On explicit first service install, stage the CI-verified GitHub artifact
+  // for the published npm version's tag, never rebuild npm files as a lease-
+  // capable service or silently enable the host controller.
   const seeded = existing
     ? { commit: existing.current }
-    : await seedLocalRelease(root, options.source || sourceRoot);
+    : options.source
+      ? await seedLocalRelease(root, options.source)
+      : detectInstallSource() === "npm"
+        ? await stageVerifiedGithubRelease("v" + runtimeVersion().version, root)
+        : await seedLocalRelease(root, sourceRoot);
   const c =
     existing ||
     (await makeServiceConfig({

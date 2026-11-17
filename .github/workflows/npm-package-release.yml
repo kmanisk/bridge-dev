@@ -1,0 +1,174 @@
+name: npm-package-release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clean-install:
+    name: npm clean install / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Compile and test npm tarball, gateway, MCP, and local Admin UI
+        run: pnpm run test:package
+      - run: pnpm run test:portable
+      - run: pnpm run test:portable:server
+      - run: pnpm run test:cli
+      - run: pnpm run test:extensions
+      - name: Linux policy and integration acceptance
+        if: runner.os == 'Linux'
+        run: pnpm run test:policy && pnpm run test:integration && pnpm run test:sources
+        shell: bash
+
+  full-tests:
+    name: npm release full regression / Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install workstation-specific test prerequisites
+        # Full suite tests real chezmoi target resolution and fish syntax.
+        # CI-only tools; no npm runtime dependency or modified assertions.
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fish
+          # Ubuntu's runner apt repositories do not provide chezmoi.
+          # Fetch one immutable upstream release and verify its published digest.
+          curl --fail --location --silent --show-error --retry 2 \
+            https://github.com/twpayne/chezmoi/releases/download/v2.74.1/chezmoi_2.74.1_linux_amd64.tar.gz \
+            -o "$RUNNER_TEMP/chezmoi.tar.gz"
+          printf '%s  %s\n' \
+            ae01c66b1a6dbf563667c63fbbd9986b3cfa3c98dd266ddee732f63e8af2e9d1 \
+            "$RUNNER_TEMP/chezmoi.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/chezmoi.tar.gz" -C "$RUNNER_TEMP" chezmoi
+          chmod 755 "$RUNNER_TEMP/chezmoi"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/chezmoi" --version
+          fish --version
+      - run: pnpm run build
+      - name: Full existing regression suite
+        run: pnpm run test:all
+      - name: Native tool schema inventory
+        run: node scripts/sync-tool-counts.mjs --check-manifest profiles/native-tool-counts.json
+
+  tarball:
+    name: Verified npm tarball
+    needs: [clean-install, full-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify release tag and protected main ancestry
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          node -e 'const p=require("./package.json");if(process.env.GITHUB_REF_NAME!=="v"+p.version){throw Error("Tag and package.json version mismatch")}'
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main
+      - name: Generate prebuilt package
+        run: npm pack
+      - name: Record tarball SHA-256
+        shell: bash
+        run: sha256sum bridge-dev-*.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: bridge-dev-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: npm trusted publish (explicit opt-in only)
+    needs: tarball
+    # Existing npm package: trusted publisher registered in npm settings.
+    # Avoid setup-node registry-url here: an empty _authToken can suppress OIDC.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && vars.NPM_PUBLISH_ENABLED == 'true' && vars.NPM_TRUSTED_PUBLISH_READY == 'true' && vars.NPM_BOOTSTRAP_ENABLED != 'true'
+    runs-on: ubuntu-latest
+    environment: npm-release
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarball
+      - name: Require npm trusted-publishing CLI version
+        shell: bash
+        run: |
+          node -e 'const [a,b,c]=require("child_process").execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number);if(a<11||(a===11&&(b<5||(b===5&&c<1))))throw Error("npm 11.5.1+ required for OIDC publishing")'
+      - name: Publish verified tarball using OIDC with provenance
+        shell: bash
+        run: npm publish ./bridge-dev-*.tgz --access public --provenance
+
+  bootstrap-publish:
+    name: npm first release (explicit one-time credential opt-in)
+    needs: tarball
+    # npm requires the package to exist before a trusted publisher can be
+    # registered. Only the initial release uses a reviewed temporary npm token.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && vars.NPM_PUBLISH_ENABLED == 'true' && vars.NPM_BOOTSTRAP_ENABLED == 'true' && vars.NPM_TRUSTED_PUBLISH_READY != 'true'
+    runs-on: ubuntu-latest
+    environment: npm-release
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarball
+      - name: First package publication with provenance
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          test -n "$NODE_AUTH_TOKEN" || { echo "Missing NPM_TOKEN secret for one-time initial publication" >&2; exit 1; }
+          npm publish ./bridge-dev-*.tgz --access public --provenance
