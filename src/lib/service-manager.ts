@@ -8,7 +8,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { atomicJson } from "./atomic-store.js";
 import {runShadowAcceptance} from "./shadow-update.js";
-import {snapshotUpdateLease,assertSameUpdateLease,type UpdateLeaseSnapshot} from "./update-lease.js";
+import {snapshotUpdateLease,assertSameUpdateLease,assertLocalUpdateCgroup,type UpdateLeaseSnapshot} from "./update-lease.js";
 import { HashAudit, verifyAuditFile } from "./hash-audit.js";
 import {
   readServiceConfig,
