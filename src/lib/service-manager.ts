@@ -27,6 +27,7 @@ import {
 import {
   seedLocalRelease,
   stageVerifiedGithubRelease,
+  verifiedStagedRelease,
   verifyRelease,
 } from "./service-release.js";
 const hash = (v: Buffer | string) =>
@@ -1038,23 +1039,6 @@ export async function runServiceJob(root: string, id: string): Promise<void> {
     await rollbackServiceJob(root, id, reason);
     throw Error("SERVICE_UPDATE_FAILED: " + id + "; " + reason);
   }
-}
-/** A staged release can be reused by the local CLI and the transient job.
- * The exact SHA, immutable file digests and GitHub CI evidence must all match.
- * Existing but invalid candidate directories fail closed instead of refetching. */
-export async function verifiedStagedRelease(
-  ref:string,root=serviceRoot()
-):Promise<{commit:string;release:string}|null>{
-  if(!/^[a-f0-9]{40}$/.test(ref))return null;
-  const candidate=path.join(root,"releases",ref);
-  if(!sync.existsSync(candidate))return null;
-  const manifest=await verifyRelease(candidate,ref);
-  if(manifest.evidence?.verified_ci!==true ||
-     manifest.evidence?.repository!=="kmanisk/bridge-dev" ||
-     !Number.isSafeInteger(manifest.evidence?.workflow_run) ||
-     !/^sha256:[a-f0-9]{64}$/.test(String(manifest.evidence?.artifact_digest)))
-    throw Error("SERVICE_STAGED_PROVENANCE_INVALID");
-  return {commit:ref,release:candidate};
 }
 export async function updateService(
   ref: string,
