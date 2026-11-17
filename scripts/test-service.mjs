@@ -59,7 +59,7 @@ const installed = await release.stageBundle(artifact, root, a, {
 });
 assert.equal((await release.verifyRelease(installed)).commit, a);
 assert.equal(await release.stageBundle(artifact, root, a, {}), installed);
-const {verifiedStagedRelease}=await import("../dist/lib/service-manager.js");
+const verifiedStagedRelease=release.verifiedStagedRelease;
 const verifiedRoot=path.join(base,"preverified-artifact");
 const verifiedDir=await release.stageBundle(artifact,verifiedRoot,a,{
   repository:"kmanisk/bridge-dev",verified_ci:true,workflow_run:42,
