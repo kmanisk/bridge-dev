@@ -40,6 +40,7 @@ export function shadowBubblewrapArgs(
     "--clearenv",
     "--setenv","PATH","/usr/bin:/bin",
     "--setenv","HOME","/shadow",
+    "--setenv","BRIDGEDEV_SHADOW_HOST_HOME",process.env.HOME||"/nonexistent-host-home",
     "--setenv","BRIDGEDEV_SHADOW_SANDBOX","v1",
     "--setenv","BRIDGEDEV_SHADOW_PRODUCTION_PORT",String(productionPort),
     "--","/opt/shadow-node","/release/scripts/shadow-release-acceptance.mjs",
