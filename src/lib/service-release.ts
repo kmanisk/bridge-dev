@@ -293,6 +293,26 @@ export function verifyCiEvidence(runs: any[], commit: string): void {
       throw Error("SERVICE_CI_NOT_GREEN: " + name);
   }
 }
+/** Preserve the actual category of an operator-account GitHub failure.
+ * Never echo stderr, OAuth tokens, URLs, or auth headers into CLI logs. */
+export function githubAccessError(error: unknown): Error {
+  const e = error as {code?:unknown;stderr?:unknown;message?:unknown};
+  const stderr = String(e?.stderr || "");
+  const code = String(e?.code || "");
+  if (code === "ENOENT") return Error("SERVICE_GH_BINARY_MISSING: gh is not installed on this operator PATH");
+  if (/HTTP (?:401|403)|authentication required|not logged (?:in|into)|Bad credentials|authorization failed/i.test(stderr))
+    return Error("SERVICE_GITHUB_AUTH_DENIED: operator gh session lacks GitHub API access");
+  if (/HTTP 429|rate limit exceeded|secondary rate limit/i.test(stderr))
+    return Error("SERVICE_GITHUB_RATE_LIMITED: retry only after checking the existing update job");
+  if (/Could not resolve host|Temporary failure in name resolution|Network is unreachable|Failed to connect|Connection timed out/i.test(stderr))
+    return Error("SERVICE_GITHUB_NETWORK_FAILED: GitHub could not be reached");
+  if (/HTTP 404|Not Found/i.test(stderr))
+    return Error("SERVICE_GITHUB_NOT_FOUND: requested release metadata is unavailable");
+  if (code === "ETIMEDOUT" || code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
+    return Error("SERVICE_GITHUB_TRANSPORT_FAILED: " + code);
+  return Error("SERVICE_GITHUB_QUERY_FAILED: gh api exit " +
+    (/^\\d+$/.test(code) ? code : "unknown") + "; inspect the isolated operator command, not the production gateway");
+}
 async function github(route: string, binary = false): Promise<any> {
   // gh supplies its protected credential itself; never inline a token or log it.
   try {
@@ -303,11 +323,26 @@ async function github(route: string, binary = false): Promise<any> {
       maxBuffer: 64 * 1048576,
     });
     return binary ? r.stdout : JSON.parse(String(r.stdout));
-  } catch {
-    throw Error(
-      "SERVICE_GITHUB_ACCESS_FAILED: install/authenticate gh in the operator account; no source fallback",
-    );
+  } catch (error) {
+    throw githubAccessError(error);
   }
+}
+/** A staged release can be reused by the local CLI and the transient job.
+ * The exact SHA, immutable file digests and GitHub CI evidence must all match.
+ * Existing but invalid candidate directories fail closed instead of refetching. */
+export async function verifiedStagedRelease(
+  ref:string,root:string
+):Promise<{commit:string;release:string}|null>{
+  if(!/^[a-f0-9]{40}$/.test(ref))return null;
+  const candidate=path.join(root,"releases",ref);
+  if(!sync.existsSync(candidate))return null;
+  const manifest=await verifyRelease(candidate,ref);
+  if(manifest.evidence?.verified_ci!==true ||
+     manifest.evidence?.repository!=="kmanisk/bridge-dev" ||
+     !Number.isSafeInteger(manifest.evidence?.workflow_run) ||
+     !/^sha256:[a-f0-9]{64}$/.test(String(manifest.evidence?.artifact_digest)))
+    throw Error("SERVICE_STAGED_PROVENANCE_INVALID");
+  return {commit:ref,release:candidate};
 }
 export async function stageVerifiedGithubRelease(
   ref: string,

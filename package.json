@@ -27,7 +27,7 @@
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "tunnel": "node dist/cli.js start --funnel",
-    "test:cli": "tsc && node scripts/isolated-tests.mjs scripts/test-cli-report.mjs scripts/test-bridge-dev-cli.mjs scripts/test-upstream-migration.mjs scripts/test-tailscale.mjs scripts/test-service.mjs",
+    "test:cli": "tsc && node scripts/isolated-tests.mjs scripts/test-cli-report.mjs scripts/test-shadow-update.mjs scripts/test-bridge-dev-cli.mjs scripts/test-upstream-migration.mjs scripts/test-tailscale.mjs scripts/test-service.mjs",
     "test:portable": "tsc && node scripts/isolated-tests.mjs scripts/test-portable-runtime.mjs",
     "test:portable:server": "node scripts/isolated-tests.mjs scripts/test-portable-server.mjs",
     "test:extensions": "tsc && node scripts/isolated-tests.mjs scripts/test-provider-router.mjs scripts/test-managed-content.mjs scripts/test-extension-security.mjs scripts/test-network-fixtures.mjs scripts/test-extension-interfaces.mjs scripts/test-upstream-migration.mjs scripts/test-marketplace.mjs scripts/test-marketplace-http.mjs",

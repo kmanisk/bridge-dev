@@ -1,5 +1,13 @@
 # BridgeDev
 
+> **Linux updates:** `bridge-dev update` stages one verified release, checks
+> it in an isolated shadow gateway, and preserves an existing signed YOLO
+> lease through a guarded systemd restart. Requires `bwrap`; the explicit
+> `--standard-window` fallback remains available. See
+> [persistent service details](docs/PERSISTENT_SERVICE.md).
+
+
+
 **Your computer. One MCP gateway. Your rules.**
 
 A fast, local-first bridge between AI assistants and the tools on your machine.

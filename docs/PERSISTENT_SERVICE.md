@@ -1,5 +1,61 @@
 # Persistent portable Linux service
 
+## Shadow acceptance update (Linux, operator-initiated)
+
+An operator with an independently signed active YOLO lease can run
+`bridge-dev update` without a temporary STANDARD switch or a second YOLO
+confirmation. **The lease and root-owned host-controller records are never
+written, renewed or copied by the updater.** The code verifies exact GitHub
+commit/CI/digest, stages the release once in the operator account, and queues
+a tracked systemd *user* update unit with a fingerprint of the existing signed
+lease. The unit re-verifies the immutable staged artifact; no second `gh api`
+call or GitHub credential inheritance is required.
+
+Before the live service is stopped, the worker launches a temporary
+bubblewrap namespace with a read-only release, synthetic tokens, a disposable
+namespace-owned `tmpfs` workspace, **separate mount/user/PID/network
+namespaces**, no host home, controller, production state, host login secrets,
+or Funnel. Rootless UID mapping makes host-root diagnostic binaries appear
+untrusted inside the user namespace; only `git`, `id` and `echo` are copied
+after checking root ownership, file mode and byte hashes, then mounted
+read-only from a path inaccessible to the candidate. This preserves the
+gateway's ordinary diagnostic executable validation. An independent
+MCP SDK client checks the 52 native tools, schema/read contracts, admin auth,
+and privilege/destructive denials within that sandbox. Namespace setup,
+loopback, canary, or acceptance failure **aborts without cutover**.
+
+Only after shadow acceptance passes does the tracked job atomically switch
+the verified release and restart the existing user service. It runs **positive
+checks only** against the live gateway (authenticated health, MCP tool
+inventory, schema checks, mode and signed lease unchanged). If the cutover or
+smoke fails, the existing guarded rollback restores the previous release,
+without creating or extending any lease. A changed or expired lease requires
+operator review; it is never restored automatically. A concurrent update uses
+the existing durable job lock. No watcher or new persistent service is
+installed.
+
+This path requires a working Linux bubblewrap `bwrap` and network/user
+namespace support; it fails closed if the sandbox cannot prove isolation. Use
+`bridge-dev update --standard-window` to explicitly request the older
+STANDARD/negative-acceptance window and independent restoration prompt.
+On STANDARD-only systems, normal updates retain the existing flow.
+
+**Bootstrap:** If the currently installed CLI predates this change, it
+cannot provide the new shadow flow. Run the verified *new* CLI from a trusted
+built checkout in your local operator terminal for the one-time migration.
+Do not repeatedly retry the old updater after `SERVICE_GITHUB_*` failures;
+inspect the existing job and release state first.
+
+The persistent service's actual `NoNewPrivileges=no`, `PrivateTmp=no`,
+`ProtectHome=no`, or `ProtectSystem=no` are **not** shadow hardening
+settings: the user service may have deliberately relaxed them for the
+independent sudo host controller. Such a YOLO-compatible gateway has weaker
+OS sandboxing, must not be presented as a restricted-service-UID deployment,
+and requires separate operator hardening review. The ephemeral shadow uses
+its own namespace boundaries; no installed unit hardening is silently changed.
+
+
+
 The portable gateway can run as a systemd **user** service. It remains an
 unprivileged STANDARD gateway; this does not provision the independent managed
 Full System controller. Tailscale stays optional and service commands never

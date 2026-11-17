@@ -24,6 +24,35 @@ const MAX_ENTRIES = Math.min(2000,Math.max(100,parseInt(process.env.ACTIVITY_LOG
 const entries: ActivityEntry[] = [];
 const listeners = new Set<(entry: ActivityEntry) => void>();
 
+// Ephemeral, on-demand MCP tool in-flight bookkeeping. This is NOT a ChatGPT
+// task/completion detector and never persists input arguments or secrets.
+type ActiveMcpTool = {request_id:string;tool:string;session_id?:string;started_at:string};
+const activeTools = new Map<string,ActiveMcpTool>();
+export function getActiveMcpTools():ActiveMcpTool[]{
+  return [...activeTools.values()].map(x=>({...x}));
+}
+export function beginMcpToolRequest(body:unknown,sessionId?:string):string|undefined{
+  if(!body||typeof body!=="object"||activeTools.size>=128)return undefined;
+  const b=body as {method?:unknown;params?:{name?:unknown}};
+  if(b.method!=="tools/call"||typeof b.params?.name!=="string"||
+     !/^[a-zA-Z0-9_.:-]{1,128}$/.test(b.params.name))return undefined;
+  const request_id=randomUUID(),started_at=new Date().toISOString();
+  const tool=b.params.name;
+  activeTools.set(request_id,{request_id,tool,session_id:sessionId,started_at});
+  appendActivity({kind:"mcp",action:"tools/call",tool,session_id:sessionId,
+    status:"running",details:{request_id},summary:"MCP tool request started"});
+  return request_id;
+}
+export function completeMcpToolRequest(request_id:string,interrupted=false):void{
+  const tool=activeTools.get(request_id);
+  if(!tool)return;
+  activeTools.delete(request_id);
+  if(interrupted)appendActivity({kind:"mcp",action:"tools/call",tool:tool.tool,
+    session_id:tool.session_id,status:"interrupted",summary:"MCP HTTP connection closed before response finished",
+    details:{request_id}});
+}
+
+
 function trimSummary(text: string, max = 160): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
   return oneLine.length <= max ? oneLine : oneLine.slice(0, max - 1) + "…";
@@ -197,7 +226,8 @@ export function logMcpRequest(
   sessionId: string | undefined,
   durationMs: number,
   httpStatus: number,
-  errorMessage?: string
+  errorMessage?: string,
+  requestId?: string
 ): void {
   if (typeof body !== "object" || body === null) {
     if (httpStatus >= 400) {
@@ -233,6 +263,7 @@ export function logMcpRequest(
       summary,
       details: {
         http_status: httpStatus,
+        ...(requestId ? {request_id:requestId} : {}),
         arguments: rpc.params.arguments,
         ...(errorMessage ? { error: errorMessage } : {}),
       },

@@ -7,6 +7,8 @@ import { spawn } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { atomicJson } from "./atomic-store.js";
+import {runShadowAcceptance} from "./shadow-update.js";
+import {snapshotUpdateLease,assertSameUpdateLease,assertLocalUpdateCgroup,type UpdateLeaseSnapshot} from "./update-lease.js";
 import { HashAudit, verifyAuditFile } from "./hash-audit.js";
 import {
   readServiceConfig,
@@ -25,6 +27,7 @@ import {
 import {
   seedLocalRelease,
   stageVerifiedGithubRelease,
+  verifiedStagedRelease,
   verifyRelease,
 } from "./service-release.js";
 const hash = (v: Buffer | string) =>
@@ -44,6 +47,7 @@ interface ServiceJob {
   browser?: string;
   crash_test?: boolean;
   audit_prefix?: { bytes: number; digest: string; inode: number; mode: number };
+  shadow_lease?: UpdateLeaseSnapshot;
 }
 interface JobResult {
   version: 1;
@@ -277,6 +281,7 @@ async function healthy(
   c: ServiceConfig,
   commit?: string,
   timeout = 20000,
+  expectedFullMachineAccess = false,
 ): Promise<any> {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
@@ -285,7 +290,7 @@ async function healthy(
       if (
         h.status === "ok" &&
         (!commit || h.commit === commit) &&
-        h.full_machine_access === false
+        h.full_machine_access === expectedFullMachineAccess
       )
         return h;
       // Only the explicitly operator-seeded rollback release predates commit health.
@@ -309,7 +314,7 @@ async function healthy(
             h.pid === status.pid &&
             response.ok &&
             detail.runtimeMode === "portable" &&
-            detail.fullMachineAccess === false
+            detail.fullMachineAccess === expectedFullMachineAccess
           )
             return h;
         }
@@ -424,6 +429,23 @@ export async function checkGateway(
     });
   }
   return healthy(c, c.current);
+}
+/** Positive-only checks for a live gateway whose signed YOLO lease must stay
+ * untouched. The negative suite runs exclusively in the namespace sandbox. */
+export async function checkLeasedGateway(c:ServiceConfig):Promise<any>{
+  const env=privateEnvironment(c.env_file);
+  await healthy(c,c.current,20000,true);
+  const {positiveGatewaySmoke}=await import(
+    pathToFileURL(path.join(sourceRoot,"scripts/deploy-acceptance/positive-client.mjs")).href);
+  return positiveGatewaySmoke({
+    url:`http://127.0.0.1:${c.port}/mcp`,
+    adminUrl:`http://127.0.0.1:${c.admin_port}`,
+    mcpToken:env.MCP_TOKEN,
+    adminToken:env.ADMIN_TOKEN,
+    expectedFullMachineAccess:true,
+    inventory:JSON.parse(await fs.readFile(
+      path.join(c.root,"releases",c.current,"profiles/native-tool-counts.json"),"utf8")).tools.slim,
+  });
 }
 async function freePorts(): Promise<[number, number]> {
   const sockets: net.Server[] = [];
@@ -566,7 +588,17 @@ export async function queueServiceOperation(
   target: string,
   root = serviceRoot(),
   transient?: ServiceJob["transient"],
+  options?:{shadowLease:UpdateLeaseSnapshot},
 ): Promise<Record<string, unknown>> {
+  if(options?.shadowLease){
+    if(operation!=="update"||!process.stdin.isTTY||!process.stdout.isTTY||process.getuid?.()===0)
+      throw Error("UPDATE_SHADOW_LOCAL_OPERATOR_TTY_REQUIRED");
+    try{assertLocalUpdateCgroup(sync.readFileSync("/proc/self/cgroup","utf8"));}
+    catch(error){if((error as Error).message.startsWith("UPDATE_"))throw error;
+      throw Error("UPDATE_LOCAL_SESSION_UNVERIFIED");}
+    assertSameUpdateLease(options.shadowLease,snapshotUpdateLease());
+    if(options.shadowLease.mode!=="YOLO")throw Error("UPDATE_SHADOW_REQUIRES_SIGNED_YOLO");
+  }
   const c = await readServiceConfig(root);
   if (!c) throw Error("SERVICE_NOT_INSTALLED");
   await verifyRelease(path.join(root, "releases", target), target);
@@ -605,6 +637,7 @@ export async function queueServiceOperation(
       env_hash: hash(await fs.readFile(c.env_file)),
       browser: process.env.BRIDGEDEV_DEPLOY_BROWSER || undefined,
       crash_test: process.env.BRIDGEDEV_DEPLOY_CRASH_TEST === "true",
+      ...(options?.shadowLease?{shadow_lease:options.shadowLease}:{}),
     };
   await fs.mkdir(jobDirectory(root, id), { recursive: true, mode: 0o700 });
   await atomicJson(path.join(lock, "owner.json"), {
@@ -683,6 +716,11 @@ async function loadJob(root: string, id: string): Promise<ServiceJob> {
     (job.crash_test !== undefined && typeof job.crash_test !== "boolean")
   )
     throw Error("SERVICE_JOB_ACCEPTANCE_INVALID");
+  if(job.shadow_lease && (job.operation!=="update" ||
+    job.shadow_lease.mode!=="YOLO" || job.shadow_lease.scope!=="host-root-v1" ||
+    !/^[a-f0-9]{64}$/.test(job.shadow_lease.fingerprint) ||
+    (job.shadow_lease.expires_at!==null && !Number.isSafeInteger(job.shadow_lease.expires_at))))
+    throw Error("SERVICE_SHADOW_LEASE_PROOF_INVALID");
   const config = await readServiceConfig(root);
   if (
     !config ||
@@ -729,8 +767,11 @@ export async function rollbackServiceJob(
   }
   // Never stop a live service when preflight has not started the transaction.
   if (["PENDING", "VERIFYING"].includes(r.status)) {
+    if(job.shadow_lease)await auditEvent(job.before,{
+      operation:"update",job:id,outcome:"shadow_failed",reason:String(reason).slice(0,130),
+    }).catch(()=>{}); // Receipt remains durable even if the live audit API is unavailable.
     for (const name of await fs.readdir(jobDirectory(root, id)))
-      if (name.startsWith(".probe-"))
+      if (name.startsWith(".probe-") || name.startsWith(".shadow-"))
         await fs.rm(path.join(jobDirectory(root, id), name), {
           recursive: true,
           force: true,
@@ -827,7 +868,11 @@ export async function rollbackServiceJob(
   } else {
     await systemctl(["reset-failed", job.before.unit], false);
     await systemctl(["start", job.before.unit]);
-    await healthy(job.before, job.before.current);
+    await healthy(job.before,job.before.current,20000,Boolean(job.shadow_lease));
+    if(job.shadow_lease){
+      assertSameUpdateLease(job.shadow_lease,snapshotUpdateLease());
+      await checkLeasedGateway(job.before);
+    }
   }
   await assertProtected(job);
   await record(job, {
@@ -846,11 +891,18 @@ export async function runServiceJob(root: string, id: string): Promise<void> {
     if (Number(disk.bavail) * Number(disk.bsize) < 512 * 1048576)
       throw Error("SERVICE_ROLLBACK_DISK_SPACE_REQUIRED: 512 MiB free");
     await verifyRelease(path.join(root, "releases", job.target), job.target);
-    await probeRelease(
-      path.join(root, "releases", job.target),
-      jobDirectory(root, id),
-    );
-    await requireStandardServiceMode(job.before);
+    if(job.shadow_lease){
+      assertSameUpdateLease(job.shadow_lease,snapshotUpdateLease());
+      const shadow=await runShadowAcceptance(
+        path.join(root,"releases",job.target),jobDirectory(root,id),job.before.port,job.before.node);
+      await record(job,{status:"VERIFYING",acceptance:{shadow}});
+      assertSameUpdateLease(job.shadow_lease,snapshotUpdateLease());
+      await auditEvent(job.before,{operation:"update",job:id,outcome:"shadow_accepted",
+        checks:shadow.checks,lease:"verified_unchanged"});
+    }else{
+      await probeRelease(path.join(root,"releases",job.target),jobDirectory(root,id));
+      await requireStandardServiceMode(job.before);
+    }
     if (hash(await fs.readFile(job.before.env_file)) !== job.env_hash)
       throw Error("SERVICE_CREDENTIAL_SOURCE_CHANGED");
     await record(job, { status: "STOPPING" });
@@ -896,9 +948,16 @@ export async function runServiceJob(root: string, id: string): Promise<void> {
     await record(job, { status: "SWITCHED" });
     await systemctl(["reset-failed", next.unit], false);
     await systemctl(["start", next.unit]);
-    await healthy(next, next.current);
-    const acceptance = await checkGateway(next);
-    if (job.crash_test) {
+    await healthy(next,next.current,20000,Boolean(job.shadow_lease));
+    const acceptance = job.shadow_lease
+      ? {shadow_accepted:true,smoke:await checkLeasedGateway(next)}
+      : await checkGateway(next);
+    if(job.shadow_lease){
+      assertSameUpdateLease(job.shadow_lease,snapshotUpdateLease());
+      await auditEvent(next,{operation:"update",job:id,outcome:"positive_smoke_passed",
+        lease:"verified_unchanged"});
+    }
+    if (job.crash_test && !job.shadow_lease) {
       const before = await serviceStatus(root);
       await authHealth(next);
       process.kill(before.pid, "SIGKILL");
@@ -925,7 +984,7 @@ export async function runServiceJob(root: string, id: string): Promise<void> {
         pid: (await serviceStatus(root)).pid,
       };
     }
-    if (job.browser) {
+    if (job.browser && !job.shadow_lease) {
       const { acceptAdminBrowser } = await import(
         pathToFileURL(
           path.join(sourceRoot, "scripts/deploy-acceptance/browser.mjs"),
@@ -939,6 +998,7 @@ export async function runServiceJob(root: string, id: string): Promise<void> {
       });
     }
     await assertProtected(job);
+    if(job.shadow_lease)assertSameUpdateLease(job.shadow_lease,snapshotUpdateLease());
     acceptance.completion_audit = await completeServiceAudit(next, {
       operation: job.operation,
       job: id,
@@ -987,7 +1047,8 @@ export async function updateService(
   const c = await readServiceConfig(root);
   if (!c) throw Error("SERVICE_NOT_INSTALLED");
   await requireStandardServiceMode(c);
-  const staged = await stageVerifiedGithubRelease(ref, root);
+  const staged = await verifiedStagedRelease(ref,root) ||
+    await stageVerifiedGithubRelease(ref,root);
   if (staged.commit === c.current) {
     await verifyRelease(staged.release, c.current);
     return { already_current: true, current: c.current };

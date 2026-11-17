@@ -24,6 +24,7 @@ import { getLocalPluginsConfig, saveLocalPluginsConfig } from "../lib/plugin-con
 import { getCodexHooks, saveCodexHooks } from "../lib/codex-hooks.js";
 import {
   getRecentActivity,
+  getActiveMcpTools,
   loadAuditHistory,
   subscribeActivity,
   type ActivityEntry,
@@ -378,7 +379,7 @@ export function createAdminRouter(manager: McpUpstreamManager, options: {
       tool: typeof req.query.tool === "string" ? req.query.tool : undefined,
       q: typeof req.query.q === "string" ? req.query.q : undefined,
     });
-    res.json({ ok: true, entries, count: entries.length });
+    res.json({ ok: true, entries, count: entries.length, active:getActiveMcpTools() });
   });
 
   router.get("/api/activity/history", async (req, res) => {

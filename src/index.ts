@@ -26,7 +26,7 @@ import {
 } from "./lib/mcp-session-manager.js";
 import { initUpstreamManager } from "./lib/mcp-upstream-manager.js";
 import { startAdminServer } from "./admin/server.js";
-import { logMcpHttpEvent, logMcpRequest } from "./lib/activity-log.js";
+import { logMcpHttpEvent, logMcpRequest, beginMcpToolRequest, completeMcpToolRequest } from "./lib/activity-log.js";
 import {
   buildInstructionContext,
   summarizeInstructionContext,
@@ -141,7 +141,9 @@ app.use((req, res, next) => {
       const transportError =
         consumeSessionTransportError(sessionId) ||
         (typeof res.locals.mcpError === "string" ? res.locals.mcpError : undefined);
-      logMcpRequest(req.body, sessionId, duration, res.statusCode, transportError);
+      const inFlightId = res.locals.mcpActivityId as string | undefined;
+      logMcpRequest(req.body, sessionId, duration, res.statusCode, transportError, inFlightId);
+      if(inFlightId)completeMcpToolRequest(inFlightId);
       return;
     }
 
@@ -206,6 +208,16 @@ app.get("/health", (req, res) => {
 async function handleMcpPost(req: express.Request, res: express.Response): Promise<void> {
   try {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    // This handler runs after MCP endpoint authentication. Record the call
+    // before it starts, then let HTTP finish/close settle it. The start
+    // event does not claim that ChatGPT is still generating a reply.
+    const inFlightId = beginMcpToolRequest(req.body,sessionId);
+    if(inFlightId){
+      res.locals.mcpActivityId=inFlightId;
+      res.once("close",()=>{
+        if(!res.writableFinished)completeMcpToolRequest(inFlightId,true);
+      });
+    }
     const requestId = extractRequestId(req.body);
 
     const existing = sessionId ? sessionManager.get(sessionId) : undefined;
