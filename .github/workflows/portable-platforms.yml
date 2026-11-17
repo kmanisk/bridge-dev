@@ -31,6 +31,8 @@ jobs:
       - run: pnpm run test:portable:server
       - run: pnpm run test:trial
       - run: pnpm run test:cli
+      - name: Packed npm installation (isolated prefix)
+        run: pnpm run test:package
       - run: node scripts/test-install-portable.mjs
       - run: pnpm run test:extensions
   sources:

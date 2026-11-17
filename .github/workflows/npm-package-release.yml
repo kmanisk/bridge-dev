@@ -1,0 +1,120 @@
+name: npm-package-release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clean-install:
+    name: npm clean install / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Compile and test npm tarball, gateway, MCP, and local Admin UI
+        run: pnpm run test:package
+      - run: pnpm run test:portable
+      - run: pnpm run test:portable:server
+      - run: pnpm run test:cli
+      - run: pnpm run test:extensions
+      - name: Linux policy and integration acceptance
+        if: runner.os == 'Linux'
+        run: pnpm run test:policy && pnpm run test:integration && pnpm run test:sources
+        shell: bash
+
+  full-tests:
+    name: npm release full regression / Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Full existing regression suite
+        run: pnpm run test:all
+      - name: Native tool schema inventory
+        run: node scripts/sync-tool-counts.mjs --check-manifest profiles/native-tool-counts.json
+
+  tarball:
+    name: Verified npm tarball
+    needs: [clean-install, full-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify release tag and protected main ancestry
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          node -e 'const p=require("./package.json");if(process.env.GITHUB_REF_NAME!=="v"+p.version){throw Error("Tag and package.json version mismatch")}'
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main
+      - name: Generate prebuilt package
+        run: npm pack
+      - name: Record tarball SHA-256
+        shell: bash
+        run: sha256sum bridge-dev-*.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: bridge-dev-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: npm trusted publish (explicit opt-in only)
+    needs: tarball
+    # Never auto-publish without operator-managed npm trusted publishing
+    # and an explicit repository Actions variable. Manual dispatch only verifies.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && vars.NPM_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarball
+      - name: Publish exactly the verified tarball with GitHub OIDC provenance
+        shell: bash
+        run: |
+          npm --version
+          npm publish ./bridge-dev-*.tgz --access public --provenance

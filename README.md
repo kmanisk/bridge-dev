@@ -28,6 +28,22 @@ Requires **Node.js 22+ and npm**. No Git checkout, global TypeScript or pnpm
 installation is required. The standard portable install needs no administrator
 permissions, background service, or host-root controller.
 
+**npm package (after its first verified registry release):**
+
+```sh
+npm install -g bridge-dev
+bridge-dev setup
+bridge-dev start
+```
+
+The tarball contains the prebuilt CLI, gateway and Admin UI; no Git checkout,
+TypeScript toolchain or postinstall script is needed on the consumer machine.
+Until publication, the same tarball is validated with `pnpm run test:package`.
+An npm installation does not enable a service or grant root access. Existing
+managed Linux installations keep their verified GitHub updater and signed lease
+workflow. [Package details](docs/INSTALL.md#npm-package) ·
+[Release procedure](docs/RELEASING.md).
+
 **Linux / macOS / Termux**
 
 ```sh

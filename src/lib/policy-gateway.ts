@@ -5,7 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual, verify } from "node:crypto";
 import { requestIdentity } from "./request-identity.js";
-import {hostControllerAvailable} from "./host-controller.js";
+import {hostControllerAvailable,verifiedManagedGatewayIdentity} from "./host-controller.js";
 import {readLeaseActivation,verifyLeaseActivation,isActiveLease} from "../../scripts/lease-activation.mjs";
 import { fileURLToPath } from "node:url";
 import { assertRegistryComplete, classifyTool, type ToolClass } from "./tool-classification.js";
@@ -153,7 +153,8 @@ export class PolicyGate {
     return digester.digest("hex");
   }
   getActiveProfile(): "strict" | "standard" | "dangerous" {
-    const controllerAvailable = hostControllerAvailable();
+    const controllerAvailable = hostControllerAvailable() &&
+      (getRuntimeMode() !== "portable" || verifiedManagedGatewayIdentity());
     const activationFile = process.env.POLICYGATE_YOLO_ACTIVATION_FILE || (controllerAvailable ? "/var/lib/bridge-dev-operator/active-lease.json" : undefined);
     // Keep the gateway's implicit key/lease selection identical to the CLI's
     // installed-controller priority. Independent env overrides take precedence.
