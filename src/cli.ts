@@ -6,11 +6,11 @@ import {readPortableMode} from "./lib/portable-mode.js";
  */
 
 import "dotenv/config";
-import {startConfiguredService,installService,controlService,queueServiceOperation,jobResult,verifiedStagedRelease} from "./lib/service-manager.js";
+import {startConfiguredService,installService,controlService,queueServiceOperation,jobResult} from "./lib/service-manager.js";
 import {snapshotUpdateLease,assertSameUpdateLease,assertLocalUpdateCgroup} from "./lib/update-lease.js";
 import {offerPersistentBootService} from "./lib/yolo-autostart.js";
 import {serviceCli} from "./lib/service-cli.js";
-import {stageVerifiedGithubRelease} from "./lib/service-release.js";
+import {stageVerifiedGithubRelease,verifiedStagedRelease} from "./lib/service-release.js";
 import {serviceRoot} from "./lib/service-config.js";
 import {rotateCredentialFile,inspectCredentialFile,credentialFilePath} from "./lib/token-rotation.js";
 import {monitorCli} from "./lib/monitor-cli.js";
