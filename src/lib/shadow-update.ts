@@ -93,8 +93,9 @@ export async function runShadowAcceptance(
       // bubblewrap setup diagnostic to distinguish mount, namespace, and
       // architecture failures. Never echo the shadow stderr in production.
       if(process.env.GITHUB_ACTIONS==="true") {
-        const message=output.stderr.split("\n").find(x=>x.startsWith("bwrap: "));
-        if(message)console.error("CI_SHADOW_SETUP: "+message.slice(0,250));
+        const excerpt=output.stderr.split("\n").filter(Boolean).slice(0,8)
+          .join(" | ").replace(/[a-f0-9]{64}/gi,"[REDACTED]").slice(0,700);
+        console.error("CI_SHADOW_SETUP: "+excerpt);
       }
       throw Error(category+": shadow could not prove isolation/denials; no cutover");
     }
