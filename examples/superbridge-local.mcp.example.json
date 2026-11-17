@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "superbridge": {
+      "command": "/home/YOUR_LINUX_USER/.local/opt/superbridge/releases/0.3.1/superbridge",
+      "args": [
+        "stdio",
+        "--device-relay",
+        "/home/YOUR_LINUX_USER/.local/state/superbridge/router/bridge.sock"
+      ]
+    }
+  }
+}

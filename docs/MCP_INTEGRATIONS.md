@@ -4,6 +4,11 @@ BridgeDev starts without external providers. HTTP and stdio providers are option
 independently configured, and expose no tools by default. Registering a provider is
 not proof of MCP compatibility or native dependency installation.
 
+For a concrete **optional Android/Termux device integration** using a separate
+Super Bridge MCP server, including Linux and experimental native-Windows/WSL2
+paths, see [Android device tools via reviewed MCP provider](ANDROID_DEVICE_MCP.md).
+The integration is disabled by default and does not install the provider.
+
 ## Definitions and registration
 
 Use a repository manifest or import a JSON MCP export:

@@ -208,6 +208,7 @@ account. Platform and real-client gaps are tracked in
 ## Documentation
 
 [Install](docs/INSTALL.md) ·
+[Android/Termux device MCP integration](docs/ANDROID_DEVICE_MCP.md) ·
 [Dashboard](docs/DASHBOARD.md) ·
 [Extensions](docs/EXTENSIONS.md) ·
 [Marketplace](docs/MARKETPLACE.md) ·

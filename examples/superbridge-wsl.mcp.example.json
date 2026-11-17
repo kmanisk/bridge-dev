@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "superbridge": {
+      "command": "C:\\Windows\\System32\\wsl.exe",
+      "args": [
+        "-d",
+        "Ubuntu",
+        "--",
+        "/home/YOUR_WSL_USER/.local/opt/superbridge/releases/0.3.1/superbridge",
+        "stdio",
+        "--device-relay",
+        "/home/YOUR_WSL_USER/.local/state/superbridge/router/bridge.sock"
+      ]
+    }
+  }
+}
