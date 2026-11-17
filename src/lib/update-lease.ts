@@ -52,6 +52,13 @@ export function snapshotUpdateLease(options?:{
         activation:marker})).digest("hex")
   };
 }
+/** Reject direct invocation from the persistent MCP gateway's own systemd
+ * cgroup, even when a remote agent has created a synthetic PTY. This is a
+ * defense in depth, not proof against a remote principal with arbitrary root. */
+export function assertLocalUpdateCgroup(cgroup:string):void{
+  if(!cgroup || /(?:^|\\/)bridge-dev(?:[-_][^\\/]+)?\\.service(?:\\/|$)/m.test(cgroup))
+    throw Error("UPDATE_MCP_PROCESS_ORIGIN_DENIED: start from your local terminal");
+}
 export function assertSameUpdateLease(before:UpdateLeaseSnapshot,after:UpdateLeaseSnapshot):void{
   if(before.mode!==after.mode||before.scope!==after.scope||
      before.expires_at!==after.expires_at||before.fingerprint!==after.fingerprint)
