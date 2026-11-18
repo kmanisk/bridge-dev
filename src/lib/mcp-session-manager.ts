@@ -15,15 +15,20 @@ import { refreshProxiedTools } from "./mcp-tool-proxy.js";
 
 
 const DEFAULT_PROTOCOL_VERSION = "2025-03-26";
-const SESSION_TTL_MS = parseInt(process.env.MCP_SESSION_TTL_MS || "86400000", 10); // 24h
+const DEFAULT_MAX_SESSIONS = 50;
+const MCP_MAX_SESSIONS = parseInt(process.env.MCP_MAX_SESSIONS || String(DEFAULT_MAX_SESSIONS), 10);
+const SESSION_TTL_MS = parseInt(process.env.MCP_SESSION_TTL_MS || "86400000", 10); // 24h absolute max
+const SESSION_IDLE_TIMEOUT_MS = parseInt(process.env.MCP_SESSION_IDLE_TIMEOUT_MS || "1800000", 10); // 30m idle expiry
 const SESSION_CLEANUP_INTERVAL_MS = parseInt(
-  process.env.MCP_SESSION_CLEANUP_MS || "300000",
+  process.env.MCP_SESSION_CLEANUP_MS || "60000",
   10
-); // 5m
+); // 1m
 const SESSION_DELETE_GRACE_MS = parseInt(
   process.env.MCP_SESSION_DELETE_GRACE_MS || "45000",
   10
 ); // keep session after DELETE so in-flight tool calls can finish
+
+export { MCP_MAX_SESSIONS, SESSION_IDLE_TIMEOUT_MS };
 
 const lastTransportErrors: Record<string, string> = {};
 const sessionOpChains = new Map<string, Promise<void>>();
@@ -194,14 +199,26 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
     deleteGraceTimers[sessionId].unref?.();
   }
 
+  async function closeSessionResources(session: McpSession): Promise<void> {
+    try {
+      getUpstreamManager().unregisterMcpServer(session.server);
+    } catch {}
+    try {
+      await session.server.close();
+    } catch {}
+    try {
+      await session.transport.close();
+    } catch {}
+  }
+
   function removeSession(sessionId: string, reason: string): void {
     cancelDeleteGrace(sessionId);
     const session = sessions[sessionId];
     if (!session) return;
-    getUpstreamManager().unregisterMcpServer(session.server);
     delete sessions[sessionId];
     delete lastTransportErrors[sessionId];
     sessionOpChains.delete(sessionId);
+    void closeSessionResources(session);
     console.log(`[MCP] Session removed (${reason}): ${sessionId}`);
   }
 
@@ -209,8 +226,28 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
     delete pendingRecoveries[sessionId];
   }
 
+  async function evictOldestSessionIfNeeded(): Promise<void> {
+    const total = Object.keys(sessions).length + Object.keys(pendingRecoveries).length;
+    if (total < MCP_MAX_SESSIONS) return;
+
+    const sorted = Object.entries(sessions).sort(
+      (a, b) => a[1].lastAccessedAt - b[1].lastAccessedAt
+    );
+
+    for (const [sid, session] of sorted) {
+      if (!sessionOpChains.has(sid)) {
+        void getPolicyGate().invalidateContext(session.policy, "lru_evicted", true).catch(() => {});
+        removeSession(sid, "LRU evicted");
+        if (Object.keys(sessions).length + Object.keys(pendingRecoveries).length < MCP_MAX_SESSIONS) break;
+      }
+    }
+  }
+
   async function buildSession(preferredSessionId?: string): Promise<McpSession> {
-    if(Object.keys(sessions).length+Object.keys(pendingRecoveries).length>=128)throw new Error("MCP_SESSION_LIMIT: close an existing connection before initializing another");
+    await evictOldestSessionIfNeeded();
+    if (Object.keys(sessions).length + Object.keys(pendingRecoveries).length >= MCP_MAX_SESSIONS) {
+      throw new Error("MCP_SESSION_LIMIT: all active sessions are currently busy; retry shortly");
+    }
     // SessionStart hooks may spawn arbitrary executables before context gate.
     // They are suppressed in policy-gateway mode; explicit Ponytail hooks
     // remain available through a classified, approved MCP tool call.
@@ -471,10 +508,12 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
       cleanupTimer = setInterval(() => {
         const now = Date.now();
         for (const [sid, session] of Object.entries(sessions)) {
-          if (now - session.lastAccessedAt > SESSION_TTL_MS) {
-            void getPolicyGate().invalidateContext(session.policy,"expired",true).catch(error=>console.error("Session expiry audit failed",error));
-            void session.transport.close().catch(() => undefined);
-            removeSession(sid, "TTL expired");
+          const isTtlExpired = now - session.createdAt > SESSION_TTL_MS;
+          const isIdleExpired = now - session.lastAccessedAt > SESSION_IDLE_TIMEOUT_MS;
+          if (isTtlExpired || isIdleExpired) {
+            const reason = isTtlExpired ? "TTL expired" : "idle timeout";
+            void getPolicyGate().invalidateContext(session.policy, reason, true).catch(error=>console.error("Session expiry audit failed",error));
+            removeSession(sid, reason);
           }
         }
         for (const sid of Object.keys(pendingRecoveries)) {

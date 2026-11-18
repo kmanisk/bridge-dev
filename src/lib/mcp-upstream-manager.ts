@@ -204,6 +204,7 @@ export class McpUpstreamManager {
     conn.idleTimer = setTimeout(() => {
       void this.disconnect(serverId);
     }, timeoutSec * 1000);
+    conn.idleTimer.unref?.();
   }
 
   private touch(conn: UpstreamConnection): void {
@@ -432,7 +433,7 @@ export class McpUpstreamManager {
       await conn.transport.close();
     } catch(error) {conn.lastError="PROVIDER_CLEANUP_FAILED";throw error;}
     this.connections.delete(serverId);
-    this.toolsCache.delete(serverId);
+    // Keep this.toolsCache intact so idle provider tools remain advertised
   }
 
   async shutdown(): Promise<void> {

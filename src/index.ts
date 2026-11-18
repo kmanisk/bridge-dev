@@ -23,6 +23,8 @@ import {
   createSessionManager,
   extractRequestId,
   isInitializeRequest,
+  MCP_MAX_SESSIONS,
+  SESSION_IDLE_TIMEOUT_MS,
 } from "./lib/mcp-session-manager.js";
 import { initUpstreamManager } from "./lib/mcp-upstream-manager.js";
 import { startAdminServer } from "./admin/server.js";
@@ -202,6 +204,50 @@ app.get("/health", (req, res) => {
     sessionRecovery: SESSION_RECOVERY,
     mcpEndpoints: DISPLAY_MCP_PATHS,
     instructions: summarizeInstructionContext(instructionContext),
+  });
+});
+
+app.get("/diagnostics/perf", (req, res) => {
+  const authHeader = req.headers.authorization?.replace(/^Bearer /, "") || "";
+  const a = Buffer.from(authHeader);
+  const b = Buffer.from(MCP_TOKEN);
+  res.setHeader("Cache-Control", "no-store");
+  if (!MCP_TOKEN || a.length !== b.length || !timingSafeEqual(a, b)) {
+    res.status(401).json({ error: "MCP bearer token required" });
+    return;
+  }
+  const mem = process.memoryUsage();
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    pid: process.pid,
+    uptimeSec: Math.round(process.uptime()),
+    nodeVersion: process.version,
+    memory: {
+      rss: mem.rss,
+      heapUsed: mem.heapUsed,
+      heapTotal: mem.heapTotal,
+      external: mem.external,
+      arrayBuffers: mem.arrayBuffers,
+      rssFormatted: (mem.rss / (1024 * 1024)).toFixed(2) + " MiB",
+      heapUsedFormatted: (mem.heapUsed / (1024 * 1024)).toFixed(2) + " MiB",
+    },
+    sessions: {
+      active: sessionManager.count(),
+      max: MCP_MAX_SESSIONS,
+      idleTimeoutSec: Math.round(SESSION_IDLE_TIMEOUT_MS / 1000),
+    },
+    providers: upstreamManager
+      .listServerConfigs()
+      .map((cfg: any) => {
+        const tools = upstreamManager.peekTools(cfg.id);
+        return {
+          id: cfg.id,
+          name: cfg.name,
+          enabled: cfg.enabled,
+          toolCount: tools.length,
+        };
+      }),
   });
 });
 

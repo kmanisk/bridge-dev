@@ -754,7 +754,52 @@ async function cmdRestart() {
   }
 }
 
-async function cmdDoctor(json = false,verbose = false) {
+async function cmdDoctor(json = false,verbose = false, perf = false) {
+  if (perf) {
+    const port = Number(process.env.PORT || 3000);
+    let token = process.env.MCP_TOKEN || "";
+    if (!token) {
+      const envFile = process.env.POLICYGATE_ENV_FILE || path.join(getActivePath("etc"), "service.env");
+      try {
+        const match = fs.readFileSync(envFile, "utf8").match(/^MCP_TOKEN=(.+)$/m);
+        token = match?.[1]?.trim() || "";
+      } catch {}
+    }
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/diagnostics/perf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) {
+        throw new Error(`Endpoint returned HTTP ${res.status}: ${await res.text()}`);
+      }
+      const data = await res.json();
+      if (json) {
+        console.log(JSON.stringify(data, null, 2));
+        return;
+      }
+      console.log("BridgeDev Performance Diagnostics");
+      console.log(`Status       : ${data.status}`);
+      console.log(`PID          : ${data.pid}`);
+      console.log(`Uptime       : ${data.uptimeSec}s`);
+      console.log(`Node Version : ${data.nodeVersion}`);
+      console.log(`Memory RSS   : ${data.memory?.rssFormatted}`);
+      console.log(`Heap Used    : ${data.memory?.heapUsedFormatted} (Total: ${(data.memory?.heapTotal / (1024 * 1024)).toFixed(2)} MiB)`);
+      console.log(`External     : ${(data.memory?.external / (1024 * 1024)).toFixed(2)} MiB`);
+      console.log(`Sessions     : ${data.sessions?.active} active (Cap: ${data.sessions?.max}, Idle Timeout: ${data.sessions?.idleTimeoutSec}s)`);
+      const providers = data.providers || [];
+      console.log(`Providers    : ${providers.length} registered (${providers.map((p: any) => `${p.name}: ${p.toolCount} tools`).join(", ") || "none"})`);
+      return;
+    } catch (err) {
+      if (json) {
+        console.log(JSON.stringify({ ok: false, error: String(err) }));
+      } else {
+        console.error(`Performance diagnostics unavailable: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+  }
   const service = await userServiceStatus();
   const checks: Array<{ label: string; status: "OK" | "UNVERIFIED" | "INFO"; detail: string }> = [];
   const add = (label: string, status: "OK" | "UNVERIFIED" | "INFO", detail: string) => checks.push({ label, status, detail });
@@ -1239,7 +1284,7 @@ async function main() {
       await cmdRestart();
       break;
     case "doctor":
-      await cmdDoctor(json,verbose);
+      await cmdDoctor(json, verbose, args.includes("--perf"));
       break;
     case "setup":
       await cmdSetup(json,verbose);

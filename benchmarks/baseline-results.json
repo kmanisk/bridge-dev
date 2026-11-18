@@ -1,0 +1,112 @@
+{
+  "timestamp": "2026-11-18T05:26:19.995Z",
+  "nodeVersion": "v26.13.1",
+  "platform": "linux",
+  "arch": "x64",
+  "startupTimeMs": 291,
+  "idleRss": {
+    "bytes": 109760512,
+    "formatted": "104.68 MiB"
+  },
+  "sessionScaling": [
+    {
+      "sessions": 10,
+      "rssBytes": 225370112,
+      "rssFormatted": "214.93 MiB",
+      "deltaFromIdle": "110.25 MiB",
+      "perSessionBytes": 11560960,
+      "perSessionFormatted": "11.03 MiB"
+    },
+    {
+      "sessions": 50,
+      "rssBytes": 500215808,
+      "rssFormatted": "477.04 MiB",
+      "deltaFromIdle": "372.37 MiB",
+      "perSessionBytes": 7809106,
+      "perSessionFormatted": "7.45 MiB"
+    },
+    {
+      "sessions": 200,
+      "rssBytes": 1223630848,
+      "rssFormatted": "1166.95 MiB",
+      "deltaFromIdle": "1062.27 MiB",
+      "perSessionBytes": 5569352,
+      "perSessionFormatted": "5.31 MiB"
+    }
+  ],
+  "sustainedLoad": {
+    "totalCalls": 300,
+    "successCalls": 300,
+    "throughputRps": 58.47,
+    "latencyMs": {
+      "p50": 132.73,
+      "p95": 445.45,
+      "p99": 801.19
+    },
+    "postLoadRss": {
+      "bytes": 1870008320,
+      "formatted": "1783.38 MiB"
+    }
+  },
+  "soak": {
+    "durationSec": 10,
+    "finalRss": {
+      "bytes": 1871712256,
+      "formatted": "1785.00 MiB"
+    },
+    "driftBytes": 1703936,
+    "driftFormatted": "1.63 MiB",
+    "points": [
+      {
+        "elapsedSec": 1,
+        "rssBytes": 1870053376,
+        "rssFormatted": "1783.42 MiB"
+      },
+      {
+        "elapsedSec": 2,
+        "rssBytes": 1871093760,
+        "rssFormatted": "1784.41 MiB"
+      },
+      {
+        "elapsedSec": 3,
+        "rssBytes": 1871646720,
+        "rssFormatted": "1784.94 MiB"
+      },
+      {
+        "elapsedSec": 4,
+        "rssBytes": 1871671296,
+        "rssFormatted": "1784.96 MiB"
+      },
+      {
+        "elapsedSec": 5,
+        "rssBytes": 1871683584,
+        "rssFormatted": "1784.98 MiB"
+      },
+      {
+        "elapsedSec": 6,
+        "rssBytes": 1871683584,
+        "rssFormatted": "1784.98 MiB"
+      },
+      {
+        "elapsedSec": 7,
+        "rssBytes": 1871683584,
+        "rssFormatted": "1784.98 MiB"
+      },
+      {
+        "elapsedSec": 8,
+        "rssBytes": 1871691776,
+        "rssFormatted": "1784.98 MiB"
+      },
+      {
+        "elapsedSec": 9,
+        "rssBytes": 1871699968,
+        "rssFormatted": "1784.99 MiB"
+      },
+      {
+        "elapsedSec": 10,
+        "rssBytes": 1871712256,
+        "rssFormatted": "1785.00 MiB"
+      }
+    ]
+  }
+}
