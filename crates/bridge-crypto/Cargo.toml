@@ -1,0 +1,17 @@
+[package]
+name = "bridge-crypto"
+version = "0.1.0"
+edition = "2021"
+description = "Cryptographic operations for BridgeDev context tokens and signed leases"
+
+[dependencies]
+bridge-types = { path = "../bridge-types" }
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+ed25519-dalek = { version = "2.1", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true

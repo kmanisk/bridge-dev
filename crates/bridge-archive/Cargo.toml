@@ -1,0 +1,9 @@
+[package]
+name = "bridge-archive"
+version = "0.1.0"
+edition = "2021"
+description = "Safe archive path sanitization and extraction safety checks"
+
+
+[lints]
+workspace = true

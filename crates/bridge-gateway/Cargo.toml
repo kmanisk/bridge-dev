@@ -1,0 +1,19 @@
+[package]
+name = "bridge-gateway"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance asynchronous HTTP MCP Gateway in Rust"
+
+[dependencies]
+bridge-types = { path = "../bridge-types" }
+bridge-mcp = { path = "../bridge-mcp" }
+tokio = { version = "1.41", features = ["macros", "rt-multi-thread", "net", "time", "signal"] }
+axum = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints]
+workspace = true

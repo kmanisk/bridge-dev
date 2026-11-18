@@ -1,0 +1,13 @@
+[package]
+name = "bridge-policy"
+version = "0.1.0"
+edition = "2021"
+description = "Security policy gate, path authorization, and command permission decision tables"
+
+[dependencies]
+bridge-types = { path = "../bridge-types" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true

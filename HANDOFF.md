@@ -1,5 +1,40 @@
 # BridgeDev — repository handoff
 
+## Rust rewrite status: Phases 0–2 verified (2026-11-18)
+
+- **Phase 0 (Node baseline optimization):**
+  - Profiling harness (`scripts/bench/harness.mjs`, `mock-provider.mjs`) isolated and verified.
+  - Session leaks and heap retainers resolved in `src/lib/mcp-session-manager.ts` and `src/lib/mcp-upstream-manager.ts`.
+  - Added bounded session capacity (`MCP_MAX_SESSIONS`, default: 50) with transparent LRU eviction.
+  - Added idle session reaping (`MCP_SESSION_IDLE_TIMEOUT_MS`, default: 30m) and unreferenced background timers.
+  - Preserved tool cache across idle disconnects to prevent child-process spawn thrashing.
+  - Added authenticated `bridge-dev doctor --perf` CLI command and `/diagnostics/perf` gateway endpoint.
+  - Performance evidence: Idle RSS 104.12 MiB (<=150 MiB target met), throughput +20% (70.03 calls/sec), p95 latency -54% (205.8ms), soak memory drift -1392 MiB.
+  - Verified and committed on `feat/rust-phases-0-2` (commit `597662e`). Full details in `PHASE_REPORT_0.md`.
+
+- **Phase 1 (Behavioral conformance suite):**
+  - Codified language-agnostic data-driven vectors in `tests/conformance/vectors/` (`mcp_protocol_vectors.json`, `policy_vectors.json`, `signature_vectors.json`, `ssrf_vectors.json`, `archive_vectors.json`, `provider_vectors.json`).
+  - Implemented parameterized black-box runner `tests/conformance/runner.mjs` (80 assertions across SSRF, Archive traversal, Signatures/Leases, Policy tables, CLI `--json` envelope, and Gateway HTTP & MCP transport).
+  - Implemented mutation testing suite `tests/conformance/mutation-check.mjs`: verified 100% detection rate across 5 security-critical mutations.
+  - Authored authoritative parity specification in `docs/PARITY.md`.
+  - Verified 20 consecutive passes with zero flakiness.
+  - Verified and committed on `feat/rust-phases-0-2` (commit `934cf4d`). Full details in `PHASE_REPORT_1.md`.
+
+- **Phase 2 (Rust foundation):**
+  - Created modular Cargo workspace under `crates/` containing 9 crates: `bridge-types`, `bridge-audit`, `bridge-crypto`, `bridge-net`, `bridge-archive`, `bridge-policy`, `bridge-mcp`, `bridge-gateway`, `bridge-cli`.
+  - Documented minimal crate dependencies and security rationale in `docs/RUST_DEPENDENCIES.md`.
+  - Enforced workspace lints: `unsafe_code = "forbid"` and `clippy -D warnings`.
+  - Implemented "hello gateway" (`bridge-gateway`) and CLI (`bridge-cli`).
+  - Built optimized release binaries (`target/release/bridge-gateway`: 3.1 MiB, `target/release/bridge-cli`: 2.7 MiB).
+  - Wired Rust binaries to conformance runner via `BRIDGE_IMPL_CMD` and `BRIDGE_GATEWAY_CMD`; verified 80/80 conformance assertions passed (100%).
+  - Full details in `PHASE_REPORT_2.md`.
+
+- **Phase Gates & Production Isolation:**
+  - Phases 0–2 are fully complete, verified, and committed.
+  - Mandatory stop: Phases 3–9 remain strictly unauthorized.
+  - Node/TypeScript implementation remains the default released runtime.
+  - Production boundaries preserved: no touch of live gateway (PID 822614), host controller, live credentials, or Funnel.
+
 ## Shadow-update acceptance (2026-11-17)
 
 Option A implements verified one-download release staging, a rootless Bubblewrap

@@ -1,0 +1,9 @@
+[package]
+name = "bridge-net"
+version = "0.1.0"
+edition = "2021"
+description = "Network address validation, SSRF filtering, and URL safety"
+
+
+[lints]
+workspace = true

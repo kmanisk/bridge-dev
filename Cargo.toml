@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "crates/bridge-types",
+    "crates/bridge-audit",
+    "crates/bridge-crypto",
+    "crates/bridge-net",
+    "crates/bridge-archive",
+    "crates/bridge-policy",
+    "crates/bridge-mcp",
+    "crates/bridge-gateway",
+    "crates/bridge-cli",
+]
+resolver = "2"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = "deny"
