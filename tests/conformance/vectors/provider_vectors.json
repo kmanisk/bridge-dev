@@ -1,0 +1,67 @@
+{
+  "description": "Conformance test vectors for BridgeDev upstream provider namespacing, collisions, and tool schemas",
+  "namespacing": {
+    "delimiter": "__",
+    "test_cases": [
+      {
+        "provider": "github",
+        "tool": "search_repos",
+        "expected_exposed_name": "github__search_repos"
+      },
+      {
+        "provider": "postgres",
+        "tool": "execute_query",
+        "expected_exposed_name": "postgres__execute_query"
+      },
+      {
+        "provider": "mysql",
+        "tool": "execute_query",
+        "expected_exposed_name": "mysql__execute_query"
+      }
+    ]
+  },
+  "collision_handling": {
+    "description": "Two distinct providers with identical tool names must coexist under distinct namespaces without clashing",
+    "providers": [
+      {
+        "id": "provider_a",
+        "tools": ["query", "status"]
+      },
+      {
+        "id": "provider_b",
+        "tools": ["query", "info"]
+      }
+    ],
+    "expected_exposed_names": [
+      "provider_a__query",
+      "provider_a__status",
+      "provider_b__query",
+      "provider_b__info"
+    ]
+  },
+  "provider_validation": [
+    {
+      "id": "valid-id_123",
+      "transport": "stdio",
+      "expected_valid": true
+    },
+    {
+      "id": "invalid id with spaces",
+      "transport": "stdio",
+      "expected_valid": false,
+      "expected_error": "INVALID_PROVIDER_ID"
+    },
+    {
+      "id": "bad/slash",
+      "transport": "stdio",
+      "expected_valid": false,
+      "expected_error": "INVALID_PROVIDER_ID"
+    },
+    {
+      "id": "unknown_transport",
+      "transport": "ftp",
+      "expected_valid": false,
+      "expected_error": "UNSUPPORTED_TRANSPORT"
+    }
+  ]
+}

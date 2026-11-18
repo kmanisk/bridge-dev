@@ -1,0 +1,108 @@
+{
+  "description": "Conformance test vectors for context token HMAC-SHA256 and operator Ed25519 lease signatures",
+  "context_tokens": {
+    "algorithm": "HMAC-SHA256",
+    "encoding": "base64url(payload).base64url(hmac)",
+    "payload_fields": ["v", "issuer", "subject", "hash", "expires"],
+    "test_cases": [
+      {
+        "name": "valid_token",
+        "payload": {
+          "v": 1,
+          "issuer": "sess-test-001",
+          "subject": "antigravity-agent",
+          "hash": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "expires": 4102444800000
+        },
+        "expected_valid": true
+      },
+      {
+        "name": "expired_token",
+        "payload": {
+          "v": 1,
+          "issuer": "sess-test-002",
+          "subject": "antigravity-agent",
+          "hash": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "expires": 1600000000000
+        },
+        "expected_valid": false,
+        "reason": "TOKEN_EXPIRED"
+      },
+      {
+        "name": "tampered_subject",
+        "tamper_field": "subject",
+        "tamper_value": "unauthorized-subject",
+        "expected_valid": false,
+        "reason": "SIGNATURE_OR_SUBJECT_MISMATCH"
+      },
+      {
+        "name": "tampered_signature",
+        "tamper_signature_byte": true,
+        "expected_valid": false,
+        "reason": "SIGNATURE_INVALID"
+      },
+      {
+        "name": "malformed_dots",
+        "raw_string": "part1.part2.part3",
+        "expected_valid": false,
+        "reason": "INVALID_TOKEN_FORMAT"
+      }
+    ]
+  },
+  "operator_leases": {
+    "algorithm": "Ed25519",
+    "signature_format": "base64",
+    "expected_signature_regex": "^[A-Za-z0-9+/]{86}==$",
+    "test_cases": [
+      {
+        "name": "valid_temporary_lease",
+        "lease": {
+          "mode": "dangerous",
+          "scope": "host-root-v1",
+          "expires_at": 4102444800000,
+          "nonce": "test-nonce-12345"
+        },
+        "expected_valid": true
+      },
+      {
+        "name": "valid_permanent_lease",
+        "lease": {
+          "mode": "dangerous",
+          "scope": "host-root-v1",
+          "lifetime": "until_off",
+          "expires_at": null,
+          "nonce": "test-perm-nonce-999"
+        },
+        "expected_valid": true
+      },
+      {
+        "name": "expired_lease",
+        "lease": {
+          "mode": "dangerous",
+          "scope": "host-root-v1",
+          "expires_at": 1600000000000,
+          "nonce": "expired-nonce"
+        },
+        "expected_valid": false,
+        "reason": "LEASE_EXPIRED"
+      },
+      {
+        "name": "invalid_scope",
+        "lease": {
+          "mode": "dangerous",
+          "scope": "arbitrary-cluster-admin",
+          "expires_at": 4102444800000,
+          "nonce": "scope-nonce"
+        },
+        "expected_valid": false,
+        "reason": "SCOPE_INVALID"
+      },
+      {
+        "name": "tampered_nonce",
+        "tamper_field": "nonce",
+        "expected_valid": false,
+        "reason": "SIGNATURE_MISMATCH"
+      }
+    ]
+  }
+}

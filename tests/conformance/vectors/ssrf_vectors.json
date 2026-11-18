@@ -1,0 +1,89 @@
+{
+  "description": "Conformance test vectors for BridgeDev SSRF filtering, address validation, and safe fetch",
+  "ip_validation": {
+    "public_ipv4": [
+      "8.8.8.8",
+      "1.1.1.1",
+      "93.184.216.34",
+      "142.250.190.46",
+      "151.101.1.140"
+    ],
+    "private_or_restricted_ipv4": [
+      { "ip": "0.0.0.0", "category": "unspecified" },
+      { "ip": "127.0.0.1", "category": "loopback" },
+      { "ip": "127.0.0.2", "category": "loopback" },
+      { "ip": "10.0.0.1", "category": "rfc1918_class_a" },
+      { "ip": "10.255.255.254", "category": "rfc1918_class_a" },
+      { "ip": "172.16.0.1", "category": "rfc1918_class_b" },
+      { "ip": "172.31.255.254", "category": "rfc1918_class_b" },
+      { "ip": "192.168.0.1", "category": "rfc1918_class_c" },
+      { "ip": "192.168.1.100", "category": "rfc1918_class_c" },
+      { "ip": "169.254.169.254", "category": "link_local_cloud_metadata" },
+      { "ip": "100.64.0.1", "category": "carrier_grade_nat" },
+      { "ip": "100.127.255.254", "category": "carrier_grade_nat" },
+      { "ip": "192.0.2.1", "category": "documentation_test_net_1" },
+      { "ip": "198.51.100.1", "category": "documentation_test_net_2" },
+      { "ip": "203.0.113.1", "category": "documentation_test_net_3" },
+      { "ip": "224.0.0.1", "category": "multicast" },
+      { "ip": "240.0.0.1", "category": "reserved" }
+    ],
+    "public_ipv6": [
+      "2607:f8b0:4005:805::200e",
+      "2001:4860:4860::8888",
+      "2400:cb00:2048:1::6814:155"
+    ],
+    "private_or_restricted_ipv6": [
+      { "ip": "::1", "category": "loopback" },
+      { "ip": "::", "category": "unspecified" },
+      { "ip": "fe80::1", "category": "link_local" },
+      { "ip": "fc00::1", "category": "unique_local" },
+      { "ip": "fd00::1", "category": "unique_local" },
+      { "ip": "::ffff:127.0.0.1", "category": "ipv4_mapped" },
+      { "ip": "::ffff:10.0.0.1", "category": "ipv4_mapped" },
+      { "ip": "2001:db8::1", "category": "documentation" },
+      { "ip": "2002::1", "category": "6to4" }
+    ]
+  },
+  "url_validation": [
+    {
+      "url": "https://registry.npmjs.org/express",
+      "allow_private": false,
+      "expected_valid": true
+    },
+    {
+      "url": "http://registry.npmjs.org/express",
+      "allow_private": false,
+      "expected_valid": false,
+      "expected_error": "SOURCE_HTTPS_REQUIRED"
+    },
+    {
+      "url": "https://user:password@registry.npmjs.org/express",
+      "allow_private": false,
+      "expected_valid": false,
+      "expected_error": "SOURCE_URL_UNSAFE"
+    },
+    {
+      "url": "file:///etc/passwd",
+      "allow_private": false,
+      "expected_valid": false,
+      "expected_error": "SOURCE_URL_UNSAFE"
+    },
+    {
+      "url": "https://127.0.0.1/admin",
+      "allow_private": false,
+      "expected_valid": false,
+      "expected_error": "SOURCE_SSRF_DENIED"
+    },
+    {
+      "url": "https://169.254.169.254/latest/meta-data/",
+      "allow_private": false,
+      "expected_valid": false,
+      "expected_error": "SOURCE_SSRF_DENIED"
+    },
+    {
+      "url": "http://127.0.0.1:8080/mcp",
+      "allow_private": true,
+      "expected_valid": true
+    }
+  ]
+}

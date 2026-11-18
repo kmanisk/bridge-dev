@@ -1,0 +1,35 @@
+{
+  "description": "Conformance test vectors for MCP protocol negotiation and standard tool execution",
+  "initialize": {
+    "valid_request": {
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-03-26",
+        "capabilities": {},
+        "clientInfo": { "name": "conformance-client", "version": "1.0.0" }
+      },
+      "expected_protocol": "2025-03-26",
+      "expected_server_name": "bridge-dev"
+    },
+    "future_protocol_negotiation": {
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2026-07-28",
+        "capabilities": {},
+        "clientInfo": { "name": "conformance-client", "version": "1.0.0" }
+      },
+      "expected_negotiated_fallback": true
+    }
+  },
+  "tools": {
+    "native_tools_advertised": [
+      "filesystem_read_file",
+      "filesystem_list_directory",
+      "system_context"
+    ],
+    "envelope_schema": {
+      "type": "object",
+      "required": ["ok", "tool", "summary", "data"]
+    }
+  }
+}

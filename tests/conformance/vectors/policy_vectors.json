@@ -1,0 +1,129 @@
+{
+  "description": "Conformance test vectors for BridgeDev security policy enforcement across profiles and operation classes",
+  "profiles": ["strict", "standard", "dangerous"],
+  "path_rules": [
+    {
+      "name": "read_in_workspace",
+      "target": "src/index.ts",
+      "mode": "R",
+      "relative_to_root": true,
+      "expect": {
+        "strict": "allow",
+        "standard": "allow",
+        "dangerous": "allow"
+      }
+    },
+    {
+      "name": "write_in_workspace",
+      "target": "src/generated.ts",
+      "mode": "W",
+      "relative_to_root": true,
+      "expect": {
+        "strict": "approval_or_deny",
+        "standard": "allow",
+        "dangerous": "allow"
+      }
+    },
+    {
+      "name": "write_outside_workspace",
+      "target": "/etc/systemd/system/rogue.service",
+      "mode": "W",
+      "relative_to_root": false,
+      "expect": {
+        "strict": "deny",
+        "standard": "deny",
+        "dangerous": "allow_with_lease"
+      },
+      "expected_error": "OUTSIDE_WRITABLE_ROOTS"
+    },
+    {
+      "name": "read_secret_env",
+      "target": ".env",
+      "mode": "R",
+      "relative_to_root": true,
+      "expect": {
+        "strict": "deny",
+        "standard": "deny",
+        "dangerous": "allow_with_lease"
+      },
+      "expected_error": "SECRET_DENIED"
+    },
+    {
+      "name": "read_ssh_private_key",
+      "target": ".ssh/id_rsa",
+      "mode": "R",
+      "relative_to_root": true,
+      "expect": {
+        "strict": "deny",
+        "standard": "deny",
+        "dangerous": "allow_with_lease"
+      },
+      "expected_error": "SECRET_DENIED"
+    },
+    {
+      "name": "modify_protected_system_path",
+      "target": "/etc/sudoers",
+      "mode": "W",
+      "relative_to_root": false,
+      "expect": {
+        "strict": "deny",
+        "standard": "deny",
+        "dangerous": "allow_with_lease"
+      },
+      "expected_error": "PROTECTED_PATH"
+    }
+  ],
+  "command_rules": [
+    {
+      "name": "diagnostic_pwd",
+      "command": "pwd",
+      "operation_class": "read_only",
+      "expect": {
+        "strict": "allow",
+        "standard": "allow",
+        "dangerous": "allow"
+      }
+    },
+    {
+      "name": "git_status",
+      "command": "git status",
+      "operation_class": "read_only",
+      "expect": {
+        "strict": "allow",
+        "standard": "allow",
+        "dangerous": "allow"
+      }
+    },
+    {
+      "name": "build_command",
+      "command": "npm run build",
+      "operation_class": "routine_edit",
+      "expect": {
+        "strict": "approval",
+        "standard": "allow",
+        "dangerous": "allow"
+      }
+    },
+    {
+      "name": "destructive_system_wipe",
+      "command": "rm -rf /",
+      "operation_class": "high_risk",
+      "expect": {
+        "strict": "deny",
+        "standard": "deny",
+        "dangerous": "deny"
+      },
+      "expected_error": "HIGH_RISK_DENIED"
+    },
+    {
+      "name": "unauthenticated_sudo",
+      "command": "sudo id",
+      "operation_class": "privileged_edit",
+      "expect": {
+        "strict": "deny",
+        "standard": "deny",
+        "dangerous": "allow_with_lease"
+      }
+    }
+  ]
+}

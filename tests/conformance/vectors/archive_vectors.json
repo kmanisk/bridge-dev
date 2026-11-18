@@ -1,0 +1,71 @@
+{
+  "description": "Conformance test vectors for BridgeDev safe archive decompression, path sanitization, and zip/tar bounds",
+  "limits": {
+    "max_file_size": 1048576,
+    "max_total_size": 16777216,
+    "max_archive_size": 16777216,
+    "max_file_count": 512
+  },
+  "path_sanitization": [
+    { "path": "package/index.js", "expected_valid": true },
+    { "path": "src/tools/audit.ts", "expected_valid": true },
+    { "path": "../evil.txt", "expected_valid": false, "expected_error": "SOURCE_PATH_UNSAFE" },
+    { "path": "sub/../../evil.txt", "expected_valid": false, "expected_error": "SOURCE_PATH_UNSAFE" },
+    { "path": "/absolute/path.txt", "expected_valid": false, "expected_error": "SOURCE_PATH_UNSAFE" },
+    { "path": "windows\\backslash.txt", "expected_valid": false, "expected_error": "SOURCE_PATH_UNSAFE" },
+    { "path": "null\u0000byte.txt", "expected_valid": false, "expected_error": "SOURCE_PATH_UNSAFE" },
+    { "path": "__proto__/polluted", "expected_valid": false, "expected_error": "SOURCE_PATH_UNSAFE" },
+    { "path": ".git/config", "expected_valid": false, "reason": "RESTRICTED_DIRECTORY" }
+  ],
+  "entry_safety": [
+    {
+      "name": "regular_file",
+      "mode": 33188,
+      "method": 8,
+      "encrypted": false,
+      "expected_valid": true
+    },
+    {
+      "name": "symlink_entry",
+      "mode": 41471,
+      "method": 0,
+      "encrypted": false,
+      "expected_valid": false,
+      "expected_error": "ZIP_UNSAFE_ENTRY"
+    },
+    {
+      "name": "encrypted_entry",
+      "mode": 33188,
+      "method": 8,
+      "encrypted": true,
+      "expected_valid": false,
+      "expected_error": "ZIP_UNSAFE_ENTRY"
+    },
+    {
+      "name": "unsupported_compression_method",
+      "mode": 33188,
+      "method": 9,
+      "encrypted": false,
+      "expected_valid": false,
+      "expected_error": "ZIP_UNSAFE_ENTRY"
+    },
+    {
+      "name": "file_size_exceeds_limit",
+      "file_size": 1048577,
+      "expected_valid": false,
+      "expected_error": "ZIP_UNSAFE_ENTRY"
+    },
+    {
+      "name": "total_size_exceeds_limit",
+      "total_size": 16777217,
+      "expected_valid": false,
+      "expected_error": "ZIP_UNSAFE_ENTRY"
+    },
+    {
+      "name": "crc32_checksum_mismatch",
+      "crc_corrupted": true,
+      "expected_valid": false,
+      "expected_error": "ZIP_INTEGRITY_INVALID"
+    }
+  ]
+}
